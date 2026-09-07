@@ -1,6 +1,6 @@
 # Configurations recommandées
 
-Il n'existe pas de configuration universellement la plus juste. Elle dépend des données, de l'échelle des valeurs, de l'horizon de prédiction et d'une validation hors échantillon. Les recommandations ci-dessous sont des points de départ pour une future version entraînée.
+Il n'existe pas de configuration universellement la plus juste. Elle dépend des données, de l'échelle des valeurs, de l'horizon de prédiction et d'une validation hors échantillon. Les recommandations ci-dessous sont des points de départ pour l'entraînement MSE + SGD disponible dans les classes C++.
 
 ## Réglages par activation
 
@@ -13,7 +13,7 @@ Il n'existe pas de configuration universellement la plus juste. Elle dépend des
 | Sortie bornée entre -1 et 1 | `tanh` en sortie | 1 à 3 | 8 à 64 |
 | Classification multi-classe | `relu` ou `leaky_relu` caché, `softmax` final | 1 à 3 | 16 à 128 |
 
-Les options `sigmoid_derivative` et `tanh_derivative` ne sont pas des choix réalistes pour les couches cachées d'un réseau entraîné. Elles doivent servir au calcul des gradients, dans une future rétropropagation.
+Les options `sigmoid_derivative` et `tanh_derivative` ne sont pas des choix réalistes pour les couches cachées d'un réseau entraîné. Elles sont conservées pour compatibilité CLI, tandis que la rétropropagation utilise leurs dérivées en interne.
 
 ## Méthode de sélection
 
@@ -26,7 +26,7 @@ Les options `sigmoid_derivative` et `tanh_derivative` ne sont pas des choix réa
 
 ## Recommandations spécifiques à ce dépôt
 
-Pour le comportement actuel, utiliser `-A none` pour une sortie numérique. `-A softmax` est inutile puisque la sortie a un seul neurone et donnera toujours `1`. Pour obtenir des probabilités de classes, il faut d'abord modifier la taille de sortie, ajouter des cibles et implémenter l'entraînement.
+Pour le comportement CLI actuel, utiliser `-A none` pour une sortie numérique. `-A softmax` est inutile puisque la sortie a un seul neurone et donnera toujours `1`. Pour obtenir des probabilités de classes, il faut encore modifier la taille de sortie et utiliser une perte adaptée.
 
 Exemples :
 

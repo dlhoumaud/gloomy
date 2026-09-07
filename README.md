@@ -1,8 +1,7 @@
 # Réseau de Neurones en C++ - Gloomy
 
 ## Description
-
-Ce projet est une implémentation simple d'un réseau de neurones profond (DNN) en C++. Le réseau est capable de faire des prédictions en utilisant différentes fonctions d'activation telles que **sigmoid**, **relu**, **tanh**, et leurs dérivées. De plus, il prend en charge la fonction de post-activation **softmax**. Le réseau utilise une architecture basique de couches entièrement connectées (couches denses) et peut être étendu pour inclure des fonctionnalités plus avancées.
+Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la propagation avant, la rétropropagation, la perte MSE, l'optimiseur SGD, l'entraînement par mini-batches et une première mémoire d'apprentissage FIFO bornée.
 
 ## Fonctionnalités
 
@@ -84,7 +83,7 @@ Ce sont les prédictions générées en fonction de la séquence d'entrée donn�
 
 ## Documentation détaillée
 
-La documentation complète se trouve dans [`docs/README.md`](docs/README.md). Elle décrit les fonctions d'activation, l'effet de softmax, les couches, les neurones et les configurations recommandées.
+La documentation complète se trouve dans [`docs/README.md`](docs/README.md). Le suivi détaillé des fonctionnalités réalisées et des prochaines étapes se trouve dans [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Aperçu du Code
 

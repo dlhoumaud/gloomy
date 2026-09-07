@@ -16,12 +16,26 @@ Avec `-l 0`, il n'y a pas de couche cachée : la séquence est directement reli�
 
 ## Neurones
 
-`-n N` fixe la largeur de chaque couche cachée. Augmenter `N` donne plus de capacité pour représenter des relations complexes, mais augmente le nombre de paramètres et le risque de surajustement. Comme il n'y a pas d'entraînement ni de validation dans ce projet, augmenter `N` ne rend pas actuellement les prédictions plus justes.
+`-n N` fixe la largeur de chaque couche cachée. Augmenter `N` donne plus de capacité pour représenter des relations complexes, mais augmente le nombre de paramètres et le risque de surajustement. Le projet possède maintenant un entraînement MSE + SGD via `LearningEngine`, mais aucune validation automatique ni régularisation.
 
 Le nombre de paramètres des couches cachées dépend de la taille de la séquence et de `N`. Une séquence longue avec beaucoup de neurones peut rapidement produire un modèle inutilement grand.
 
 ## Limites actuelles
 
-Les poids sont initialisés aléatoirement à chaque construction. La commande ne charge pas de poids appris, ne reçoit pas de cible et ne calcule pas de perte. Le programme est donc un démonstrateur de propagation avant, pas encore un modèle prédictif entraînable.
+Les classes C++ d'entraînement savent recevoir des cibles, calculer une perte, propager les gradients et mettre à jour les paramètres avec SGD. Le CLI ne propose toutefois pas encore de commande pour charger un dataset et entraîner un modèle.
+
+Une mémoire FIFO bornée existe également comme composant indépendant, mais elle n'est pas encore orchestrée automatiquement par le `LearningEngine`.
+
+## Normalisation streaming
+
+`StreamingNormalizer` conserve séparément les statistiques des entrées : nombre d'observations, moyenne, variance, minimum et maximum. La moyenne et la variance sont mises à jour avec l'algorithme de Welford, sans conserver le dataset complet.
+
+```cpp
+StreamingNormalizer normalizer(input_dimensions);
+normalizer.update(training_input);
+const std::vector<double> normalized = normalizer.normalize(input);
+```
+
+Les statistiques doivent être apprises sur le flux d'entraînement uniquement. Elles ne doivent pas être recalculées avec les données de validation ou de test, afin d'éviter une fuite d'information. Les dimensions sont fixes et les valeurs non finies sont refusées.
 
 De plus, lors de plusieurs prédictions, la séquence grandit mais le réseau est recréé avec de nouveaux poids. Ce comportement est compatible avec la démonstration CLI, mais il empêche une extrapolation stable.

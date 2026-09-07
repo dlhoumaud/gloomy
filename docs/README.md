@@ -1,6 +1,6 @@
 # Documentation du réseau
 
-Ce projet est un prédicteur numérique C++ basé sur des couches denses. Il effectue une propagation avant avec des poids aléatoires et ne réalise ni entraînement ni rétropropagation. Une sortie est donc une estimation aléatoire tant qu'aucun mécanisme d'apprentissage n'est ajouté.
+Ce projet est un moteur de réseau neuronal dense en C++. Il supporte la propagation avant, la rétropropagation, la perte MSE, l'optimiseur SGD, l'entraînement par epochs et mini-batches, ainsi qu'une première mémoire d'apprentissage FIFO bornée.
 
 ## Utilisation
 
@@ -20,5 +20,13 @@ Une prédiction est ajoutée à la séquence avant la suivante. Le réseau est a
 ## Guides
 
 - [Fonctions d'activation et softmax](activations.md)
+- [Fonctions de perte](losses.md)
 - [Couches et neurones](architecture.md)
+- [Mémoire d'apprentissage](memory.md)
+- [Quantification](quantization.md)
+- [Sérialisation](serialization.md)
+- [État du projet et feuille de route](roadmap.md)
+- [Métriques](metrics.md)
+- [Optimiseurs](optimizers.md)
+- [Benchmark](benchmark.md)
 - [Configurations et limites](configurations.md)

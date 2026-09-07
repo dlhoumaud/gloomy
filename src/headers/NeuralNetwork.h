@@ -19,11 +19,16 @@ public:
     std::string post_algorithm = "none";
 
     void addLayer(int input_size, int output_size);
-    double predict(std::vector<double> &sequence);
+    std::vector<double> forward(const std::vector<double>& inputs);
+    std::vector<double> backward(const std::vector<double>& gradient_output);
+    void zeroGradients();
+    std::vector<DenseLayer>& layers();
+    const std::vector<DenseLayer>& layers() const;
+    double predict(const std::vector<double>& sequence);
     void clear();
 
 private:
-    std::vector<DenseLayer> layers;
+    std::vector<DenseLayer> layers_data;
 };
 
 #endif // NEURAL_NETWORK_H

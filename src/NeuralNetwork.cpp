@@ -10,32 +10,61 @@
 #include <stdexcept>
 
 void NeuralNetwork::addLayer(int input_size, int output_size) {
-    layers.emplace_back(input_size, output_size);
+    layers_data.emplace_back(input_size, output_size);
 }
 
-double NeuralNetwork::predict(std::vector<double> &sequence) {
-    if (layers.empty()) {
+std::vector<double> NeuralNetwork::forward(const std::vector<double>& inputs) {
+    if (layers_data.empty()) {
         throw std::runtime_error("The network has no layers");
     }
 
-    std::vector<double> inputs = sequence;
-
-    for (size_t index = 0; index < layers.size(); ++index) {
-        auto &layer = layers[index];
+    std::vector<double> current_inputs = inputs;
+    for (size_t index = 0; index < layers_data.size(); ++index) {
+        auto &layer = layers_data[index];
         layer.set_algorithm(algorithm);
         // Softmax is a normalization of the final output, not a hidden-layer activation.
-        layer.set_post_algorithm(index + 1 == layers.size() ? post_algorithm : "none");
-        inputs = layer.forward(inputs);
+        layer.set_post_algorithm(index + 1 == layers_data.size() ? post_algorithm : "none");
+        current_inputs = layer.forward(current_inputs);
     }
 
-    if (inputs.empty()) {
+    if (current_inputs.empty()) {
         throw std::runtime_error("The network produced no output");
     }
 
-    return inputs[0];
+    return current_inputs;
+}
+
+std::vector<double> NeuralNetwork::backward(const std::vector<double>& gradient_output) {
+    if (layers_data.empty()) {
+        throw std::runtime_error("The network has no layers");
+    }
+
+    std::vector<double> gradient = gradient_output;
+    for (auto layer = layers_data.rbegin(); layer != layers_data.rend(); ++layer) {
+        gradient = layer->backward(gradient);
+    }
+    return gradient;
+}
+
+void NeuralNetwork::zeroGradients() {
+    for (auto& layer : layers_data) {
+        layer.zeroGradients();
+    }
+}
+
+std::vector<DenseLayer>& NeuralNetwork::layers() {
+    return layers_data;
+}
+
+const std::vector<DenseLayer>& NeuralNetwork::layers() const {
+    return layers_data;
+}
+
+double NeuralNetwork::predict(const std::vector<double>& sequence) {
+    return forward(sequence)[0];
 }
 
 void NeuralNetwork::clear() {
-    layers.clear();
+    layers_data.clear();
 }
 

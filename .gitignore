@@ -1,3 +1,4 @@
 .vscode/
 bin/
 src/*.o
+benchmark_results.csv
