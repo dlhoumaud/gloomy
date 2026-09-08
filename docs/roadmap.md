@@ -293,9 +293,9 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 - exploration contrôlée des échantillons de faible priorité ;
 - prototypes / coreset ;
 - mémoire par régimes ;
-- détection légère de concept drift ;
+- détection légère de concept drift (mécanisme de détection actif — pas encore fait ; voir ci-dessous pour ce qui est testé) ;
 - règles adaptatives explicites avant tout mécanisme appris ;
-- expériences A -> B -> A plus nombreuses et reproductibles.
+- ~~expériences A -> B -> A plus nombreuses et reproductibles~~ fait pour un premier cas reproductible : `testCatastrophicForgettingWithoutReplay`, `testCatastrophicForgettingMitigatedByReplay` et `testConceptDriftReturnToPreviousRegime` (`tests/loss_tests.cpp`) reprennent les régimes synthétiques de `BenchmarkRunner.cpp` (droite croissante puis décroissante) avec une seed fixe (`4242`), et vérifient par assertion numérique — pas seulement en observant un CSV — que : l'oubli sans replay est réel (perte sur A après B `> 10`, contre `< 0.01` avant) ; le replay FIFO réduit cet oubli d'au moins moitié (calibré sur des valeurs observées ~4× sur plusieurs seeds avant d'écrire le test) ; et qu'un cycle complet A→B→A permet au réseau de **retrouver** une performance sur A comparable à l'origine (`< 0.01`), donc de s'adapter à un retour de régime plutôt que de rester durablement dégradé. Reste ouvert : un mécanisme de *détection* de drift (déclencher une action à partir d'un signal, pas juste constater l'effet après coup), des régimes plus variés, et un vrai cycle A→B→A→B pour observer si l'adaptation se dégrade avec les répétitions.
 
 ### Priorité moyenne : benchmark scientifique
 
@@ -321,9 +321,9 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 ### Priorité moyenne : compression et embarqué
 
 - compression différentielle des séries temporelles ;
-- stockage sans allocations pendant la boucle online ;
+- ~~stockage sans allocations pendant la boucle online~~ partiel : la boucle de `runOnlineLearning()` et celle de `runTraining()` (`OnlineLearningRuntime.cpp`) réutilisent désormais leurs buffers (`raw_observation`, `raw_target`, `observation`, `target`, et `TrainingSample sample` pour le runtime online) d'une itération à l'autre au lieu de les reconstruire — une fois leur capacité établie à la première itération, `vector::assign`/`resize`/`operator=` sur une taille identique ne réallouent plus (même principe déjà utilisé par `DenseLayer` pour ses buffers internes). Ajouté à cette occasion : `StreamingNormalizer::normalize(values, out)`, une surcharge en place (la surcharge par valeur existante délègue désormais à celle-ci, sans changement de comportement). Vérifié par la suite de tests inchangée (comportement identique, y compris la persistance) et un nouveau test `testOnlineLearningRuntimeLongSequenceStability` (500 pas). **Ce qui reste alloué à chaque pas** : le retour par valeur de `NeuralNetwork::forward()` (et le chaînage interne couche par couche), `LossFunction::gradient()`, et les vecteurs internes à `LearningEngine`/`LearningMemory` (`entries`, `batch`, `sample_weights` dans `trainFromMemory`) — non touchés cette fois, plus risqués à changer sans revoir leurs signatures publiques ;
 - arena allocator ou capacité statique ;
-- buffers contigus ;
+- buffers contigus (partiellement gagné pour les buffers ci-dessus ; `DenseLayer` utilise toujours des `std::vector<std::vector<double>>` imbriqués pour ses poids, non contigus — voir « Limites connues ») ;
 - quantification des poids ;
 - runtime inference-only minimal ;
 - génération d'un artefact modèle sans métadonnées inutiles ;
@@ -351,8 +351,8 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI.
 8. ~~Ajouter `TRAINING_RUNTIME` dans le CLI.~~ Fait via `runtime=training`, avec `epochs` et sauvegarde de `model_path`.
 9. ~~Étendre les benchmarks aux capacités et stratégies restantes.~~ Fait dans son ensemble : capacités `32`/`64`/`128`/`256`, stratégies Novelty/Hybrid, 3 pertes (MSE/MAE/Huber), 3 seeds avec moyenne/écart-type/IC95 du MAE, ratio au dataset complet, baseline naïve `baseline_last_value`, coûts CPU/débit approximatifs, et fichiers CSV séparés par expérience (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : seeds multiples et balayage de capacités pour le dataset complet et les scénarios quantifiés, baseline `float32`, jeux de données réels.
-10. Ajouter les tests de concept drift et catastrophic forgetting.
-11. Optimiser les allocations et la représentation mémoire.
+10. ~~Ajouter les tests de concept drift et catastrophic forgetting.~~ Fait : `testCatastrophicForgettingWithoutReplay`, `testCatastrophicForgettingMitigatedByReplay` et `testConceptDriftReturnToPreviousRegime` (`tests/loss_tests.cpp`), voir section 3, « Priorité moyenne : mémoire et continual learning ».
+11. ~~Optimiser les allocations et la représentation mémoire.~~ Fait pour la boucle du runtime online : `OnlineLearningRuntime.cpp` réutilise ses buffers d'une itération à l'autre au lieu de les reconstruire, voir section 3, « Priorité moyenne : compression et embarqué ». Le reste de la représentation mémoire (couches en vecteurs imbriqués, `TrainingSample` à deux `std::vector` même pour un scalaire) n'est pas touché.
 12. Préparer le runtime embarqué et la quantification des poids.
 
 ## 5. Limites connues à ne pas oublier

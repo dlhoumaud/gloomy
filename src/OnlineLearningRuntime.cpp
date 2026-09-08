@@ -169,15 +169,26 @@ TrainingResult runTraining(
     auto optimizer = makeOptimizer(config);
     auto memory = makeMemory(config);
 
+    // raw_observation/raw_target/observation/target sont reutilises d'une
+    // iteration a l'autre (voir docs/roadmap.md, « Priorité moyenne :
+    // compression et embarqué ») : une fois leur capacite etablie a la
+    // premiere iteration, l'affectation d'un element ou normalize(..., out)
+    // ne reallouent plus. Seule la copie finale dans `samples` (necessaire,
+    // le dataset doit survivre a la boucle) alloue encore.
+    std::vector<double> raw_observation(1);
+    std::vector<double> raw_target(1);
+    std::vector<double> observation(1);
+    std::vector<double> target(1);
+
     std::vector<TrainingSample> samples;
     samples.reserve(sequence.size() - 1);
     for (std::size_t index = 0; index + 1 < sequence.size(); ++index) {
-        const std::vector<double> raw_observation = {sequence[index]};
-        const std::vector<double> raw_target = {sequence[index + 1]};
+        raw_observation[0] = sequence[index];
+        raw_target[0] = sequence[index + 1];
 
         normalizer->update(raw_observation);
-        const std::vector<double> observation = normalizer->normalize(raw_observation);
-        const std::vector<double> target = normalizer->normalize(raw_target);
+        normalizer->normalize(raw_observation, observation);
+        normalizer->normalize(raw_target, target);
         samples.push_back({observation, target});
     }
 
@@ -250,17 +261,29 @@ OnlineLearningResult runOnlineLearning(
     result.steps.reserve(sequence.size() - 1);
     double total_loss = 0.0;
 
+    // Buffers reutilises d'une iteration a l'autre plutot que reconstruits :
+    // une fois leur capacite etablie, plus aucune allocation pour eux dans
+    // la boucle (voir docs/roadmap.md, « Priorité moyenne : compression et
+    // embarqué »). `sample` est repris a l'identique par
+    // LearningEngine::learn(), qui en fait immediatement sa propre copie
+    // avant de la modifier — le reutiliser ici ne fait donc courir aucun
+    // risque d'aliasing avec ce qui est stocke en memoire.
+    std::vector<double> raw_observation(1);
+    std::vector<double> raw_target(1);
+    std::vector<double> observation(1);
+    std::vector<double> target(1);
+    TrainingSample sample;
+
     for (std::size_t index = 0; index + 1 < sequence.size(); ++index) {
-        const std::vector<double> raw_observation = {sequence[index]};
-        const std::vector<double> raw_target = {sequence[index + 1]};
+        raw_observation[0] = sequence[index];
+        raw_target[0] = sequence[index + 1];
 
         normalizer->update(raw_observation);
-        const std::vector<double> observation = normalizer->normalize(raw_observation);
-        const std::vector<double> target = normalizer->normalize(raw_target);
+        normalizer->normalize(raw_observation, observation);
+        normalizer->normalize(raw_target, target);
 
         const std::vector<double> prediction = network->forward(observation);
 
-        TrainingSample sample;
         sample.input = observation;
         sample.target = target;
         const double step_loss = engine.learn(*memory, sample, config.batch_size, *scheduler);

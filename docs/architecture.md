@@ -44,6 +44,8 @@ const std::vector<double> normalized = normalizer.normalize(input);
 
 Les statistiques doivent être apprises sur le flux d'entraînement uniquement. Elles ne doivent pas être recalculées avec les données de validation ou de test, afin d'éviter une fuite d'information. Les dimensions sont fixes et les valeurs non finies sont refusées.
 
+Une surcharge en place, `normalize(const std::vector<double>& values, std::vector<double>& out)`, écrit dans `out` (redimensionné au besoin) au lieu de retourner un nouveau vecteur ; réutiliser le même `out` d'un appel à l'autre évite une allocation par appel une fois sa capacité établie. La surcharge par valeur ci-dessus délègue désormais à celle-ci (même validation, même résultat). C'est ce que fait `OnlineLearningRuntime.cpp` dans sa boucle d'apprentissage en continu — voir [feuille de route](roadmap.md), « Priorité moyenne : compression et embarqué ».
+
 De plus, lors de plusieurs prédictions, la séquence grandit mais le réseau est recréé avec de nouveaux poids. Ce comportement est compatible avec la démonstration CLI, mais il empêche une extrapolation stable.
 
 ## Robustesse : gradient checking, stabilité et valeurs non finies

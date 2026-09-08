@@ -1649,6 +1649,170 @@ void testOnlineLearningRuntime() {
     }
 }
 
+void testOnlineLearningRuntimeLongSequenceStability() {
+    // Sequence plus longue que les autres tests du runtime online : exerce
+    // sur davantage d'iterations la reutilisation des buffers
+    // (raw_observation/raw_target/observation/target/sample) introduite
+    // dans OnlineLearningRuntime.cpp pour reduire les allocations de la
+    // boucle (voir docs/roadmap.md, « Priorité moyenne : compression et
+    // embarqué »). Un bug de reutilisation (buffer pas redimensionne, valeur
+    // d'une iteration qui fuite dans la suivante) se manifesterait plus
+    // probablement sur un grand nombre d'iterations que sur les sequences
+    // courtes deja testees ailleurs.
+    std::vector<double> sequence(500);
+    for (size_t index = 0; index < sequence.size(); ++index) {
+        sequence[index] = std::sin(static_cast<double>(index) / 10.0) * 5.0 + 10.0;
+    }
+
+    GloomyConfig config = GloomyConfig::defaults();
+    config.memory_capacity = 32;
+    const OnlineLearningResult result = runOnlineLearning(config, sequence);
+
+    assert(result.steps.size() == sequence.size() - 1);
+    for (size_t index = 0; index < result.steps.size(); ++index) {
+        assertClose(result.steps[index].observation, sequence[index]);
+        assertClose(result.steps[index].target, sequence[index + 1]);
+        assert(std::isfinite(result.steps[index].prediction_before_update));
+        assert(std::isfinite(result.steps[index].loss_before_update));
+    }
+    assert(std::isfinite(result.average_loss));
+    assert(result.memory_size > 0);
+    assert(result.memory_size <= config.memory_capacity);
+}
+
+// Regimes synthetiques pour les tests de catastrophic forgetting et de
+// concept drift ci-dessous : memes fonctions que l'experience de
+// BenchmarkRunner.cpp (regime A lineaire croissant, regime B lineaire
+// decroissant), reprises ici pour que ces phenomenes soient verifies par
+// des assertions numeriques dans la suite de tests, pas seulement observes
+// dans le CSV du benchmark.
+std::vector<TrainingSample> makeForgettingRegimeA(size_t count, size_t start) {
+    std::vector<TrainingSample> samples;
+    samples.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        const double x = static_cast<double>(index + start) / 10.0;
+        samples.push_back({{x}, {2.0 * x + 1.0}});
+    }
+    return samples;
+}
+
+std::vector<TrainingSample> makeForgettingRegimeB(size_t count, size_t start) {
+    std::vector<TrainingSample> samples;
+    samples.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        const double x = static_cast<double>(index + start) / 10.0;
+        samples.push_back({{x}, {-2.0 * x + 20.0}});
+    }
+    return samples;
+}
+
+double regimeLoss(NeuralNetwork& network, const LossFunction& loss, const std::vector<TrainingSample>& regime) {
+    double total = 0.0;
+    for (const TrainingSample& sample : regime) {
+        total += loss.compute(network.forward(sample.input), sample.target);
+    }
+    return total / static_cast<double>(regime.size());
+}
+
+void testCatastrophicForgettingWithoutReplay() {
+    DenseLayer::seedWeightInitialization(4242u);
+    const std::vector<TrainingSample> regime_a = makeForgettingRegimeA(40, 0);
+    const std::vector<TrainingSample> regime_b = makeForgettingRegimeB(40, 40);
+
+    NeuralNetwork network;
+    network.algorithm = "none";
+    network.addLayer(1, 8);
+    network.addLayer(8, 1);
+    MSELoss loss;
+    SGDOptimizer optimizer(0.01);
+    LearningEngine engine(network, loss, optimizer);
+
+    engine.train(regime_a, 80, 8);
+    const double loss_a_before = regimeLoss(network, loss, regime_a);
+    assert(loss_a_before < 0.01); // le reseau a correctement appris le regime A
+
+    engine.train(regime_b, 80, 8);
+    const double loss_a_after = regimeLoss(network, loss, regime_a);
+
+    // Sans rejouer d'anciens exemples, apprendre B degrade fortement la
+    // performance sur A : c'est l'oubli catastrophique (verifie sur
+    // plusieurs seeds avant d'ecrire ce test : perte apres B toujours entre
+    // ~18 et ~19 ici, jamais proche de loss_a_before).
+    assert(loss_a_after > 10.0);
+    assert(loss_a_after > loss_a_before * 100.0);
+}
+
+void testCatastrophicForgettingMitigatedByReplay() {
+    // Meme seed et meme procedure que testCatastrophicForgettingWithoutReplay,
+    // pour une comparaison directe : seul l'ajout d'un replay FIFO de A
+    // pendant l'apprentissage de B change.
+    DenseLayer::seedWeightInitialization(4242u);
+    const std::vector<TrainingSample> regime_a = makeForgettingRegimeA(40, 0);
+    const std::vector<TrainingSample> regime_b = makeForgettingRegimeB(40, 40);
+
+    NeuralNetwork network;
+    network.algorithm = "none";
+    network.addLayer(1, 8);
+    network.addLayer(8, 1);
+    MSELoss loss;
+    SGDOptimizer optimizer(0.01);
+    LearningEngine engine(network, loss, optimizer);
+    FIFOMemory memory(regime_a.size());
+
+    engine.train(regime_a, 80, 8);
+    for (const TrainingSample& sample : regime_a) {
+        memory.add(sample);
+    }
+
+    engine.train(regime_b, 80, 8);
+    const double loss_a_after_b = regimeLoss(network, loss, regime_a);
+    assert(loss_a_after_b > 10.0); // memes conditions que sans replay : l'oubli a bien eu lieu
+
+    for (size_t update = 0; update < 20; ++update) {
+        engine.trainFromMemory(memory, 8);
+    }
+    const double loss_a_after_replay = regimeLoss(network, loss, regime_a);
+
+    // Le replay reduit nettement la degradation (observe : facteur ~4 sur
+    // plusieurs seeds), sans l'annuler completement.
+    assert(loss_a_after_replay > 1.0);
+    assert(loss_a_after_replay < loss_a_after_b / 2.0);
+}
+
+void testConceptDriftReturnToPreviousRegime() {
+    // A -> B -> A : le reseau doit pouvoir se re-adapter au regime A apres
+    // l'avoir revu, la preuve qu'il n'est pas durablement endommage par le
+    // passage par B (adaptation a un drift de concept, pas seulement
+    // l'oubli lui-meme, deja couvert par les deux tests precedents).
+    DenseLayer::seedWeightInitialization(4242u);
+    const std::vector<TrainingSample> regime_a = makeForgettingRegimeA(40, 0);
+    const std::vector<TrainingSample> regime_b = makeForgettingRegimeB(40, 40);
+
+    NeuralNetwork network;
+    network.algorithm = "none";
+    network.addLayer(1, 8);
+    network.addLayer(8, 1);
+    MSELoss loss;
+    SGDOptimizer optimizer(0.01);
+    LearningEngine engine(network, loss, optimizer);
+
+    engine.train(regime_a, 80, 8);
+    const double loss_a_first = regimeLoss(network, loss, regime_a);
+    assert(loss_a_first < 0.01);
+
+    engine.train(regime_b, 80, 8);
+    const double loss_a_after_b = regimeLoss(network, loss, regime_a);
+    assert(loss_a_after_b > 10.0); // le drift vers B a bien degrade A
+
+    engine.train(regime_a, 80, 8);
+    const double loss_a_second = regimeLoss(network, loss, regime_a);
+
+    // Le reseau retrouve une performance sur A comparable a la premiere
+    // fois : il s'adapte au retour du regime, il n'est pas bloque par le
+    // passage par B.
+    assert(loss_a_second < 0.01);
+}
+
 }
 
 int main() {
@@ -1699,5 +1863,9 @@ int main() {
     testTrainingRuntimePersistencePaths();
     testOnlineLearningRuntimePersistencePaths();
     testOnlineLearningRuntime();
+    testOnlineLearningRuntimeLongSequenceStability();
+    testCatastrophicForgettingWithoutReplay();
+    testCatastrophicForgettingMitigatedByReplay();
+    testConceptDriftReturnToPreviousRegime();
     return 0;
 }

@@ -10,6 +10,13 @@ public:
 
     void update(const std::vector<double>& values);
     std::vector<double> normalize(const std::vector<double>& values) const;
+    // Variante en place : ecrit dans `out` (redimensionne au besoin) au lieu
+    // de retourner un nouveau vecteur. Reutiliser le meme `out` d'un appel a
+    // l'autre evite une allocation par appel une fois sa capacite etablie —
+    // utile dans une boucle d'apprentissage en continu (voir
+    // OnlineLearningRuntime.cpp). Memes validations et memes resultats que
+    // la surcharge par valeur, qui delegue desormais a celle-ci.
+    void normalize(const std::vector<double>& values, std::vector<double>& out) const;
     void clear();
     void restore(
         size_t count,
