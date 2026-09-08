@@ -345,7 +345,9 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 
 ## 4. Ordre recommandé pour la suite
 
-1. Stabiliser la sérialisation unifiée du modèle.
+### Étapes déjà réalisées (historique)
+
+1. ~~Stabiliser la sérialisation unifiée du modèle.~~ Fait : `ModelSerialization` regroupe réseau, normalisation, optimiseur et mémoire dans un fichier `GLOOMY_MODEL` versionné et protégé par checksum, avec round-trip et rejet de corruption testés, et est branché dans le CLI via `model_path` (voir section 2, « Persistance »). Reste ouvert, reporté dans la nouvelle liste ci-dessous : les mémoires quantifiées n'y sont pas encore couvertes.
 2. ~~Ajouter la persistance de l'état Optimizer.~~ Fait (`OptimizerSerialization`, voir section 2 et 3).
 3. ~~Ajouter la persistance des mémoires~~ Fait pour la représentation float64 (`LearningMemorySerialization`, voir section 2 et 3). Reste : les paramètres de quantification (int16/int8).
 4. ~~Centraliser les défauts dans une configuration C++.~~ Fait (`GloomyConfig`, voir section 2 et 3).
@@ -358,19 +360,48 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 11. ~~Optimiser les allocations et la représentation mémoire.~~ Fait pour la boucle du runtime online : `OnlineLearningRuntime.cpp` réutilise ses buffers d'une itération à l'autre au lieu de les reconstruire, voir section 3, « Priorité moyenne : compression et embarqué ». Le reste de la représentation mémoire (couches en vecteurs imbriqués, `TrainingSample` à deux `std::vector` même pour un scalaire) n'est pas touché.
 12. ~~Préparer le runtime embarqué et la quantification des poids.~~ Fait pour les parties réalisables sans matériel dédié : quantification int8 des poids/biais post-entraînement (`NetworkQuantization`), artefact compact dédié (`QuantizedNetworkSerialization`, magic `GLOOMYQN`) et runtime d'inférence minimal (`bin/gloomy_infer`, ~75 % plus petit que `bin/gloomy`), voir section 3, « Priorité moyenne : compression et embarqué » et [Quantification](quantization.md). Restent non faits, faute de matériel/outillage embarqué disponible ici : buffers contigus/arena allocator pour le chemin d'inférence, compilation et tests sur une cible embarquée réelle, mesure RAM/Flash/CPU/énergie ; la compression différentielle des séries temporelles reste également hors périmètre de ce point.
 
+### Prochaines étapes recommandées
+
+Cette liste remplace l'ancienne numérotation 1-12 ci-dessus (désormais entièrement réalisée) comme référence pour la suite. Elle reprend, triés par priorité décroissante, les points encore ouverts identifiés section 3.
+
+**Priorité haute**
+
+1. Étendre `GLOOMY_MODEL`/`LearningMemorySerialization` aux mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) avec leurs paramètres `scale`/`zero_point` — seule la représentation float64 est persistée aujourd'hui.
+2. Brancher `optimizer_path`, `memory_path` et `metrics_path` dans le CLI principal (`bin/gloomy`) — seul `model_path` est consommé aujourd'hui ; ou documenter explicitement pourquoi ils restent inutilisés si `GLOOMY_MODEL` les rend redondants.
+3. Permettre à `bin/gloomy` de charger un modèle sauvegardé au démarrage pour reprendre un entraînement ou un online learning depuis un état persistant (aujourd'hui, seul `bin/gloomy_infer` charge un modèle sauvegardé, en inférence seule — voir [Quantification](quantization.md)).
+4. Rendre configurable la fenêtre d'entrée/sortie du runtime online, aujourd'hui fixée à un scalaire (une entrée, une sortie) — condition nécessaire avant d'envisager des séries multivariées.
+5. Compléter la validation des valeurs non finies : gradients accumulés dans `Optimizer::update`, et `TrainingSample::input`/`target` à l'ajout en mémoire (seul `NoveltyMemory` vérifie la dimension aujourd'hui) — voir section 3, « Priorité moyenne : robustesse mathématique ».
+
+**Priorité moyenne**
+
+6. Détection active de concept drift : un mécanisme qui déclenche une action à partir d'un signal, pas seulement la constatation de l'effet après coup (aujourd'hui testé mais pas détecté — voir section 3, « Priorité moyenne : mémoire et continual learning »).
+7. Mémoire par régimes, prototypes/coreset, exploration contrôlée des échantillons de faible priorité, et mise à jour de toutes les composantes du score d'importance — items non commencés de la même section.
+8. Annealing de `beta` (Prioritized Replay) au fil de l'entraînement, aujourd'hui une valeur fixe (défaut `0.4`).
+9. Étendre le benchmark scientifique aux angles morts restants : seeds multiples et balayage de capacités pour int16/int8, baseline `float32`, et surtout des jeux de données réels (les données synthétiques actuelles ne remplacent pas une évaluation réelle).
+10. Arena allocator ou buffers contigus pour le reste du chemin chaud : `DenseLayer` (poids en vecteurs imbriqués), le retour par valeur de `NeuralNetwork::forward()` et `LossFunction::gradient()`, et les vecteurs internes de `LearningEngine`/`LearningMemory` (`entries`, `batch`, `sample_weights`) — voir section 3, « Priorité moyenne : compression et embarqué ».
+11. Compression différentielle des séries temporelles.
+12. Compilation/tests sur une cible embarquée réelle et mesure RAM/Flash/CPU/énergie — bloqué dans cet environnement (aucune chaîne de compilation croisée ni matériel disponible) ; à reprendre dès qu'un environnement adapté existe.
+
+**Priorité basse**
+
+13. Optimisations SIMD.
+14. Multithreading PC.
+15. Adam quantifié ou optimiseur à état compressé.
+16. Classification multi-classe (sortie `K` neurones) et pertes classification/cross-entropy.
+17. Détection de dérive plus avancée et adaptation dynamique apprise.
+
 ## 5. Limites connues à ne pas oublier
 
-- le CLI recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires (`INFERENCE_RUNTIME` uniquement ; sans effet sur `ONLINE_LEARNING_RUNTIME`, qui garde un seul réseau du début à la fin) ;
-- le CLI ne charge pas encore de modèle sauvegardé ; le runtime online sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin de son exécution lorsqu'un `model_path` est renseigné ;
-- le CLI lance maintenant un entraînement par epochs sur un jeu de données complet via `runtime=training` ;
+- le CLI (`bin/gloomy`) recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires (`INFERENCE_RUNTIME` uniquement ; sans effet sur `ONLINE_LEARNING_RUNTIME`, qui garde un seul réseau du début à la fin) ;
+- `bin/gloomy` ne charge pas encore de modèle sauvegardé au démarrage : les runtimes `online_learning`/`training` savent seulement sauvegarder l'état entraîné en fin d'exécution (`model_path`), jamais le relire pour reprendre dessus. Seul le binaire séparé `bin/gloomy_infer` (voir [Quantification](quantization.md)) sait charger un modèle sauvegardé, et uniquement pour de l'inférence, pas pour reprendre un entraînement ;
 - le réseau du runtime online est fixé à une entrée/sortie scalaire, sans fenêtre configurable ;
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;
 - les mémoires natives stockent encore des `double` ;
 - le réseau s'entraîne toujours en float64 ; seule une copie post-entraînement peut être quantifiée en int8 via `NetworkQuantization`, avec un ratio mémoire réel dépendant fortement de la taille du réseau (mesuré à 2.25× sur un petit réseau 1-8-1, loin du 8× théorique) — voir [Quantification](quantization.md) ;
-- les mémoires quantifiées (int16/int8) ne sont pas encore persistées ;
+- les mémoires quantifiées (int16/int8, `QuantizedFIFOMemory`/`QuantizedInt8FIFOMemory`) ne sont persistées ni dans leur propre format ni dans `GLOOMY_MODEL` ;
 - `bin/gloomy_infer` ne couvre que le chemin `forward()` ; les couches y utilisent toujours des vecteurs imbriqués non contigus, et aucune cible embarquée réelle n'a pu être testée (pas de chaîne de compilation croisée ni de matériel disponible) ;
-- un format `GLOOMY_MODEL` unifié existe maintenant via `ModelSerialization`, en mode online il est désormais branché dans le CLI via `model_path`, et il reste à compléter les sections encore non couvertes (mémoires quantifiées, paramètres de quantification, éventuels métadonnées supplémentaires) ;
+- le format `GLOOMY_MODEL` unifié (`ModelSerialization`) couvre réseau, normalisation, optimiseur et mémoire native, mais ni les mémoires quantifiées ni les poids quantifiés d'un réseau : ces derniers ont leur propre artefact minimal et distinct (`QuantizedNetworkSerialization`, magic `GLOOMYQN`), volontairement dépourvu de métadonnées d'entraînement et donc non destiné à reprendre un entraînement — voir [Quantification](quantization.md) ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles.
 
