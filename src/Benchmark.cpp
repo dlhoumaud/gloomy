@@ -37,10 +37,11 @@ void BenchmarkCsv::write(
         throw std::runtime_error("Unable to open benchmark CSV for writing");
     }
 
-    stream << "memory_strategy,precision,optimizer,training_loss,validation_loss,mae,rmse,"
-              "training_time_ms,inference_time_us,memory_used_bytes,samples_stored,"
+    stream << "memory_strategy,precision,optimizer,loss_function,training_loss,validation_loss,"
+              "mae,rmse,training_time_ms,inference_time_us,memory_used_bytes,samples_stored,"
               "parameter_updates,forgetting,memory_capacity,mae_ratio_to_full_dataset,"
-              "seed,mae_mean,mae_stddev\n";
+              "seed,mae_mean,mae_stddev,mae_ci95_margin,approximate_macs,"
+              "samples_per_second,updates_per_second\n";
     stream << std::setprecision(17);
     for (const BenchmarkResult& result : results) {
         writeField(stream, result.memory_strategy);
@@ -48,6 +49,8 @@ void BenchmarkCsv::write(
         writeField(stream, result.precision);
         stream << ',';
         writeField(stream, result.optimizer);
+        stream << ',';
+        writeField(stream, result.loss_function);
         stream << ',' << result.training_loss
                << ',' << result.validation_loss
                << ',' << result.mae
@@ -62,7 +65,11 @@ void BenchmarkCsv::write(
                << ',' << result.mae_ratio_to_full_dataset
                << ',' << result.seed
                << ',' << result.mae_mean
-               << ',' << result.mae_stddev << '\n';
+               << ',' << result.mae_stddev
+               << ',' << result.mae_ci95_margin
+               << ',' << result.approximate_macs
+               << ',' << result.samples_per_second
+               << ',' << result.updates_per_second << '\n';
     }
     if (!stream) {
         throw std::runtime_error("Unable to write benchmark CSV");

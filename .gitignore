@@ -3,4 +3,9 @@ bin/
 src/*.o
 src/*.d
 benchmark_results.csv
+benchmark_baseline.csv
+benchmark_full_dataset.csv
+benchmark_memory_capacity.csv
+benchmark_quantization.csv
+benchmark_forgetting.csv
 *.gloomy

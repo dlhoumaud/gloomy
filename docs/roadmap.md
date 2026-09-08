@@ -153,15 +153,16 @@ Le runner benchmark compare actuellement :
 - FIFO, Reservoir, Prioritized, Novelty, Hybrid, chacune à 4 capacités (`32`, `64`, `128`, `256`) et 3 seeds ;
 - FIFO int16 et FIFO int8 (capacité `16`, seed unique) ;
 - SGD, Momentum et Adam ;
-- temps d'entraînement ;
+- MSE, MAE et Huber ;
+- temps d'entraînement, débit (samples/sec, updates/sec) et coût MAC approximatif ;
 - latence d'inférence ;
 - mémoire des paramètres et de l'état optimiseur ;
 - mémoire d'apprentissage ;
 - MAE, RMSE et pertes ;
-- ratio MAE au dataset complet, par optimiseur ;
-- moyenne et écart-type du MAE sur les 3 seeds, par scénario borné.
+- ratio MAE au dataset complet, par optimiseur et par perte ;
+- moyenne, écart-type et intervalle de confiance à 95% du MAE sur les 3 seeds, par scénario borné.
 
-Il contient aussi une expérience synthétique de catastrophic forgetting avec et sans replay FIFO.
+Il contient aussi une expérience synthétique de catastrophic forgetting avec et sans replay FIFO. Chaque expérience produit son propre fichier CSV (`benchmark_baseline.csv`, `benchmark_full_dataset.csv`, `benchmark_memory_capacity.csv`, `benchmark_quantization.csv`, `benchmark_forgetting.csv`), en plus du `benchmark_results.csv` combiné.
 
 ## 3. Ce qui n'est pas encore fait
 
@@ -298,21 +299,24 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 
 ### Priorité moyenne : benchmark scientifique
 
-Étendre le runner à :
+**État : fait dans son ensemble.** `BenchmarkRunner` couvre désormais :
 
-- ~~capacités `32`, `64`, `128`, `256`~~ fait pour les 5 stratégies float64 (FIFO, Reservoir, Prioritized, Novelty, Hybrid) : `BenchmarkRunner` boucle maintenant sur ces 4 capacités × 5 stratégies × 3 optimiseurs (60 scénarios). Les scénarios quantifiés (int16/int8) restent à une capacité unique (`16`) ;
+- ~~capacités `32`, `64`, `128`, `256`~~ fait pour les 5 stratégies float64 (FIFO, Reservoir, Prioritized, Novelty, Hybrid) ;
 - ~~Novelty et Hybrid~~ fait, dans le même changement que les capacités ;
-- float64, int16 et int8 sur les mêmes données — partiel : int16/int8 comparés au même dataset mais pas encore sur le même balayage de capacités que float64 ;
-- pertes MSE, MAE et Huber — non fait : tout le runner utilise encore `MSELoss` uniquement ;
-- ~~plusieurs seeds~~ fait pour les 5 stratégies float64 bornées (FIFO, Reservoir, Prioritized, Novelty, Hybrid) × 4 capacités × 3 optimiseurs : chaque scénario est répété sur 3 seeds (`1234`, `2345`, `3456`), qui pilotent à la fois `DenseLayer::seedWeightInitialization` et le générateur de la mémoire (`makeMemory` accepte désormais une seed). Reste non fait : dataset complet et scénarios quantifiés (int16/int8), toujours à seed unique ;
-- ~~moyenne et écart-type~~ fait pour le même périmètre : nouvelles colonnes `mae_mean`/`mae_stddev` (écart-type population, diviseur N=3), calculées sur le MAE des 3 seeds d'un même scénario et dupliquées sur chaque ligne du groupe. **Intervalles de confiance** restent non faits ;
-- ~~baseline dernière valeur connue~~ fait : nouvelle ligne `baseline_last_value` (calculée avant toute chose, sans RNG donc sans effet sur les scénarios suivants), qui prédit pour toute la validation la cible du dernier échantillon d'entraînement connu, sans apprentissage. Sert de plancher de comparaison — voir [Benchmark](benchmark.md) ;
-- ~~ratio `performance_memory_limited / performance_full_dataset`~~ fait : nouvelle colonne `mae_ratio_to_full_dataset` (`BenchmarkResult`/`BenchmarkCsv`), calculée pour chaque scénario borné par rapport au MAE `full_dataset` du même optimiseur. **Limite importante** : `full_dataset` entraîne 100 epochs en batch (MAE proche de zéro sur cette régression synthétique) alors que les scénarios bornés font un seul passage online ; le ratio observé mélange donc l'effet du nombre de passages et celui de la capacité mémoire (valeurs parfois de l'ordre du million). Isoler l'effet de la seule capacité, à nombre de passages égal, reste à faire — voir [Benchmark](benchmark.md) ;
-- coût CPU et nombre d'opérations approximatif — non fait ;
-- samples/sec et updates/sec — non fait ;
-- fichiers CSV séparés par expérience — non fait : tout reste dans `benchmark_results.csv`.
+- float64, int16 et int8 sur les mêmes données — partiel : int16/int8 comparés au même dataset et désormais aux 3 pertes, mais toujours à une seule capacité (`16`) et une seule seed, pas sur le même balayage que float64 ;
+- ~~pertes MSE, MAE et Huber~~ fait : `makeLoss()` construit la perte demandée ; le balayage de capacités, le dataset complet et les scénarios quantifiés tournent désormais chacun sur les 3 pertes (nouvelle colonne `loss_function`). Le balayage de capacités seul est donc 4 capacités × 5 stratégies × 3 optimiseurs × 3 pertes × 3 seeds = 540 scénarios (contre 60 avant) ; l'ensemble du runner reste sous la seconde ;
+- ~~plusieurs seeds~~ fait pour le balayage de capacités (3 seeds : `1234`, `2345`, `3456`, pilotant à la fois `DenseLayer::seedWeightInitialization` et le générateur de la mémoire). Reste non fait : dataset complet et scénarios quantifiés, toujours à seed unique ;
+- ~~moyenne et écart-type~~ fait : `mae_mean`/`mae_stddev` (écart-type population, diviseur N=3), calculées sur le MAE des 3 seeds d'un même scénario (capacité × stratégie × optimiseur × perte) et dupliquées sur chaque ligne du groupe ;
+- ~~intervalles de confiance~~ fait : nouvelle colonne `mae_ci95_margin` (demi-largeur de l'IC à 95%, loi de Student `df=2`, écart-type d'**échantillon** — diviseur N-1, différent de `mae_stddev` qui reste population). La valeur critique de Student est codée en dur pour `N=3` seeds spécifiquement (`t_critical_95_df2` dans `BenchmarkRunner.cpp`) ; elle vaut `0` si le nombre de seeds change un jour sans mise à jour de cette constante, plutôt que d'utiliser silencieusement une valeur fausse. À lire comme un ordre de grandeur (échantillon de taille 3), pas une garantie statistique forte ;
+- ~~baseline dernière valeur connue~~ fait : ligne `baseline_last_value` (calculée avant toute chose, sans RNG donc sans effet sur les scénarios suivants), évaluée avec les 3 pertes. Sert de plancher de comparaison — voir [Benchmark](benchmark.md) ;
+- ~~ratio `performance_memory_limited / performance_full_dataset`~~ fait : colonne `mae_ratio_to_full_dataset`, calculée par rapport au MAE `full_dataset` du même optimiseur **et de la même perte**. **Limite importante inchangée** : `full_dataset` entraîne 100 epochs en batch (MAE proche de zéro) alors que les scénarios bornés font un seul passage online ; le ratio mélange donc l'effet du nombre de passages et celui de la capacité mémoire (valeurs parfois de l'ordre du million). Isoler l'effet de la seule capacité, à nombre de passages égal, reste à faire ;
+- ~~coût CPU et nombre d'opérations approximatif~~ fait : colonne `approximate_macs` (MAC du forward × 3 comme approximation forward+backward, grossier par construction — ignore le coût de l'optimiseur et des activations) ;
+- ~~samples/sec et updates/sec~~ fait : colonnes `samples_per_second`/`updates_per_second`, dérivées de `training_time_ms` ;
+- ~~fichiers CSV séparés par expérience~~ fait : `benchmark_baseline.csv`, `benchmark_full_dataset.csv`, `benchmark_memory_capacity.csv`, `benchmark_quantization.csv`, `benchmark_forgetting.csv`, en plus du `benchmark_results.csv` combiné conservé pour compatibilité (`docs/examples.md` l'utilise).
 
-Au passage : le format de `benchmark_results.csv` (colonnes `memory_capacity`, `mae_ratio_to_full_dataset`) est un changement rétrocompatible en ajout de colonnes ; `testBenchmarkCsv` couvre les deux nouveaux champs. La commande de vérification numérique du CSV dans [Benchmark](benchmark.md) a aussi été corrigée : elle utilisait une comparaison arithmétique (`$i != $i + 0`) qui déclenche un faux positif sous `mawk` (implémentation par défaut d'`awk` sur beaucoup de systèmes Debian/Ubuntu) pour des flottants en notation scientifique à forte précision — remplacée par une validation par motif, indépendante de l'implémentation d'`awk`.
+Reste non fait : dataset complet et scénarios quantifiés à seed unique (pas de moyenne/écart-type/IC pour ces sections) ; balayage de capacités pour int16/int8 ; baseline `float32` ; jeux de données réels.
+
+Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approximate_macs`, `samples_per_second`, `updates_per_second`) reste rétrocompatible en ajout de colonnes, sauf `loss_function` insérée en 4e position (avant les colonnes numériques) — la vérification par motif dans [Benchmark](benchmark.md) démarre donc à la colonne 5, pas 4. `testBenchmarkCsv` couvre tous les nouveaux champs. Ce changement a de nouveau décalé les valeurs de l'expérience de forgetting utilisées dans [docs/examples.md](examples.md) (retombées, par coïncidence, sur les toutes premières valeurs observées avant tout ce travail sur le benchmark) — mis à jour et revérifié stable sur plusieurs exécutions.
 
 ### Priorité moyenne : compression et embarqué
 
@@ -346,7 +350,7 @@ Au passage : le format de `benchmark_results.csv` (colonnes `memory_capacity`, `
 6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3).
 7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI.
 8. ~~Ajouter `TRAINING_RUNTIME` dans le CLI.~~ Fait via `runtime=training`, avec `epochs` et sauvegarde de `model_path`.
-9. Étendre les benchmarks aux capacités et stratégies restantes. Partiel : capacités `32`/`64`/`128`/`256` et stratégies Novelty/Hybrid ajoutées pour float64, chacune répétée sur 3 seeds avec moyenne/écart-type du MAE, un ratio au dataset complet, et une baseline naïve `baseline_last_value` (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : pertes MSE/MAE/Huber, seeds multiples pour le dataset complet et les scénarios quantifiés, intervalles de confiance, coûts CPU/débit, CSV séparés par expérience.
+9. ~~Étendre les benchmarks aux capacités et stratégies restantes.~~ Fait dans son ensemble : capacités `32`/`64`/`128`/`256`, stratégies Novelty/Hybrid, 3 pertes (MSE/MAE/Huber), 3 seeds avec moyenne/écart-type/IC95 du MAE, ratio au dataset complet, baseline naïve `baseline_last_value`, coûts CPU/débit approximatifs, et fichiers CSV séparés par expérience (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : seeds multiples et balayage de capacités pour le dataset complet et les scénarios quantifiés, baseline `float32`, jeux de données réels.
 10. Ajouter les tests de concept drift et catastrophic forgetting.
 11. Optimiser les allocations et la représentation mémoire.
 12. Préparer le runtime embarqué et la quantification des poids.

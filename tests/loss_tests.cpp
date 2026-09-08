@@ -963,6 +963,7 @@ void testBenchmarkCsv() {
     result.memory_strategy = "hybrid,8kb";
     result.precision = "int16";
     result.optimizer = "sgd";
+    result.loss_function = "huber";
     result.mae = 0.25;
     result.memory_used_bytes = 8192;
     result.samples_stored = 32;
@@ -971,6 +972,10 @@ void testBenchmarkCsv() {
     result.seed = 1234u;
     result.mae_mean = 0.5;
     result.mae_stddev = 0.25;
+    result.mae_ci95_margin = 0.75;
+    result.approximate_macs = 4096;
+    result.samples_per_second = 1000;
+    result.updates_per_second = 125;
     BenchmarkCsv::write(path, {result});
 
     std::ifstream stream(path);
@@ -978,12 +983,13 @@ void testBenchmarkCsv() {
         (std::istreambuf_iterator<char>(stream)),
         std::istreambuf_iterator<char>()
     );
-    assert(content.find("memory_strategy,precision,optimizer") == 0);
+    assert(content.find("memory_strategy,precision,optimizer,loss_function") == 0);
     assert(content.find("memory_capacity,mae_ratio_to_full_dataset") != std::string::npos);
-    assert(content.find("seed,mae_mean,mae_stddev") != std::string::npos);
-    assert(content.find("\"hybrid,8kb\",int16,sgd") != std::string::npos);
+    assert(content.find("seed,mae_mean,mae_stddev,mae_ci95_margin") != std::string::npos);
+    assert(content.find("samples_per_second,updates_per_second") != std::string::npos);
+    assert(content.find("\"hybrid,8kb\",int16,sgd,huber") != std::string::npos);
     assert(content.find(",64,2.5") != std::string::npos);
-    assert(content.find(",1234,0.5,0.25") != std::string::npos);
+    assert(content.find(",1234,0.5,0.25,0.75,4096,1000,125") != std::string::npos);
     std::remove(path.c_str());
 }
 
