@@ -25,6 +25,7 @@
 #include "AdamOptimizer.h"
 #include "OptimizerSerialization.h"
 #include "LearningMemorySerialization.h"
+#include "ModelSerialization.h"
 #include "GloomyConfig.h"
 #include "GloomyConfigFile.h"
 #include "OnlineLearningRuntime.h"
@@ -817,6 +818,83 @@ void testTrainingSampleSerialization() {
     std::remove(path.c_str());
 }
 
+void testModelSerialization() {
+    const std::string path = "/tmp/gloomy_model.bin";
+
+    NeuralNetwork network;
+    network.algorithm = "tanh";
+    network.post_algorithm = "none";
+    network.addLayer(2, 2);
+    network.addLayer(2, 1);
+    network.layers()[0].weights()[0][0] = 0.2;
+    network.layers()[0].weights()[0][1] = -0.3;
+    network.layers()[0].weights()[1][0] = 0.4;
+    network.layers()[0].weights()[1][1] = 0.5;
+    network.layers()[0].bias()[0] = 0.1;
+    network.layers()[0].bias()[1] = -0.2;
+    network.layers()[1].weights()[0][0] = 0.6;
+    network.layers()[1].weights()[1][0] = -0.7;
+    network.layers()[1].bias()[0] = 0.3;
+
+    StreamingNormalizer normalizer(2);
+    normalizer.update({1.0, 2.0});
+    normalizer.update({3.0, 4.0});
+
+    MomentumOptimizer optimizer(0.01, 0.9);
+    ReservoirMemory memory(4, 7u);
+    memory.add({{1.0, 2.0}, {3.0}, 0.2, 0.4, 0.6, 0.8, 0.9, 0.7, 4, 1});
+
+    const std::vector<double> model_input = {0.5, -0.25};
+    network.forward(model_input);
+    network.zeroGradients();
+    network.backward({1.0});
+    optimizer.update(network.layers());
+
+    ModelSerialization::save(path, network, normalizer, optimizer, memory);
+
+    ModelSerialization::LoadedModel loaded = ModelSerialization::load(path);
+    assert(loaded.normalizer != nullptr);
+    assert(loaded.optimizer != nullptr);
+    assert(loaded.memory != nullptr);
+
+    const std::vector<double> input = {0.5, -0.25};
+    const std::vector<double> expected = network.forward(input);
+    const std::vector<double> actual = loaded.network.forward(input);
+    assert(actual.size() == expected.size());
+    assert(std::abs(actual[0] - expected[0]) < 1e-12);
+    assert(loaded.network.algorithm == network.algorithm);
+    assert(loaded.normalizer->count() == normalizer.count());
+    assert(loaded.normalizer->dimensions() == normalizer.dimensions());
+
+    auto* momentum = dynamic_cast<MomentumOptimizer*>(loaded.optimizer.get());
+    assert(momentum != nullptr);
+    assertClose(momentum->learningRate(), 0.01);
+    assertClose(momentum->momentum(), 0.9);
+
+    auto* reservoir = dynamic_cast<ReservoirMemory*>(loaded.memory.get());
+    assert(reservoir != nullptr);
+    assert(reservoir->capacity() == memory.capacity());
+    assert(reservoir->size() == memory.size());
+
+    std::fstream corrupt(path, std::ios::in | std::ios::out | std::ios::binary);
+    corrupt.seekp(16);
+    char byte = 0;
+    corrupt.read(&byte, sizeof(byte));
+    corrupt.seekp(16);
+    byte ^= 1;
+    corrupt.write(&byte, sizeof(byte));
+    corrupt.close();
+    bool checksum_failed = false;
+    try {
+        ModelSerialization::load(path);
+    } catch (const std::runtime_error&) {
+        checksum_failed = true;
+    }
+    assert(checksum_failed);
+
+    std::remove(path.c_str());
+}
+
 void testNetworkSerialization() {
     const std::string path = "/tmp/gloomy_network.bin";
     NeuralNetwork original;
@@ -1449,6 +1527,7 @@ int main() {
     testTrainingSampleQuantization();
     testQuantizedFIFOMemory();
     testTrainingSampleSerialization();
+    testModelSerialization();
     testNetworkSerialization();
     testMetrics();
     testBenchmarkCsv();

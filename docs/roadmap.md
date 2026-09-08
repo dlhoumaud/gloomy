@@ -376,3 +376,5 @@ Chaque prochaine étape doit rester petite et vérifiable :
 6. exécuter `make` ;
 7. exécuter `make benchmark` si le benchmark est concerné ;
 8. mettre à jour ce document avec l'état réel.
+9. mettre à jour la documentation des [examples](examples.md) si c'est necessaire
+10. mettre à jour les `README.md` si c'est necessaire
