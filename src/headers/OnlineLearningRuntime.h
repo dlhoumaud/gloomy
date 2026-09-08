@@ -64,4 +64,9 @@ TrainingResult runTraining(
     const std::vector<double>& sequence
 );
 
+void saveTrainingArtifacts(
+    const GloomyConfig& config,
+    const TrainingResult& result
+);
+
 #endif // ONLINE_LEARNING_RUNTIME_H

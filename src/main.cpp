@@ -149,15 +149,7 @@ int runInference(const GloomyConfig &config, std::vector<double> sequence) {
 int runTrainingRuntime(const GloomyConfig &config, const std::vector<double> &sequence) {
     try {
         const TrainingResult result = runTraining(config, sequence);
-        if (!config.model_path.empty()) {
-            ModelSerialization::save(
-                config.model_path,
-                result.network,
-                *result.normalizer,
-                *result.optimizer,
-                *result.memory
-            );
-        }
+        saveTrainingArtifacts(config, result);
         std::cerr << "average_loss=" << result.average_loss << std::endl;
     } catch (const std::exception &e) {
         std::cerr << "Error during training: " << e.what() << std::endl;

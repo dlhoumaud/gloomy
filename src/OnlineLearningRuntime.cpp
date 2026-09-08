@@ -14,6 +14,8 @@
 #include "headers/LearningEngine.h"
 #include "headers/Normalization.h"
 #include "headers/ModelSerialization.h"
+#include "headers/OptimizerSerialization.h"
+#include "headers/LearningMemorySerialization.h"
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -74,6 +76,34 @@ OnlineLearningResult runOnlineLearning(
     const std::vector<double>& sequence
 ) {
     return runOnlineLearning(config, sequence, "");
+}
+
+void saveTrainingArtifacts(
+    const GloomyConfig& config,
+    const TrainingResult& result
+) {
+    if (!config.model_path.empty()) {
+        ModelSerialization::save(
+            config.model_path,
+            result.network,
+            *result.normalizer,
+            *result.optimizer,
+            *result.memory
+        );
+    }
+    if (!config.optimizer_path.empty()) {
+        OptimizerSerialization::save(config.optimizer_path, *result.optimizer);
+    }
+    if (!config.memory_path.empty()) {
+        LearningMemorySerialization::save(config.memory_path, *result.memory);
+    }
+    if (!config.metrics_path.empty()) {
+        std::ofstream metrics(config.metrics_path, std::ios::trunc);
+        if (!metrics) {
+            throw std::runtime_error("Unable to open metrics file for writing: " + config.metrics_path);
+        }
+        metrics << "average_loss=" << result.average_loss << '\n';
+    }
 }
 
 TrainingResult runTraining(
