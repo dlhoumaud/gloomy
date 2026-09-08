@@ -1470,6 +1470,46 @@ void testTrainingRuntimePersistencePaths() {
     std::remove(metrics_path.c_str());
 }
 
+void testOnlineLearningRuntimePersistencePaths() {
+    const std::string prefix = "/tmp/gloomy_online_runtime_artifacts";
+    const std::string model_path = prefix + ".gloomy";
+    const std::string optimizer_path = prefix + ".optimizer.gloomy";
+    const std::string memory_path = prefix + ".memory.gloomy";
+    const std::string metrics_path = prefix + ".metrics.csv";
+
+    std::remove(model_path.c_str());
+    std::remove(optimizer_path.c_str());
+    std::remove(memory_path.c_str());
+    std::remove(metrics_path.c_str());
+
+    GloomyConfig config = GloomyConfig::defaults();
+    config.model_path = model_path;
+    config.optimizer_path = optimizer_path;
+    config.memory_path = memory_path;
+    config.metrics_path = metrics_path;
+    config.memory_capacity = 8;
+
+    const OnlineLearningResult result = runOnlineLearning(config, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+    saveOnlineArtifacts(config, result);
+
+    assert(std::ifstream(model_path, std::ios::binary).good());
+    assert(std::ifstream(optimizer_path, std::ios::binary).good());
+    assert(std::ifstream(memory_path, std::ios::binary).good());
+
+    std::ifstream metrics(metrics_path);
+    std::string metrics_content(
+        (std::istreambuf_iterator<char>(metrics)),
+        std::istreambuf_iterator<char>()
+    );
+    assert(metrics_content.find("average_loss=") != std::string::npos);
+    assert(metrics_content.find("memory_size=") != std::string::npos);
+
+    std::remove(model_path.c_str());
+    std::remove(optimizer_path.c_str());
+    std::remove(memory_path.c_str());
+    std::remove(metrics_path.c_str());
+}
+
 void testOnlineLearningRuntime() {
     const std::vector<double> sequence = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
 
@@ -1636,6 +1676,7 @@ int main() {
     testGloomyConfigFile();
     testTrainingRuntime();
     testTrainingRuntimePersistencePaths();
+    testOnlineLearningRuntimePersistencePaths();
     testOnlineLearningRuntime();
     return 0;
 }

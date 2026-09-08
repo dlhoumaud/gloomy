@@ -69,4 +69,9 @@ void saveTrainingArtifacts(
     const TrainingResult& result
 );
 
+void saveOnlineArtifacts(
+    const GloomyConfig& config,
+    const OnlineLearningResult& result
+);
+
 #endif // ONLINE_LEARNING_RUNTIME_H

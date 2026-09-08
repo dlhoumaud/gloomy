@@ -164,15 +164,7 @@ int runTrainingRuntime(const GloomyConfig &config, const std::vector<double> &se
 int runOnline(const GloomyConfig &config, const std::vector<double> &sequence) {
     try {
         const OnlineLearningResult result = runOnlineLearning(config, sequence, config.model_path);
-        if (!config.model_path.empty()) {
-            ModelSerialization::save(
-                config.model_path,
-                result.network,
-                *result.normalizer,
-                *result.optimizer,
-                *result.memory
-            );
-        }
+        saveOnlineArtifacts(config, result);
         for (size_t index = 0; index < result.steps.size(); ++index) {
             const OnlineLearningStep &step = result.steps[index];
             std::cout << index << '\t' << step.observation << '\t' << step.target

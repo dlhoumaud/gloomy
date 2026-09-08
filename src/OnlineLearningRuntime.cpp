@@ -106,6 +106,35 @@ void saveTrainingArtifacts(
     }
 }
 
+void saveOnlineArtifacts(
+    const GloomyConfig& config,
+    const OnlineLearningResult& result
+) {
+    if (!config.model_path.empty()) {
+        ModelSerialization::save(
+            config.model_path,
+            result.network,
+            *result.normalizer,
+            *result.optimizer,
+            *result.memory
+        );
+    }
+    if (!config.optimizer_path.empty()) {
+        OptimizerSerialization::save(config.optimizer_path, *result.optimizer);
+    }
+    if (!config.memory_path.empty()) {
+        LearningMemorySerialization::save(config.memory_path, *result.memory);
+    }
+    if (!config.metrics_path.empty()) {
+        std::ofstream metrics(config.metrics_path, std::ios::trunc);
+        if (!metrics) {
+            throw std::runtime_error("Unable to open metrics file for writing: " + config.metrics_path);
+        }
+        metrics << "average_loss=" << result.average_loss
+                << " memory_size=" << result.memory_size << '\n';
+    }
+}
+
 TrainingResult runTraining(
     const GloomyConfig& config,
     const std::vector<double>& sequence
