@@ -5,7 +5,12 @@ BENCHMARK_SRC = src/BenchmarkRunner.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp
 
 # Cible de test de la fonction de perte
 TEST_TARGET = bin/loss_tests
-TEST_SRC = tests/loss_tests.cpp src/GloomyConfig.cpp src/GloomyConfigFile.cpp src/OnlineLearningRuntime.cpp src/LossFunction.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/Normalization.cpp src/NormalizationSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp src/TrainingSampleSerialization.cpp src/NetworkSerialization.cpp src/OptimizerSerialization.cpp src/LearningMemorySerialization.cpp src/ModelSerialization.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp
+TEST_SRC = tests/loss_tests.cpp src/GloomyConfig.cpp src/GloomyConfigFile.cpp src/OnlineLearningRuntime.cpp src/LossFunction.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/Normalization.cpp src/NormalizationSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp src/TrainingSampleSerialization.cpp src/NetworkSerialization.cpp src/OptimizerSerialization.cpp src/LearningMemorySerialization.cpp src/ModelSerialization.cpp src/NetworkQuantization.cpp src/QuantizedNetworkSerialization.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp
+
+# Cible du runtime d'inference minimal (ne depend pas du moteur
+# d'apprentissage) : voir src/InferenceOnlyMain.cpp et docs/quantization.md.
+INFER_TARGET = bin/gloomy_infer
+INFER_SRC = src/InferenceOnlyMain.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/NetworkSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/NetworkQuantization.cpp src/QuantizedNetworkSerialization.cpp
 
 # Compilateur
 CXX = g++
@@ -14,7 +19,7 @@ CXX = g++
 CXXFLAGS = -Wall -O2 -std=c++17 -I./src/headers
 
 # Liste des fichiers source
-SRC = src/main.cpp src/GloomyConfig.cpp src/GloomyConfigFile.cpp src/OnlineLearningRuntime.cpp src/LossFunction.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/Normalization.cpp src/NormalizationSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp src/TrainingSampleSerialization.cpp src/NetworkSerialization.cpp src/OptimizerSerialization.cpp src/LearningMemorySerialization.cpp src/ModelSerialization.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp
+SRC = src/main.cpp src/GloomyConfig.cpp src/GloomyConfigFile.cpp src/OnlineLearningRuntime.cpp src/LossFunction.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/Normalization.cpp src/NormalizationSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp src/TrainingSampleSerialization.cpp src/NetworkSerialization.cpp src/OptimizerSerialization.cpp src/LearningMemorySerialization.cpp src/ModelSerialization.cpp src/NetworkQuantization.cpp src/QuantizedNetworkSerialization.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp
 
 # Liste des fichiers objets (transformation des fichiers .cpp en .o)
 OBJ = $(SRC:.cpp=.o)
@@ -34,6 +39,8 @@ benchmark: $(BENCHMARK_TARGET)
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
 
+infer: $(INFER_TARGET)
+
 # Règle pour construire l'exécutable
 $(TARGET): $(OBJ)
 	@mkdir -p $(TARGET_DIR)
@@ -46,6 +53,10 @@ $(BENCHMARK_TARGET): $(BENCHMARK_SRC)
 $(TEST_TARGET): $(TEST_SRC)
 	@mkdir -p $(TARGET_DIR)
 	$(CXX) $(CXXFLAGS) -o $(TEST_TARGET) $(TEST_SRC)
+
+$(INFER_TARGET): $(INFER_SRC)
+	@mkdir -p $(TARGET_DIR)
+	$(CXX) $(CXXFLAGS) -o $(INFER_TARGET) $(INFER_SRC)
 
 # Règle pour compiler les fichiers .cpp en fichiers .o. -MMD -MP genere, a
 # cote de chaque .o, un fichier .d listant les headers dont depend ce .cpp
@@ -65,6 +76,7 @@ clean:
 	rm -f $(TARGET)
 	rm -f $(BENCHMARK_TARGET)
 	rm -f $(TEST_TARGET)
+	rm -f $(INFER_TARGET)
 	rm -f $(OBJ_DIR)/*.o
 	rm -f $(OBJ_DIR)/*.d
 	rmdir -p $(TARGET_DIR)

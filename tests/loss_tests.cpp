@@ -26,6 +26,8 @@
 #include "OptimizerSerialization.h"
 #include "LearningMemorySerialization.h"
 #include "ModelSerialization.h"
+#include "NetworkQuantization.h"
+#include "QuantizedNetworkSerialization.h"
 #include "GloomyConfig.h"
 #include "GloomyConfigFile.h"
 #include "OnlineLearningRuntime.h"
@@ -942,6 +944,129 @@ void testNetworkSerialization() {
     std::remove(path.c_str());
 }
 
+void testNetworkQuantization() {
+    // Reseau reellement entraine (pas des poids arbitraires) : c'est le cas
+    // d'usage vise, quantifier un modele apres apprentissage.
+    DenseLayer::seedWeightInitialization(4242u);
+    std::vector<TrainingSample> training;
+    training.reserve(80);
+    for (size_t index = 0; index < 80; ++index) {
+        const double x = static_cast<double>(index) / 10.0;
+        training.push_back({{x}, {2.0 * x + 1.0}});
+    }
+
+    NeuralNetwork network;
+    network.algorithm = "none";
+    network.addLayer(1, 8);
+    network.addLayer(8, 1);
+    MSELoss loss;
+    SGDOptimizer optimizer(0.01);
+    LearningEngine engine(network, loss, optimizer);
+    engine.train(training, 80, 8);
+
+    const QuantizedNetwork quantized = NetworkQuantization::quantize(network);
+    assert(quantized.layers.size() == network.layers().size());
+    NeuralNetwork dequantized = NetworkQuantization::dequantize(quantized);
+    assert(dequantized.algorithm == network.algorithm);
+    assert(dequantized.layers().size() == network.layers().size());
+
+    // Impact sur la precision : mesure sur plusieurs points avant d'ecrire
+    // ce test (voir docs/quantization.md) — max_abs_diff ~0.049,
+    // max_rel_diff ~0.23% sur cette tache. Marges larges ci-dessous.
+    double max_abs_diff = 0.0;
+    for (double x = 0.0; x <= 10.0; x += 0.5) {
+        const double original = network.forward({x})[0];
+        const double approx = dequantized.forward({x})[0];
+        max_abs_diff = std::max(max_abs_diff, std::abs(original - approx));
+    }
+    assert(max_abs_diff < 0.2);
+
+    // Occupe moins de memoire que les poids/biais flottants d'origine,
+    // meme avec le surcout de calibration par couche (voir
+    // docs/quantization.md pour le detail : le ratio depend fortement de la
+    // taille du reseau, negligeable ici sur un si petit reseau).
+    size_t float_bytes = 0;
+    for (const DenseLayer& layer : network.layers()) {
+        for (const auto& row : layer.weights()) {
+            float_bytes += row.size() * sizeof(double);
+        }
+        float_bytes += layer.bias().size() * sizeof(double);
+    }
+    const size_t quantized_bytes = NetworkQuantization::quantizedBytes(quantized);
+    assert(quantized_bytes < float_bytes);
+
+    // Dimensions incoherentes explicitement rejetees plutot que silencieusement
+    // mal interpretees.
+    QuantizedNetwork broken = quantized;
+    broken.layers[0].input_size = 999;
+    bool threw = false;
+    try {
+        NetworkQuantization::dequantize(broken);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+}
+
+void testQuantizedNetworkSerialization() {
+    NeuralNetwork network;
+    network.algorithm = "tanh";
+    network.post_algorithm = "none";
+    network.addLayer(2, 2);
+    network.addLayer(2, 1);
+    network.layers()[0].weights()[0][0] = 0.2;
+    network.layers()[0].weights()[0][1] = -0.3;
+    network.layers()[0].weights()[1][0] = 0.4;
+    network.layers()[0].weights()[1][1] = 0.5;
+    network.layers()[0].bias()[0] = 0.1;
+    network.layers()[0].bias()[1] = -0.2;
+    network.layers()[1].weights()[0][0] = 0.6;
+    network.layers()[1].weights()[1][0] = -0.7;
+    network.layers()[1].bias()[0] = 0.3;
+
+    const QuantizedNetwork quantized = NetworkQuantization::quantize(network);
+    const std::string path = "/tmp/gloomy_quantized_network.bin";
+    QuantizedNetworkSerialization::save(path, quantized);
+
+    const QuantizedNetwork restored = QuantizedNetworkSerialization::load(path);
+    assert(restored.algorithm == quantized.algorithm);
+    assert(restored.post_algorithm == quantized.post_algorithm);
+    assert(restored.layers.size() == quantized.layers.size());
+    for (size_t index = 0; index < quantized.layers.size(); ++index) {
+        assert(restored.layers[index].input_size == quantized.layers[index].input_size);
+        assert(restored.layers[index].output_size == quantized.layers[index].output_size);
+        assert(restored.layers[index].weights.values == quantized.layers[index].weights.values);
+        assert(restored.layers[index].bias.values == quantized.layers[index].bias.values);
+        assertClose(restored.layers[index].weights.parameters.scale, quantized.layers[index].weights.parameters.scale);
+    }
+
+    // La reconstruction flottante depuis le fichier rejoue doit produire la
+    // meme prediction que la reconstruction depuis l'objet en memoire.
+    const std::vector<double> input = {0.5, -0.25};
+    const NeuralNetwork from_memory = NetworkQuantization::dequantize(quantized);
+    const NeuralNetwork from_disk = NetworkQuantization::dequantize(restored);
+    NeuralNetwork mutable_from_memory = from_memory;
+    NeuralNetwork mutable_from_disk = from_disk;
+    assertClose(mutable_from_memory.forward(input)[0], mutable_from_disk.forward(input)[0]);
+
+    std::fstream corrupt(path, std::ios::in | std::ios::out | std::ios::binary);
+    corrupt.seekp(16);
+    char byte = 0;
+    corrupt.read(&byte, sizeof(byte));
+    corrupt.seekp(16);
+    byte ^= 1;
+    corrupt.write(&byte, sizeof(byte));
+    corrupt.close();
+    bool checksum_failed = false;
+    try {
+        QuantizedNetworkSerialization::load(path);
+    } catch (const std::runtime_error&) {
+        checksum_failed = true;
+    }
+    assert(checksum_failed);
+    std::remove(path.c_str());
+}
+
 void testMetrics() {
     const RegressionMetrics metrics = Metrics::regression({1.0, 3.0}, {0.0, 1.0});
     assert(std::abs(metrics.mae - 1.5) < 1e-12);
@@ -1851,6 +1976,8 @@ int main() {
     testTrainingSampleSerialization();
     testModelSerialization();
     testNetworkSerialization();
+    testNetworkQuantization();
+    testQuantizedNetworkSerialization();
     testMetrics();
     testBenchmarkCsv();
     testMomentumOptimizer();

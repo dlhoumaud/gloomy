@@ -128,7 +128,7 @@ Pour ne pas se tromper d'attentes :
 - **Une seule valeur à la fois** : le runtime online est scalaire (une entrée, une sortie). Pas de séries multivariées, pas d'image, pas de texte.
 - **Pas de vraie mémoire de contexte** : chaque prédiction ne voit que l'observation courante, pas une fenêtre des valeurs précédentes (pas de couche récurrente).
 - **Pas de classification** : `softmax` existe et son gradient est vérifié (voir [Fonctions d'activation](activations.md)), mais aucun runtime CLI ne l'exploite avec une sortie à plusieurs neurones et des cibles de classe.
-- **Le CLI ne charge pas encore** un modèle sauvegardé au démarrage ; le runtime `online_learning` sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin d'un run si `model_path` est renseigné, et le runtime `training` fait de même après un entraînement complet.
+- **`bin/gloomy` ne charge pas encore** un modèle sauvegardé au démarrage ; le runtime `online_learning` sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin d'un run si `model_path` est renseigné, et le runtime `training` fait de même après un entraînement complet. Un binaire séparé, `bin/gloomy_infer`, peut en revanche charger un réseau déjà entraîné (au format `NetworkSerialization` ou, en int8, `QuantizedNetworkSerialization`) et produire une prédiction directement — voir [Quantification](quantization.md), « Runtime d'inférence minimal ». Il ne réentraîne rien : c'est un chemin d'inférence seule, pensé pour un déploiement plus léger.
 
 ## Pour aller plus loin
 

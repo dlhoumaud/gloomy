@@ -28,7 +28,7 @@ Les vecteurs vides et les valeurs non finies sont refusés. Un vecteur constant 
 
 ## Coût et limites
 
-Le stockage des valeurs passe de 8 octets par `double` à 2 octets par valeur, hors paramètres de quantification. Cette première version quantifie des vecteurs indépendants ; elle ne quantifie pas encore les poids, les `TrainingSample` complets ou les buffers internes du réseau.
+Le stockage des valeurs passe de 8 octets par `double` à 2 octets par valeur, hors paramètres de quantification. Cette première version quantifie des vecteurs indépendants ; les poids du réseau sont désormais quantifiables séparément (voir « Quantification des poids » plus bas), mais pas encore les `TrainingSample` complets stockés par les mémoires natives (float64/int16/int8 restent des représentations distinctes, pas une conversion à la volée) ni les buffers internes du réseau pendant l'entraînement (les poids restent en float64 pendant l'apprentissage ; seul un réseau déjà entraîné se quantifie).
 
 La quantification introduit une erreur d'arrondi et peut saturer les valeurs hors de la plage de calibration. Il faut donc mesurer l'impact sur MAE/RMSE avant de l'utiliser pour l'entraînement online. L'étape recommandée est de conserver les poids float32 et de quantifier d'abord la mémoire d'apprentissage.
 
@@ -68,3 +68,72 @@ Les paramètres `scale` et `zero_point` ne sont pas dupliqués par échantillon.
 `QuantizedInt8FIFOMemory` applique le même principe avec 1 octet par valeur quantifiée. Elle expose également `bytesPerSample()` et `memoryUsedBytes()`, ce qui permet de comparer directement les budgets int16 et int8 pour une même capacité.
 
 Le gain mémoire concerne uniquement les vecteurs `input` et `target` ; les métadonnées restent en précision native. La perte de précision doit être mesurée après déquantification avant de choisir int8 pour un entraînement online.
+
+## Quantification des poids d'un réseau entraîné
+
+`NetworkQuantization` applique `Int8Quantizer` aux poids et biais d'un `NeuralNetwork` déjà entraîné, couche par couche :
+
+```cpp
+const QuantizedNetwork compact = NetworkQuantization::quantize(network);
+const NeuralNetwork restored = NetworkQuantization::dequantize(compact);
+```
+
+Pour chaque `DenseLayer`, les poids (aplatis en un seul vecteur, ligne par ligne) et les biais sont calibrés et quantifiés **séparément** (deux appels à `Int8Quantizer::calibrate`/`quantize`), parce que leurs plages de magnitude diffèrent généralement. `dequantize()` reconstruit un réseau float64 complet via `addLayer`, et rejette (`std::invalid_argument`) toute incohérence de dimensions entre couches déclarées et données quantifiées. `quantizedBytes()` calcule la taille réelle d'un `QuantizedNetwork` en mémoire (1 octet par valeur + `sizeof(QuantizationParameters)` par vecteur quantifié).
+
+Cette quantification est **post-entraînement uniquement** : le réseau continue de s'entraîner en float64 ; on ne quantifie qu'une copie destinée à l'inférence ou au stockage.
+
+### Impact mesuré
+
+Sur un réseau 1-8-1 entraîné (seed `4242u`, 80 époques, SGD lr=0.01, tâche y=2x+1), comparé sur x ∈ [0, 10] par pas de 0.5 :
+
+- erreur absolue maximale après déquantification : environ `0.049` ;
+- erreur relative maximale : environ `0.23 %` ;
+- ratio mémoire réel : environ **2.25×** (poids+biais quantifiés vs float64), très en-deçà du ratio théorique de 8× (1 octet vs 8 octets par valeur).
+
+Ce dernier chiffre n'est pas une anomalie : sur un réseau aussi petit, le coût fixe de calibration par vecteur (`scale` + `zero_point`, soit `sizeof(QuantizationParameters)` ≈ 16 octets, répété pour chacun des 4 vecteurs — poids et biais de 2 couches) domine le gain apporté par la quantification elle-même. Le ratio théorique de 8× ne s'approche que pour des couches avec beaucoup plus de poids par vecteur quantifié (le coût fixe est alors amorti sur plus de valeurs). Ce compromis doit être mesuré à nouveau pour toute architecture réellement visée avant de choisir la quantification comme stratégie de compression.
+
+### Artefact compact : `QuantizedNetworkSerialization`
+
+`QuantizedNetworkSerialization` sérialise un `QuantizedNetwork` dans un format binaire dédié, magic `GLOOMYQN`, suivant le même schéma de robustesse que les autres sérialiseurs du projet (version de format, validation des dimensions et du nombre de couches, somme de contrôle FNV-1a en fin de fichier, rejet propre — `std::runtime_error` — en cas de fichier tronqué, corrompu ou de version non supportée) :
+
+```cpp
+QuantizedNetworkSerialization::save(path, compact);
+const QuantizedNetwork loaded = QuantizedNetworkSerialization::load(path);
+```
+
+Ce fichier ne contient que les poids/biais quantifiés et leurs paramètres de calibration — pas de métadonnées d'entraînement (optimiseur, mémoire d'apprentissage, historique). C'est délibérément un artefact minimal pensé pour le déploiement, distinct du format unifié `GLOOMY_MODEL` (`ModelSerialization`) qui, lui, embarque tout l'état nécessaire pour reprendre l'entraînement.
+
+## Runtime d'inférence minimal : `bin/gloomy_infer`
+
+`src/InferenceOnlyMain.cpp` fournit un exécutable CLI qui ne dépend que de `DenseLayer`, `NeuralNetwork`, `NetworkSerialization`, `Quantization`, `Int8Quantization`, `NetworkQuantization` et `QuantizedNetworkSerialization` — explicitement pas de `LearningEngine`, `Optimizer`, `LearningMemory` ni `GloomyConfig`. C'est le point de départ pour une cible embarquée : uniquement le chemin de calcul nécessaire pour transformer une entrée en prédiction.
+
+```text
+Usage: bin/gloomy_infer <model_path> "<sequence_values>" [--quantized]
+```
+
+- sans `--quantized` : charge un fichier `NetworkSerialization` (magic `GLOOMYNN`, float64) ;
+- avec `--quantized` : charge un fichier `QuantizedNetworkSerialization` (magic `GLOOMYQN`, int8) puis le déquantifie en mémoire avant de lancer `forward()`.
+
+La cible `make infer` compile ce binaire en une seule invocation `g++` (comme `make test`/`make benchmark`), donc indépendamment de la règle incrémentale `%.o` et de son suivi de dépendances.
+
+### Empreinte mesurée
+
+Comparaison avec le CLI complet `bin/gloomy` (mêmes options de compilation, `-O2`), sur cette machine :
+
+| Binaire | Taille brute | Taille `strip`ée |
+| --- | --- | --- |
+| `bin/gloomy` | 379 648 octets | 317 752 octets |
+| `bin/gloomy_infer` | 97 656 octets | 80 184 octets |
+
+Soit environ 74–79 % de réduction, portée en grande partie par le segment `.text` (302 429 → 69 169 octets) : l'exécutable n'embarque plus le code d'entraînement, de gestion de mémoire d'apprentissage ni de configuration CLI.
+
+Ce runtime a été vérifié de bout en bout (entraînement → export float64 et int8 → chargement et inférence réels via le binaire compilé) : les deux formats produisent une prédiction cohérente avec la tâche apprise, et l'erreur induite par la quantification reste dans l'ordre de grandeur mesuré ci-dessus. Une erreur de fichier manquant est également gérée proprement (message explicite, code de sortie 1).
+
+### Ce qui reste hors de portée de cette étape
+
+Ce runtime minimal réduit la taille du binaire et le nombre de dépendances, mais il ne règle pas à lui seul le déploiement embarqué complet. Restent notamment, non traités ici faute de matériel/outillage disponible dans cet environnement :
+
+- la compilation et l'exécution sur une cible embarquée réelle (aucune chaîne de compilation croisée — `arm-none-eabi-gcc`, `arm-linux-gnueabihf-gcc`, `avr-gcc`, `riscv64-unknown-elf-gcc` — n'est installée ici) ;
+- la mesure de RAM, Flash, CPU et énergie sur un tel matériel ;
+- le remplacement des allocations dynamiques du chemin d'inférence (`std::vector` dans `NeuralNetwork`/`DenseLayer`) par des buffers contigus ou un arena allocator à capacité statique — un changement plus invasif, qui toucherait aussi `Optimizer`, les sérialiseurs et `BenchmarkRunner`, et qui n'a pas été fait ici pour rester une modification ciblée et à faible risque ;
+- la compression différentielle des séries temporelles, qui est une piste de compression distincte de la quantification des poids.

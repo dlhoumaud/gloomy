@@ -122,9 +122,10 @@ Toutes ces stratégies implémentent `LearningMemory` et sont remplaçables sans
 - codec de `TrainingSample` int16 et int8 ;
 - `QuantizedFIFOMemory` ;
 - `QuantizedInt8FIFOMemory` ;
-- `bytesPerSample()` et `memoryUsedBytes()`.
+- `bytesPerSample()` et `memoryUsedBytes()` ;
+- `NetworkQuantization` : quantification int8 post-entraînement des poids/biais d'un `NeuralNetwork` (calibration séparée poids/biais par couche), avec `quantize()`/`dequantize()`/`quantizedBytes()` — voir [Quantification](quantization.md), « Quantification des poids d'un réseau entraîné ».
 
-Les métadonnées sont conservées en précision native. Les poids du réseau restent actuellement en float64.
+Les métadonnées sont conservées en précision native. Le réseau continue de s'entraîner en float64 ; seule une copie post-entraînement peut être quantifiée pour le déploiement.
 
 ### Persistance
 
@@ -137,6 +138,8 @@ Persistance séparée déjà disponible pour :
 - mémoire d'apprentissage native (FIFO, Reservoir, Prioritized, Novelty, Hybrid) via `LearningMemorySerialization`.
 
 Un format unifié `GLOOMY_MODEL` est désormais également disponible via `ModelSerialization` (`src/headers/ModelSerialization.h`, `src/ModelSerialization.cpp`) : il regroupe dans un fichier versionné et protégé par checksum le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage. Le fichier réseau, le fichier optimiseur, le fichier mémoire et le fichier unifié sont tous vérifiés par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption. Pour l'optimiseur, `load()` reconstruit le type concret à partir du fichier et refuse de restaurer un état dont la forme (nombre de couches, dimensions par couche) ne correspond pas exactement au réseau fourni. Pour la mémoire, `load()` restaure aussi l'état complet du générateur `std::mt19937` (Reservoir, Prioritized, Hybrid) et les partitions (Hybrid), afin que le replay reste reproductible après un redémarrage. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes.
+
+Un artefact minimal distinct existe également pour le déploiement : `QuantizedNetworkSerialization` (magic `GLOOMYQN`, même schéma de robustesse — version, dimensions, checksum FNV-1a) persiste uniquement un `QuantizedNetwork` (poids/biais int8 + paramètres de calibration), sans aucune métadonnée d'entraînement. Il n'est pas destiné à reprendre l'entraînement, contrairement à `GLOOMY_MODEL` — voir [Quantification](quantization.md), « Artefact compact : QuantizedNetworkSerialization ».
 
 ### Métriques et benchmark
 
@@ -324,11 +327,11 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 - ~~stockage sans allocations pendant la boucle online~~ partiel : la boucle de `runOnlineLearning()` et celle de `runTraining()` (`OnlineLearningRuntime.cpp`) réutilisent désormais leurs buffers (`raw_observation`, `raw_target`, `observation`, `target`, et `TrainingSample sample` pour le runtime online) d'une itération à l'autre au lieu de les reconstruire — une fois leur capacité établie à la première itération, `vector::assign`/`resize`/`operator=` sur une taille identique ne réallouent plus (même principe déjà utilisé par `DenseLayer` pour ses buffers internes). Ajouté à cette occasion : `StreamingNormalizer::normalize(values, out)`, une surcharge en place (la surcharge par valeur existante délègue désormais à celle-ci, sans changement de comportement). Vérifié par la suite de tests inchangée (comportement identique, y compris la persistance) et un nouveau test `testOnlineLearningRuntimeLongSequenceStability` (500 pas). **Ce qui reste alloué à chaque pas** : le retour par valeur de `NeuralNetwork::forward()` (et le chaînage interne couche par couche), `LossFunction::gradient()`, et les vecteurs internes à `LearningEngine`/`LearningMemory` (`entries`, `batch`, `sample_weights` dans `trainFromMemory`) — non touchés cette fois, plus risqués à changer sans revoir leurs signatures publiques ;
 - arena allocator ou capacité statique ;
 - buffers contigus (partiellement gagné pour les buffers ci-dessus ; `DenseLayer` utilise toujours des `std::vector<std::vector<double>>` imbriqués pour ses poids, non contigus — voir « Limites connues ») ;
-- quantification des poids ;
-- runtime inference-only minimal ;
-- génération d'un artefact modèle sans métadonnées inutiles ;
-- compilation et tests sur une cible embarquée réelle ;
-- mesure RAM, Flash, CPU et énergie.
+- ~~quantification des poids~~ fait : `NetworkQuantization` quantifie en int8, couche par couche, les poids et biais d'un `NeuralNetwork` déjà entraîné (calibration séparée poids/biais). Mesuré sur un réseau 1-8-1 (seed `4242`, 80 epochs, y=2x+1) : erreur absolue max ≈ `0.049`, erreur relative max ≈ `0.23 %`, mais ratio mémoire réel de seulement **2.25×** (pas 8×) — le coût fixe de calibration (`scale`/`zero_point` par vecteur) domine sur un réseau aussi petit ; ce compromis doit être remesuré pour toute architecture visée. Voir [Quantification](quantization.md), « Quantification des poids d'un réseau entraîné » ;
+- ~~runtime inference-only minimal~~ fait : `bin/gloomy_infer` (`src/InferenceOnlyMain.cpp`), compilé via `make infer`, ne dépend que de `DenseLayer`/`NeuralNetwork`/`NetworkSerialization`/`Quantization`/`Int8Quantization`/`NetworkQuantization`/`QuantizedNetworkSerialization` — pas de `LearningEngine`, `Optimizer`, `LearningMemory` ni `GloomyConfig`. Mesuré : `bin/gloomy` 379648 octets (317752 stripped) contre `bin/gloomy_infer` 97656 octets (80184 stripped), soit ~74–79 % de réduction, portée par le segment `.text` (302429 → 69169 octets). Vérifié de bout en bout : entraînement → export float64 et int8 → chargement et inférence réels via ce binaire pour les deux formats. Voir [Quantification](quantization.md), « Runtime d'inférence minimal » ;
+- ~~génération d'un artefact modèle sans métadonnées inutiles~~ fait : `QuantizedNetworkSerialization` (magic `GLOOMYQN`) ne persiste que les poids/biais int8 et leurs paramètres de calibration, sans état d'optimiseur ni de mémoire d'apprentissage — distinct du format unifié `GLOOMY_MODEL` qui, lui, embarque tout pour reprendre l'entraînement. Voir section 2, « Persistance » ;
+- compilation et tests sur une cible embarquée réelle — non fait : aucune chaîne de compilation croisée (`arm-none-eabi-gcc`, `arm-linux-gnueabihf-gcc`, `avr-gcc`, `riscv64-unknown-elf-gcc`) n'est disponible dans cet environnement ;
+- mesure RAM, Flash, CPU et énergie — non fait, pour la même raison (nécessite un matériel réel).
 
 ### Priorité basse : extensions
 
@@ -353,7 +356,7 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 9. ~~Étendre les benchmarks aux capacités et stratégies restantes.~~ Fait dans son ensemble : capacités `32`/`64`/`128`/`256`, stratégies Novelty/Hybrid, 3 pertes (MSE/MAE/Huber), 3 seeds avec moyenne/écart-type/IC95 du MAE, ratio au dataset complet, baseline naïve `baseline_last_value`, coûts CPU/débit approximatifs, et fichiers CSV séparés par expérience (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : seeds multiples et balayage de capacités pour le dataset complet et les scénarios quantifiés, baseline `float32`, jeux de données réels.
 10. ~~Ajouter les tests de concept drift et catastrophic forgetting.~~ Fait : `testCatastrophicForgettingWithoutReplay`, `testCatastrophicForgettingMitigatedByReplay` et `testConceptDriftReturnToPreviousRegime` (`tests/loss_tests.cpp`), voir section 3, « Priorité moyenne : mémoire et continual learning ».
 11. ~~Optimiser les allocations et la représentation mémoire.~~ Fait pour la boucle du runtime online : `OnlineLearningRuntime.cpp` réutilise ses buffers d'une itération à l'autre au lieu de les reconstruire, voir section 3, « Priorité moyenne : compression et embarqué ». Le reste de la représentation mémoire (couches en vecteurs imbriqués, `TrainingSample` à deux `std::vector` même pour un scalaire) n'est pas touché.
-12. Préparer le runtime embarqué et la quantification des poids.
+12. ~~Préparer le runtime embarqué et la quantification des poids.~~ Fait pour les parties réalisables sans matériel dédié : quantification int8 des poids/biais post-entraînement (`NetworkQuantization`), artefact compact dédié (`QuantizedNetworkSerialization`, magic `GLOOMYQN`) et runtime d'inférence minimal (`bin/gloomy_infer`, ~75 % plus petit que `bin/gloomy`), voir section 3, « Priorité moyenne : compression et embarqué » et [Quantification](quantization.md). Restent non faits, faute de matériel/outillage embarqué disponible ici : buffers contigus/arena allocator pour le chemin d'inférence, compilation et tests sur une cible embarquée réelle, mesure RAM/Flash/CPU/énergie ; la compression différentielle des séries temporelles reste également hors périmètre de ce point.
 
 ## 5. Limites connues à ne pas oublier
 
@@ -364,8 +367,9 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;
 - les mémoires natives stockent encore des `double` ;
-- les poids restent en float64 ;
+- le réseau s'entraîne toujours en float64 ; seule une copie post-entraînement peut être quantifiée en int8 via `NetworkQuantization`, avec un ratio mémoire réel dépendant fortement de la taille du réseau (mesuré à 2.25× sur un petit réseau 1-8-1, loin du 8× théorique) — voir [Quantification](quantization.md) ;
 - les mémoires quantifiées (int16/int8) ne sont pas encore persistées ;
+- `bin/gloomy_infer` ne couvre que le chemin `forward()` ; les couches y utilisent toujours des vecteurs imbriqués non contigus, et aucune cible embarquée réelle n'a pu être testée (pas de chaîne de compilation croisée ni de matériel disponible) ;
 - un format `GLOOMY_MODEL` unifié existe maintenant via `ModelSerialization`, en mode online il est désormais branché dans le CLI via `model_path`, et il reste à compléter les sections encore non couvertes (mémoires quantifiées, paramètres de quantification, éventuels métadonnées supplémentaires) ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles.

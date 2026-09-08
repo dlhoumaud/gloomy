@@ -1,7 +1,7 @@
 # Réseau de Neurones en C++ - Gloomy
 
 ## Description
-Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la propagation avant, la rétropropagation, plusieurs fonctions de perte, plusieurs optimiseurs, des mémoires d'apprentissage interchangeables, une persistance unifiée `GLOOMY_MODEL`, un runtime `online_learning`, ainsi qu'un runtime `training` basé sur `LearningEngine::train()`.
+Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la propagation avant, la rétropropagation, plusieurs fonctions de perte, plusieurs optimiseurs, des mémoires d'apprentissage interchangeables, une persistance unifiée `GLOOMY_MODEL`, un runtime `online_learning`, un runtime `training` basé sur `LearningEngine::train()`, ainsi qu'une quantification int8 des poids et un second exécutable d'inférence minimal (`bin/gloomy_infer`) pour un déploiement plus léger.
 
 ## Fonctionnalités
 
@@ -83,6 +83,18 @@ Exemple d'utilisation :
 ```
 
 Ce sont les prédictions générées en fonction de la séquence d'entrée donnée.
+
+### 4. Runtime d'inférence minimal (déploiement léger)
+
+Un second exécutable, `bin/gloomy_infer`, charge un modèle déjà entraîné et produit une prédiction sans dépendre du moteur d'apprentissage (pas de `LearningEngine`, `Optimizer`, `LearningMemory` ni `GloomyConfig`) : environ 75 % plus petit que `bin/gloomy`. Il accepte un modèle float64 (`NetworkSerialization`) ou, avec `--quantized`, un modèle quantifié int8 (`QuantizedNetworkSerialization`).
+
+```bash
+make infer
+./bin/gloomy_infer model.gloomy_network "3.0"
+./bin/gloomy_infer model.gloomy_network_int8 "3.0" --quantized
+```
+
+Voir [`docs/quantization.md`](docs/quantization.md) pour la quantification des poids, le format `QuantizedNetworkSerialization` et l'empreinte mesurée de ce binaire.
 
 ## Documentation détaillée
 
