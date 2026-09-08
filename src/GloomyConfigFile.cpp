@@ -110,6 +110,7 @@ GloomyConfig GloomyConfigFile::load(const std::string& path, const GloomyConfig&
         else if (key == "precision") config.precision = value;
         else if (key == "train_every") config.train_every = parseSize(key, value);
         else if (key == "batch_size") config.batch_size = parseSize(key, value);
+        else if (key == "epochs") config.epochs = parseSize(key, value);
         else if (key == "model_path") config.model_path = value;
         else if (key == "optimizer_path") config.optimizer_path = value;
         else if (key == "memory_path") config.memory_path = value;

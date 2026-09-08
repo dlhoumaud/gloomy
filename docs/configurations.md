@@ -31,6 +31,7 @@ La clé `runtime` sélectionne le mode d'exécution du CLI :
 
 - `runtime=inference` (défaut) : comportement historique, seules `activation`, `post_activation`, `hidden_layers`, `neurons` et `predictions` s'appliquent.
 - `runtime=online_learning` : exécute la boucle observation → normalisation → prédiction → cible → erreur → mémoire → scheduler → replay → mise à jour sur la séquence d'entrée (voir [Mémoire d'apprentissage](memory.md) et [feuille de route](roadmap.md), point 6). Toutes les clés de `GloomyConfig` s'appliquent alors : `loss`/`huber_delta`, `optimizer`/`learning_rate`/`momentum`/`beta1`/`beta2`/`epsilon`, `memory_strategy`/`memory_capacity`/`recent_ratio`/`error_ratio`/`novelty_ratio`/`historical_ratio`/`novelty_threshold`/`prioritized_alpha`/`prioritized_beta`/`seed`, `train_every`, `batch_size`. `prioritized_beta` (défaut `0.4`) contrôle la correction de biais d'échantillonnage du prioritized replay (`0` la désactive) — voir [Mémoire d'apprentissage](memory.md).
+- `runtime=training` : entraîne un réseau complet sur la séquence fournie en mode batch complet sur plusieurs `epochs` (`LearningEngine::train()`), puis sauvegarde automatiquement le modèle si `model_path` est renseigné. Les clés applicables sont les mêmes que pour `online_learning`, plus `epochs`.
 
 Exemple :
 
@@ -49,6 +50,7 @@ memory_strategy=hybrid
 memory_capacity=64
 train_every=1
 batch_size=4
+epochs=2
 ```
 
 ```bash

@@ -4,7 +4,10 @@ Cette page répond concrètement à une question simple : **avec le Gloomy actue
 
 ## Ce que Gloomy sait faire aujourd'hui
 
-Gloomy n'est pas un système à qui l'on « enseigne » des connaissances générales (pas de texte, pas d'images, pas de conversation). C'est un petit moteur de réseau dense en C++ dont le seul mode d'apprentissage réel — `ONLINE_LEARNING_RUNTIME` (voir [Configurations et limites](configurations.md)) — apprend, en continu et sans réentraînement complet, à **prédire la valeur suivante d'une série scalaire** : chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`).
+Gloomy n'est pas un système à qui l'on « enseigne » des connaissances générales (pas de texte, pas d'images, pas de conversation). C'est un petit moteur de réseau dense en C++ qui sait aujourd'hui faire deux types d'apprentissage réel sur des séries scalaires : `ONLINE_LEARNING_RUNTIME` et `TRAINING_RUNTIME` (voir [Configurations et limites](configurations.md)).
+
+- `ONLINE_LEARNING_RUNTIME` apprend, en continu et sans réentraînement complet, à **prédire la valeur suivante d'une série scalaire** : chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`).
+- `TRAINING_RUNTIME` entraîne le réseau sur l'ensemble complet de la séquence avec `LearningEngine::train()` puis peut sauvegarder l'état complet si `model_path` est renseigné.
 
 Concrètement, on peut lui apprendre à anticiper la suite d'un flux de mesures : un compteur, une température, une charge, un cours simplifié, un capteur — tant que c'est une seule valeur numérique par instant. Les exemples ci-dessous sont réels : chaque commande a été exécutée telle quelle avec le CLI actuel, les sorties sont copiées telles quelles.
 
@@ -123,7 +126,7 @@ Pour ne pas se tromper d'attentes :
 - **Une seule valeur à la fois** : le runtime online est scalaire (une entrée, une sortie). Pas de séries multivariées, pas d'image, pas de texte.
 - **Pas de vraie mémoire de contexte** : chaque prédiction ne voit que l'observation courante, pas une fenêtre des valeurs précédentes (pas de couche récurrente).
 - **Pas de classification** : `softmax` existe et son gradient est vérifié (voir [Fonctions d'activation](activations.md)), mais aucun runtime CLI ne l'exploite avec une sortie à plusieurs neurones et des cibles de classe.
-- **Le CLI ne sauvegarde pas encore** le réseau/l'optimiseur/la mémoire entraînés à la fin d'un run `online_learning` — chaque exécution repart de zéro (voir [feuille de route](roadmap.md), points 1 à 3 et 6).
+- **Le CLI ne charge pas encore** un modèle sauvegardé au démarrage ; le runtime `online_learning` sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin d'un run si `model_path` est renseigné, et le runtime `training` fait de même après un entraînement complet.
 
 ## Pour aller plus loin
 

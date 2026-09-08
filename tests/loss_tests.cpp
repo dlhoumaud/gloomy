@@ -1403,6 +1403,32 @@ void testGloomyConfigFile() {
     std::remove(path.c_str());
 }
 
+void testTrainingRuntime() {
+    const std::vector<double> sequence = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+
+    GloomyConfig config = GloomyConfig::defaults();
+    config.runtime = "training";
+    config.optimizer = "sgd";
+    config.loss = "mse";
+    config.memory_strategy = "fifo";
+    config.batch_size = 4;
+    config.epochs = 2;
+
+    const TrainingResult result = runTraining(config, sequence);
+    assert(result.network.layers().size() > 0);
+    assert(result.normalizer != nullptr);
+    assert(result.optimizer != nullptr);
+    assert(std::isfinite(result.average_loss));
+
+    bool threw = false;
+    try {
+        runTraining(config, {1.0});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+}
+
 void testOnlineLearningRuntime() {
     const std::vector<double> sequence = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
 
@@ -1445,17 +1471,33 @@ void testOnlineLearningRuntime() {
     }
 
     // The online learning result should expose the fully trained state for the
-    // CLI to persist as a unified GLOOMY_MODEL.
+    // CLI to persist as a unified GLOOMY_MODEL, and a saved model should be
+    // loadable back into the online runtime.
     {
+        const std::string path = "/tmp/gloomy_online_loaded_model.bin";
+        std::remove(path.c_str());
+
         GloomyConfig config = GloomyConfig::defaults();
         config.memory_capacity = 8;
+        config.model_path = path;
 
-        const OnlineLearningResult result = runOnlineLearning(config, sequence);
-        assert(result.network.layers().size() > 0);
-        assert(result.normalizer != nullptr);
-        assert(result.optimizer != nullptr);
-        assert(result.memory != nullptr);
-        assert(result.memory_size == result.memory->size());
+        const OnlineLearningResult baseline = runOnlineLearning(config, sequence);
+        ModelSerialization::save(
+            path,
+            baseline.network,
+            *baseline.normalizer,
+            *baseline.optimizer,
+            *baseline.memory
+        );
+
+        const OnlineLearningResult resumed = runOnlineLearning(config, sequence, path);
+        assert(resumed.network.layers().size() > 0);
+        assert(resumed.normalizer != nullptr);
+        assert(resumed.optimizer != nullptr);
+        assert(resumed.memory != nullptr);
+        assert(resumed.memory_size == resumed.memory->size());
+
+        std::remove(path.c_str());
     }
 
     // A sequence with fewer than two values is rejected.
@@ -1551,6 +1593,7 @@ int main() {
     testLearningMemorySerialization();
     testGloomyConfigDefaults();
     testGloomyConfigFile();
+    testTrainingRuntime();
     testOnlineLearningRuntime();
     return 0;
 }

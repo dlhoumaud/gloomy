@@ -43,8 +43,8 @@ void displayHelp(const char *programName) {
     std::cerr << "  -f, --config PATH    : Load a gloomy.config key=value file (see docs/roadmap.md)." << std::endl;
     std::cerr << "                         Priority is CLI > file > defaults: any -c/-l/-n/-a/-A" << std::endl;
     std::cerr << "                         flag overrides the value loaded from the file. The file's" << std::endl;
-    std::cerr << "                         \"runtime\" key selects \"inference\" (default) or" << std::endl;
-    std::cerr << "                         \"online_learning\"." << std::endl;
+    std::cerr << "                         \"runtime\" key selects \"inference\" (default)," << std::endl;
+    std::cerr << "                         \"online_learning\", or \"training\"." << std::endl;
     std::cerr << "  -h                   : Show this help" << std::endl;
     std::cerr << std::endl;
 }
@@ -99,7 +99,7 @@ void parseArguments(int argc, char *argv[], GloomyConfig &config) {
     if (config.post_activation != "none" && config.post_activation != "softmax") {
         throw std::invalid_argument("Unknown post-activation function: " + config.post_activation);
     }
-    if (config.runtime != "inference" && config.runtime != "online_learning") {
+    if (config.runtime != "inference" && config.runtime != "online_learning" && config.runtime != "training") {
         throw std::invalid_argument("Unknown runtime: " + config.runtime);
     }
 }
@@ -144,12 +144,34 @@ int runInference(const GloomyConfig &config, std::vector<double> sequence) {
     return 0;
 }
 
+// TRAINING_RUNTIME : entrainement complet sur un jeu de donnees complet,
+// avec une seule passe par epoch et un batch configure par config.batch_size.
+int runTrainingRuntime(const GloomyConfig &config, const std::vector<double> &sequence) {
+    try {
+        const TrainingResult result = runTraining(config, sequence);
+        if (!config.model_path.empty()) {
+            ModelSerialization::save(
+                config.model_path,
+                result.network,
+                *result.normalizer,
+                *result.optimizer,
+                *result.memory
+            );
+        }
+        std::cerr << "average_loss=" << result.average_loss << std::endl;
+    } catch (const std::exception &e) {
+        std::cerr << "Error during training: " << e.what() << std::endl;
+        return 1;
+    }
+    return 0;
+}
+
 // ONLINE_LEARNING_RUNTIME : boucle observation -> normalisation ->
 // prediction -> cible -> erreur -> memoire -> scheduler -> replay -> mise a
 // jour (voir src/headers/OnlineLearningRuntime.h et docs/roadmap.md).
 int runOnline(const GloomyConfig &config, const std::vector<double> &sequence) {
     try {
-        const OnlineLearningResult result = runOnlineLearning(config, sequence);
+        const OnlineLearningResult result = runOnlineLearning(config, sequence, config.model_path);
         if (!config.model_path.empty()) {
             ModelSerialization::save(
                 config.model_path,
@@ -212,6 +234,9 @@ int main(int argc, char *argv[]) {
 
     if (config.runtime == "online_learning") {
         return runOnline(config, sequence);
+    }
+    if (config.runtime == "training") {
+        return runTrainingRuntime(config, sequence);
     }
     return runInference(config, std::move(sequence));
 }

@@ -17,10 +17,8 @@
 // composant correspondant (voir le commentaire associé) ; les autres
 // établissent ici, pour la première fois, un défaut central documenté.
 struct GloomyConfig {
-    // Mode de fonctionnement. Seul "inference" est réellement supporté par
-    // le CLI actuel ; "training" et "online_learning" sont réservés aux
-    // futurs runtimes (voir docs/roadmap.md, point 4 « CLI d'entraînement
-    // et runtime online »).
+    // Mode de fonctionnement. Le CLI supporte aujourd'hui
+    // "inference", "online_learning" et "training".
     std::string runtime = "inference";
 
     // Architecture du réseau : reprend les défauts actuels de src/main.cpp.
@@ -78,6 +76,7 @@ struct GloomyConfig {
     // observation, équivalent à EverySampleScheduler).
     std::size_t train_every = 1;
     std::size_t batch_size = 8;
+    std::size_t epochs = 1;
 
     // Chemins de persistance. model_path reprend la convention déjà en
     // usage dans la documentation (docs/serialization.md) ; optimizer_path

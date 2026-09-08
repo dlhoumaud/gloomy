@@ -207,7 +207,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
    Le CLI sélectionne ce runtime via la clé `runtime=online_learning` d'un fichier `-f`/`--config` (voir section « Configuration fichier » ci-dessous) ; `main.cpp` a été réorganisé pour faire circuler un unique `GloomyConfig` du parsing jusqu'au dispatch (`runInference`/`runOnline`), au lieu de cinq variables locales dispersées. Un runtime inconnu est rejeté avec un message explicite, de même qu'une perte, un optimiseur ou une stratégie de mémoire inconnus (tous les cas testés).
 
-   `TRAINING_RUNTIME` (entraînement par epochs sur un jeu de données complet, via `LearningEngine::train()`) reste à faire — c'est un mode différent de l'online learning et n'a pas encore de point d'entrée CLI.
+   `TRAINING_RUNTIME` (entraînement par epochs sur un jeu de données complet, via `LearningEngine::train()`) est maintenant exposé dans le CLI via `runtime=training`. Le runtime construit un réseau scalaire, normalise la séquence, entraîne sur le dataset complet puis sauvegarde l'état complet si `model_path` est fourni.
 
    Limites connues de cette première version : le réseau du runtime online est fixé à une entrée/sortie scalaire (pas de fenêtre configurable) ; le CLI ne charge pas encore un modèle sauvegardé au démarrage, et la sortie reste un flux `stdout` ligne par ligne, pas encore un format structuré. La persistance du modèle entraîné est désormais branchée : si `model_path` est renseigné, le runtime online sauvegarde le réseau, la normalisation, l'optimiseur et la mémoire via `ModelSerialization` au terme de son exécution.
 
@@ -331,18 +331,19 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 3. ~~Ajouter la persistance des mémoires~~ Fait pour la représentation float64 (`LearningMemorySerialization`, voir section 2 et 3). Reste : les paramètres de quantification (int16/int8).
 4. ~~Centraliser les défauts dans une configuration C++.~~ Fait (`GloomyConfig`, voir section 2 et 3).
 5. ~~Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.~~ Fait (`GloomyConfigFile`, voir section 2 et 3).
-6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3). `TRAINING_RUNTIME` reste à faire.
-7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI. `TRAINING_RUNTIME` et le chargement d'un modèle sauvegardé restent à faire.
-8. Étendre les benchmarks aux capacités et stratégies restantes.
-9. Ajouter les tests de concept drift et catastrophic forgetting.
-10. Optimiser les allocations et la représentation mémoire.
-11. Préparer le runtime embarqué et la quantification des poids.
+6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3).
+7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI.
+8. ~~Ajouter `TRAINING_RUNTIME` dans le CLI.~~ Fait via `runtime=training`, avec `epochs` et sauvegarde de `model_path`.
+9. Étendre les benchmarks aux capacités et stratégies restantes.
+10. Ajouter les tests de concept drift et catastrophic forgetting.
+11. Optimiser les allocations et la représentation mémoire.
+12. Préparer le runtime embarqué et la quantification des poids.
 
 ## 5. Limites connues à ne pas oublier
 
 - le CLI recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires (`INFERENCE_RUNTIME` uniquement ; sans effet sur `ONLINE_LEARNING_RUNTIME`, qui garde un seul réseau du début à la fin) ;
 - le CLI ne charge pas encore de modèle sauvegardé ; le runtime online sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin de son exécution lorsqu'un `model_path` est renseigné ;
-- le CLI ne lance pas encore d'entraînement par epochs sur un jeu de données complet (`TRAINING_RUNTIME` reste à faire ; `ONLINE_LEARNING_RUNTIME`, lui, est fonctionnel) ;
+- le CLI lance maintenant un entraînement par epochs sur un jeu de données complet via `runtime=training` ;
 - le réseau du runtime online est fixé à une entrée/sortie scalaire, sans fenêtre configurable ;
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;

@@ -8,6 +8,7 @@
 #include "LearningMemory.h"
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
 // Une observation traitée par le runtime online, avant la mise à jour des
@@ -29,6 +30,14 @@ struct OnlineLearningResult {
     std::unique_ptr<LearningMemory> memory;
 };
 
+struct TrainingResult {
+    double average_loss = 0.0;
+    NeuralNetwork network;
+    std::unique_ptr<StreamingNormalizer> normalizer;
+    std::unique_ptr<Optimizer> optimizer;
+    std::unique_ptr<LearningMemory> memory;
+};
+
 // Exécute le ONLINE_LEARNING_RUNTIME décrit dans docs/roadmap.md : chaque
 // valeur consécutive de `sequence` devient une observation scalaire
 // (sequence[i]) et sa cible (sequence[i + 1]), et la boucle
@@ -40,6 +49,17 @@ struct OnlineLearningResult {
 // scheduler sont construits à partir de `config`. `sequence` doit contenir
 // au moins deux valeurs.
 OnlineLearningResult runOnlineLearning(
+    const GloomyConfig& config,
+    const std::vector<double>& sequence
+);
+
+OnlineLearningResult runOnlineLearning(
+    const GloomyConfig& config,
+    const std::vector<double>& sequence,
+    const std::string& model_path
+);
+
+TrainingResult runTraining(
     const GloomyConfig& config,
     const std::vector<double>& sequence
 );

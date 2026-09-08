@@ -1,7 +1,7 @@
 # Réseau de Neurones en C++ - Gloomy
 
 ## Description
-Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la propagation avant, la rétropropagation, la perte MSE, l'optimiseur SGD, l'entraînement par mini-batches et une première mémoire d'apprentissage FIFO bornée.
+Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la propagation avant, la rétropropagation, plusieurs fonctions de perte, plusieurs optimiseurs, des mémoires d'apprentissage interchangeables, une persistance unifiée `GLOOMY_MODEL`, un runtime `online_learning`, ainsi qu'un runtime `training` basé sur `LearningEngine::train()`.
 
 ## Fonctionnalités
 
@@ -16,6 +16,8 @@ Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la pro
 - **Interface en ligne de commande** pour interagir avec le modèle :
   - Définir la séquence d'entrée
   - Spécifier le nombre de prédictions, de couches, de neurones, de fonctions d'activation, etc.
+  - Sélectionner `runtime=inference`, `runtime=online_learning` ou `runtime=training`
+  - Charger une configuration via `-f/--config` avec priorité `CLI > fichier > défauts`
 
 ## Prérequis
 

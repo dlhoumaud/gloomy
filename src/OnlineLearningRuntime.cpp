@@ -13,6 +13,8 @@
 #include "headers/TrainingScheduler.h"
 #include "headers/LearningEngine.h"
 #include "headers/Normalization.h"
+#include "headers/ModelSerialization.h"
+#include <fstream>
 #include <memory>
 #include <stdexcept>
 
@@ -71,6 +73,72 @@ OnlineLearningResult runOnlineLearning(
     const GloomyConfig& config,
     const std::vector<double>& sequence
 ) {
+    return runOnlineLearning(config, sequence, "");
+}
+
+TrainingResult runTraining(
+    const GloomyConfig& config,
+    const std::vector<double>& sequence
+) {
+    if (sequence.size() < 2) {
+        throw std::invalid_argument(
+            "Training requires at least two values in the input sequence"
+        );
+    }
+    if (config.batch_size == 0) {
+        throw std::invalid_argument("batch_size must be positive");
+    }
+    if (config.epochs == 0) {
+        throw std::invalid_argument("epochs must be positive");
+    }
+
+    const std::unique_ptr<LossFunction> loss = makeLoss(config);
+    auto network = std::make_unique<NeuralNetwork>();
+    network->algorithm = config.activation;
+    network->post_algorithm = config.post_activation;
+    if (config.hidden_layers <= 0) {
+        network->addLayer(1, 1);
+    } else {
+        network->addLayer(1, config.neurons);
+        for (int index = 1; index < config.hidden_layers; ++index) {
+            network->addLayer(config.neurons, config.neurons);
+        }
+        network->addLayer(config.neurons, 1);
+    }
+
+    auto normalizer = std::make_unique<StreamingNormalizer>(1);
+    auto optimizer = makeOptimizer(config);
+    auto memory = makeMemory(config);
+
+    std::vector<TrainingSample> samples;
+    samples.reserve(sequence.size() - 1);
+    for (std::size_t index = 0; index + 1 < sequence.size(); ++index) {
+        const std::vector<double> raw_observation = {sequence[index]};
+        const std::vector<double> raw_target = {sequence[index + 1]};
+
+        normalizer->update(raw_observation);
+        const std::vector<double> observation = normalizer->normalize(raw_observation);
+        const std::vector<double> target = normalizer->normalize(raw_target);
+        samples.push_back({observation, target});
+    }
+
+    LearningEngine engine(*network, *loss, *optimizer);
+    const double average_loss = engine.train(samples, config.epochs, config.batch_size);
+
+    TrainingResult result;
+    result.average_loss = average_loss;
+    result.network = std::move(*network);
+    result.normalizer = std::move(normalizer);
+    result.optimizer = std::move(optimizer);
+    result.memory = std::move(memory);
+    return result;
+}
+
+OnlineLearningResult runOnlineLearning(
+    const GloomyConfig& config,
+    const std::vector<double>& sequence,
+    const std::string& model_path
+) {
     if (sequence.size() < 2) {
         throw std::invalid_argument(
             "Online learning requires at least two values in the input sequence"
@@ -80,28 +148,44 @@ OnlineLearningResult runOnlineLearning(
         throw std::invalid_argument("batch_size must be positive");
     }
 
-    // Réseau scalaire : chaque observation et chaque cible sont un unique
-    // double, adapté à un flux d'apprentissage en continu.
-    NeuralNetwork network;
-    network.algorithm = config.activation;
-    network.post_algorithm = config.post_activation;
-    if (config.hidden_layers <= 0) {
-        network.addLayer(1, 1);
-    } else {
-        network.addLayer(1, config.neurons);
-        for (int index = 1; index < config.hidden_layers; ++index) {
-            network.addLayer(config.neurons, config.neurons);
-        }
-        network.addLayer(config.neurons, 1);
-    }
-
     const std::unique_ptr<LossFunction> loss = makeLoss(config);
-    std::unique_ptr<Optimizer> optimizer = makeOptimizer(config);
-    std::unique_ptr<LearningMemory> memory = makeMemory(config);
     const std::unique_ptr<TrainingScheduler> scheduler = makeScheduler(config);
 
-    LearningEngine engine(network, *loss, *optimizer);
+    auto network = std::make_unique<NeuralNetwork>();
     auto normalizer = std::make_unique<StreamingNormalizer>(1);
+    std::unique_ptr<Optimizer> optimizer;
+    std::unique_ptr<LearningMemory> memory;
+
+    if (!model_path.empty()) {
+        std::ifstream input(model_path, std::ios::binary);
+        if (input.good()) {
+            ModelSerialization::LoadedModel loaded = ModelSerialization::load(model_path);
+            network = std::make_unique<NeuralNetwork>(std::move(loaded.network));
+            normalizer = std::move(loaded.normalizer);
+            optimizer = std::move(loaded.optimizer);
+            memory = std::move(loaded.memory);
+        }
+    }
+
+    if (!optimizer || !memory || !normalizer) {
+        network->algorithm = config.activation;
+        network->post_algorithm = config.post_activation;
+        if (config.hidden_layers <= 0) {
+            network->addLayer(1, 1);
+        } else {
+            network->addLayer(1, config.neurons);
+            for (int index = 1; index < config.hidden_layers; ++index) {
+                network->addLayer(config.neurons, config.neurons);
+            }
+            network->addLayer(config.neurons, 1);
+        }
+
+        optimizer = makeOptimizer(config);
+        memory = makeMemory(config);
+        normalizer = std::make_unique<StreamingNormalizer>(1);
+    }
+
+    LearningEngine engine(*network, *loss, *optimizer);
 
     OnlineLearningResult result;
     result.steps.reserve(sequence.size() - 1);
@@ -115,7 +199,7 @@ OnlineLearningResult runOnlineLearning(
         const std::vector<double> observation = normalizer->normalize(raw_observation);
         const std::vector<double> target = normalizer->normalize(raw_target);
 
-        const std::vector<double> prediction = network.forward(observation);
+        const std::vector<double> prediction = network->forward(observation);
 
         TrainingSample sample;
         sample.input = observation;
@@ -131,7 +215,7 @@ OnlineLearningResult runOnlineLearning(
         total_loss += step_loss;
     }
 
-    result.network = std::move(network);
+    result.network = std::move(*network);
     result.normalizer = std::move(normalizer);
     result.optimizer = std::move(optimizer);
     result.memory = std::move(memory);
