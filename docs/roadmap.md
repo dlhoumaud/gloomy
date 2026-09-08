@@ -161,7 +161,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
    Le format unifié existe désormais dans `ModelSerialization` : il regroupe dans un seul fichier versionné le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage, avec un checksum global et un chargement vérifié.
 
-   Il reste à intégrer ce fichier unifié dans le CLI et à l'étendre progressivement aux composants encore hors périmètre, en particulier les mémoires quantifiées et les paramètres de quantification.
+   Le runtime online l'utilise désormais via `model_path` pour sauvegarder l'état entraîné au terme d'une exécution. Il reste à étendre ce format aux composants encore hors périmètre, en particulier les mémoires quantifiées et les paramètres de quantification.
 
 2. **Persistance de l'état des optimiseurs — fait**
 
@@ -174,7 +174,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    - vitesses Momentum ;
    - premiers et seconds moments Adam.
 
-   L'état est vérifié contre la forme des couches (nombre de couches, dimensions d'entrée/sortie) fournies à `load()` pour éviter de restaurer un buffer incompatible ; un fichier tronqué, corrompu ou de version différente est également rejeté. Reste à faire : intégrer ce fichier séparé dans le format `GLOOMY_MODEL` unifié (point 1) et brancher cette persistance dans le CLI (point 4).
+   L'état est vérifié contre la forme des couches (nombre de couches, dimensions d'entrée/sortie) fournies à `load()` pour éviter de restaurer un buffer incompatible ; un fichier tronqué, corrompu ou de version différente est également rejeté. Le format `GLOOMY_MODEL` unifié couvre désormais ce composant, et le CLI online l'utilise via `model_path` pour sauvegarder l'état entraîné au terme d'une exécution.
 
 3. **Persistance des mémoires — fait pour la représentation float64**
 
@@ -263,7 +263,7 @@ Avant de l'implémenter, il faudra décider :
 
 Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendance externe, avec priorité `CLI > fichier > défauts`. Ne pas appeler ce fichier `.env` au sens strict si ses valeurs ne sont pas destinées à être des variables d'environnement ; `gloomy.config` ou `gloomy.ini` serait plus explicite. Un alias `-f` peut néanmoins accepter n'importe quel chemin.
 
-**État** : fait. `GloomyConfigFile::load()` (`src/headers/GloomyConfigFile.h`, `src/GloomyConfigFile.cpp`) implémente ce parseur clé-valeur minimal (pas de sections, pas de guillemets ; `#`/`;` en commentaire ; espaces trimés) et applique toutes les clés de `GloomyConfig` reconnues. `main.cpp` accepte `-f`/`--config PATH` avec la priorité `CLI > fichier > défauts` : le fichier est appliqué en première passe par-dessus les défauts, puis les flags `-c`/`-l`/`-n`/`-a`/`-A` explicites sont appliqués en seconde passe et l'emportent toujours. Une clé inconnue, une ligne malformée, une valeur numérique invalide ou un fichier introuvable sont rejetés avec un message explicite. Seules les clés `activation`, `post_activation`, `hidden_layers`, `neurons` et `predictions` influencent le CLI d'inférence actuel ; les autres (loss, optimizer, memory, precision, scheduling, chemins) sont acceptées et validées mais pas encore consommées — c'est l'objet du point 6 ci-dessous. Voir [Configurations et limites](configurations.md) pour le détail et des exemples.
+**État** : fait. `GloomyConfigFile::load()` (`src/headers/GloomyConfigFile.h`, `src/GloomyConfigFile.cpp`) implémente ce parseur clé-valeur minimal (pas de sections, pas de guillemets ; `#`/`;` en commentaire ; espaces trimés) et applique toutes les clés de `GloomyConfig` reconnues. `main.cpp` accepte `-f`/`--config PATH` avec la priorité `CLI > fichier > défauts` : le fichier est appliqué en première passe par-dessus les défauts, puis les flags `-c`/`-l`/`-n`/`-a`/`-A` explicites sont appliqués en seconde passe et l'emportent toujours. Une clé inconnue, une ligne malformée, une valeur numérique invalide ou un fichier introuvable sont rejetés avec un message explicite. `runtime=online_learning` utilise désormais les hyperparamètres déclarés dans le fichier, et `model_path` est consommé pour sauvegarder le modèle unifié au terme de l'exécution. Voir [Configurations et limites](configurations.md) pour le détail et des exemples.
 
 ### Priorité moyenne : robustesse mathématique
 

@@ -159,7 +159,7 @@ std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load("me
 
 Un fichier tronqué, corrompu, de version incompatible ou dont le nombre d'échantillons dépasse la capacité est rejeté par une exception plutôt que de restaurer un état invalide.
 
-Cette persistance reste un fichier séparé du réseau, de la normalisation et de l'optimiseur. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes ; leur persistance nécessitera de réutiliser les codecs `TrainingSampleQuantization`/`Int8TrainingSampleQuantization` avec les paramètres `scale`/`zero_point`. Voir la [feuille de route](roadmap.md).
+Cette persistance reste utile comme export séparé du réseau, de la normalisation et de l'optimiseur, mais elle est aussi incluse dans le format unifié `GLOOMY_MODEL` via `ModelSerialization`. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes ; leur persistance nécessitera de réutiliser les codecs `TrainingSampleQuantization`/`Int8TrainingSampleQuantization` avec les paramètres `scale`/`zero_point`. Voir la [feuille de route](roadmap.md).
 
 ## Training Scheduler
 

@@ -7,12 +7,15 @@
 #include "headers/FIFOMemory.h"
 #include "headers/ReservoirMemory.h"
 #include "headers/PrioritizedMemory.h"
+#include "headers/NoveltyMemory.h"
+#include "headers/HybridMemory.h"
 #include "headers/LearningMemory.h"
 #include "headers/QuantizedFIFOMemory.h"
 #include "headers/QuantizedInt8FIFOMemory.h"
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -77,7 +80,17 @@ std::unique_ptr<LearningMemory> makeMemory(const std::string& name, size_t capac
     if (name == "reservoir") {
         return std::make_unique<ReservoirMemory>(capacity, 1234u);
     }
-    return std::make_unique<PrioritizedMemory>(capacity, 0.6, 1234u);
+    if (name == "prioritized") {
+        return std::make_unique<PrioritizedMemory>(capacity, 0.6, 1234u);
+    }
+    if (name == "novelty") {
+        return std::make_unique<NoveltyMemory>(capacity, 1.0);
+    }
+    if (name == "hybrid") {
+        const HybridMemoryRatios ratios{0.25, 0.25, 0.25, 0.25};
+        return std::make_unique<HybridMemory>(capacity, ratios, 1.0, 1234u);
+    }
+    throw std::invalid_argument("Unknown benchmark memory strategy: " + name);
 }
 
 BenchmarkResult evaluate(
@@ -164,7 +177,7 @@ int main() {
     }
 
     const size_t memory_capacity = 16;
-    for (const std::string memory_name : {"fifo", "reservoir", "prioritized"}) {
+    for (const std::string memory_name : {"fifo", "reservoir", "prioritized", "novelty", "hybrid"}) {
         for (const std::string& optimizer_name : optimizers) {
             NeuralNetwork network = makeNetwork();
             MSELoss loss;

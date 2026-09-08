@@ -51,7 +51,7 @@ Le chargement vérifie la magie, la version, les tailles et le checksum avant de
 
 ## Limites et évolution
 
-Le format unifié couvre désormais le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage dans un seul fichier binaire. Les méta-données, la quantification et les mémoires quantifiées restent encore à compléter selon les besoins des prochains runtimes et des scénarios embarqués.
+Le format unifié couvre désormais le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage dans un seul fichier binaire. Le CLI online l'utilise désormais via `model_path` pour sauvegarder l'état complété au terme d'une exécution. Les méta-données, la quantification et les mémoires quantifiées restent encore à compléter selon les besoins des prochains runtimes et des scénarios embarqués.
 
 ## Réseau neuronal
 
@@ -62,7 +62,7 @@ NetworkSerialization::save("model.gloomy", network);
 NetworkSerialization::load("model.gloomy", restored_network);
 ```
 
-Le chargement reconstruit les couches avant de restaurer leurs paramètres. Le format est versionné, protégé par un checksum FNV-1a et refuse les magic, versions, dimensions, corruptions ou fichiers tronqués invalides. L'état de l'optimiseur, la mémoire d'apprentissage et la quantification restent à intégrer dans le format modèle complet.
+Le chargement reconstruit les couches avant de restaurer leurs paramètres. Le format est versionné, protégé par un checksum FNV-1a et refuse les magic, versions, dimensions, corruptions ou fichiers tronqués invalides. Le format `GLOOMY_MODEL` unifié inclut désormais aussi l'optimiseur et la mémoire d'apprentissage ; la quantification des mémoires et les paramètres de quantification restent encore à couvrir.
 
 ## Normalisation
 
@@ -98,4 +98,4 @@ Voir [Mémoire d'apprentissage](memory.md) pour le détail par stratégie et les
 
 Format actuellement en **version 2** : `correction_exponent` (`beta`, voir [Mémoire d'apprentissage](memory.md), « Correction de biais d'échantillonnage ») a été ajouté à la section `PrioritizedMemory`. Un fichier version 1 (antérieur à ce changement) est refusé par `load()` plutôt que mal interprété.
 
-Ces fichiers (réseau, normalisation, optimiseur, mémoire) restent séparés ; leur regroupement dans un format `GLOOMY_MODEL` unique reste à faire.
+Ces fichiers (réseau, normalisation, optimiseur, mémoire) restent disponibles individuellement pour des usages ciblés, mais le regroupement dans un format `GLOOMY_MODEL` unique est désormais réalisé par `ModelSerialization` et consommé par le runtime online via `model_path`.

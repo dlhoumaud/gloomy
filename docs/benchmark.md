@@ -29,11 +29,11 @@ La commande suivante exécute un benchmark déterministe sur une régression syn
 make benchmark
 ```
 
-Elle compare SGD, Momentum et Adam sur le même réseau et les mêmes données, d'abord avec le dataset complet, puis avec FIFO, Reservoir, Prioritized, FIFO int16 et FIFO int8 à capacité `16`. Les scénarios bornés utilisent le mode online et un replay de taille `8`. Le fichier `benchmark_results.csv` est produit à la racine et contient les pertes, MAE, RMSE, temps d'entraînement, latence moyenne d'inférence, mémoire des paramètres et état optimiseur, nombre d'échantillons et nombre d'updates.
+Elle compare SGD, Momentum et Adam sur le même réseau et les mêmes données, d'abord avec le dataset complet, puis avec FIFO, Reservoir, Prioritized, Novelty, Hybrid, FIFO int16 et FIFO int8 à capacité `16`. Les scénarios bornés utilisent le mode online et un replay de taille `8`. Le fichier `benchmark_results.csv` est produit à la racine et contient les pertes, MAE, RMSE, temps d'entraînement, latence moyenne d'inférence, mémoire des paramètres et état optimiseur, nombre d'échantillons et nombre d'updates.
 
 Le runner ajoute aussi deux lignes d'expérience de catastrophic forgetting : `forgetting_no_replay` entraîne sur A puis B sans replay, tandis que `forgetting_fifo_replay` réentraîne périodiquement depuis la mémoire FIFO de A. Leur colonne `forgetting` suit la convention `performance_before - performance_after`; ici il s'agit d'une perte, donc une valeur négative signifie que la perte a augmenté après l'apprentissage de B.
 
-Ce runner est une première baseline contrôlée. Novelty, Hybrid, plusieurs capacités mémoire et la quantification des poids restent à ajouter à la campagne. Les poids du réseau restent en float64 ; les scénarios quantifiés mesurent uniquement la mémoire d'apprentissage. Les temps restent dépendants de la machine et ne doivent être comparés qu'à environnement constant.
+Ce runner est une première baseline contrôlée. Plusieurs capacités mémoire, plus de configurations de quantification et des campagnes plus larges restent encore à ajouter à la campagne. Les poids du réseau restent en float64 ; les scénarios quantifiés mesurent uniquement la mémoire d'apprentissage. Les temps restent dépendants de la machine et ne doivent être comparés qu'à environnement constant.
 
 Pour contrôler les valeurs numériques sans faux positif sur l'en-tête `inference_time_us`, vérifier les colonnes de données plutôt que rechercher `inf` dans tout le fichier :
 

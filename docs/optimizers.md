@@ -65,4 +65,4 @@ std::unique_ptr<Optimizer> restored =
 
 Le fichier contient le type d'optimiseur, ses hyperparamètres (`learning_rate`, `momentum`, `beta1`/`beta2`/`epsilon`), le compte d'updates pour Adam, ainsi que les vitesses de Momentum ou les premiers et seconds moments d'Adam. `load()` reconstruit l'optimiseur concret et vérifie que la forme de chaque couche sauvegardée correspond exactement au réseau fourni (`network.layers()`) avant de restaurer le buffer : un fichier taillé pour une autre architecture, tronqué, corrompu ou de version incompatible est rejeté avec une exception plutôt que de restaurer un état invalide.
 
-Cette persistance reste un fichier séparé du réseau et de la mémoire d'apprentissage ; leur regroupement dans un unique format `GLOOMY_MODEL` reste à faire (voir [feuille de route](roadmap.md)).
+Cette persistance reste utile comme export séparé du réseau et de la mémoire d'apprentissage, mais elle est aussi intégrée dans le format unifié `GLOOMY_MODEL` via `ModelSerialization` (voir [feuille de route](roadmap.md)). Le runtime online peut désormais sauvegarder l'état complet d'un apprentissage dans un seul fichier lorsqu'un `model_path` est fourni.
