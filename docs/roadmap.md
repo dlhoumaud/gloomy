@@ -148,6 +148,7 @@ Métriques disponibles :
 
 Le runner benchmark compare actuellement :
 
+- baseline naïve `baseline_last_value` (dernière valeur connue, sans apprentissage) ;
 - dataset complet (référence 100 epochs) ;
 - FIFO, Reservoir, Prioritized, Novelty, Hybrid, chacune à 4 capacités (`32`, `64`, `128`, `256`) et 3 seeds ;
 - FIFO int16 et FIFO int8 (capacité `16`, seed unique) ;
@@ -305,7 +306,7 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 - pertes MSE, MAE et Huber — non fait : tout le runner utilise encore `MSELoss` uniquement ;
 - ~~plusieurs seeds~~ fait pour les 5 stratégies float64 bornées (FIFO, Reservoir, Prioritized, Novelty, Hybrid) × 4 capacités × 3 optimiseurs : chaque scénario est répété sur 3 seeds (`1234`, `2345`, `3456`), qui pilotent à la fois `DenseLayer::seedWeightInitialization` et le générateur de la mémoire (`makeMemory` accepte désormais une seed). Reste non fait : dataset complet et scénarios quantifiés (int16/int8), toujours à seed unique ;
 - ~~moyenne et écart-type~~ fait pour le même périmètre : nouvelles colonnes `mae_mean`/`mae_stddev` (écart-type population, diviseur N=3), calculées sur le MAE des 3 seeds d'un même scénario et dupliquées sur chaque ligne du groupe. **Intervalles de confiance** restent non faits ;
-- baseline dernière valeur connue — non fait ;
+- ~~baseline dernière valeur connue~~ fait : nouvelle ligne `baseline_last_value` (calculée avant toute chose, sans RNG donc sans effet sur les scénarios suivants), qui prédit pour toute la validation la cible du dernier échantillon d'entraînement connu, sans apprentissage. Sert de plancher de comparaison — voir [Benchmark](benchmark.md) ;
 - ~~ratio `performance_memory_limited / performance_full_dataset`~~ fait : nouvelle colonne `mae_ratio_to_full_dataset` (`BenchmarkResult`/`BenchmarkCsv`), calculée pour chaque scénario borné par rapport au MAE `full_dataset` du même optimiseur. **Limite importante** : `full_dataset` entraîne 100 epochs en batch (MAE proche de zéro sur cette régression synthétique) alors que les scénarios bornés font un seul passage online ; le ratio observé mélange donc l'effet du nombre de passages et celui de la capacité mémoire (valeurs parfois de l'ordre du million). Isoler l'effet de la seule capacité, à nombre de passages égal, reste à faire — voir [Benchmark](benchmark.md) ;
 - coût CPU et nombre d'opérations approximatif — non fait ;
 - samples/sec et updates/sec — non fait ;
@@ -345,7 +346,7 @@ Au passage : le format de `benchmark_results.csv` (colonnes `memory_capacity`, `
 6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3).
 7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI.
 8. ~~Ajouter `TRAINING_RUNTIME` dans le CLI.~~ Fait via `runtime=training`, avec `epochs` et sauvegarde de `model_path`.
-9. Étendre les benchmarks aux capacités et stratégies restantes. Partiel : capacités `32`/`64`/`128`/`256` et stratégies Novelty/Hybrid ajoutées pour float64, chacune répétée sur 3 seeds avec moyenne/écart-type du MAE, ainsi qu'un ratio au dataset complet (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : pertes MSE/MAE/Huber, seeds multiples pour le dataset complet et les scénarios quantifiés, intervalles de confiance, baseline naïve, coûts CPU/débit, CSV séparés par expérience.
+9. Étendre les benchmarks aux capacités et stratégies restantes. Partiel : capacités `32`/`64`/`128`/`256` et stratégies Novelty/Hybrid ajoutées pour float64, chacune répétée sur 3 seeds avec moyenne/écart-type du MAE, un ratio au dataset complet, et une baseline naïve `baseline_last_value` (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : pertes MSE/MAE/Huber, seeds multiples pour le dataset complet et les scénarios quantifiés, intervalles de confiance, coûts CPU/débit, CSV séparés par expérience.
 10. Ajouter les tests de concept drift et catastrophic forgetting.
 11. Optimiser les allocations et la représentation mémoire.
 12. Préparer le runtime embarqué et la quantification des poids.

@@ -163,6 +163,33 @@ int main() {
     const std::vector<std::string> optimizers = {"sgd", "momentum", "adam"};
     std::vector<BenchmarkResult> results;
 
+    // Baseline naive : predire pour toute la validation la cible du dernier
+    // echantillon d'entrainement connu, sans aucun apprentissage. Sert de
+    // reference minimale — tout modele entraine doit au moins faire mieux.
+    {
+        MSELoss loss;
+        const std::vector<double>& last_known_target = training.back().target;
+        double validation_loss = 0.0;
+        double mae = 0.0;
+        double squared_error = 0.0;
+        for (const TrainingSample& sample : validation) {
+            validation_loss += loss.compute(last_known_target, sample.target);
+            const RegressionMetrics metric = Metrics::regression(last_known_target, sample.target);
+            mae += metric.mae;
+            squared_error += metric.rmse * metric.rmse;
+        }
+        const double validation_count = static_cast<double>(validation.size());
+
+        BenchmarkResult result;
+        result.memory_strategy = "baseline_last_value";
+        result.precision = "float64";
+        result.optimizer = "none";
+        result.validation_loss = validation_loss / validation_count;
+        result.mae = mae / validation_count;
+        result.rmse = std::sqrt(squared_error / validation_count);
+        results.push_back(result);
+    }
+
     // MAE du dataset complet par optimiseur, pour calculer plus bas le
     // ratio mae_memoire_bornee / mae_dataset_complet de chaque scenario.
     std::map<std::string, double> full_dataset_mae;
