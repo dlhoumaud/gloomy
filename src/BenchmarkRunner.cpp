@@ -14,6 +14,7 @@
 #include "headers/QuantizedInt8FIFOMemory.h"
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -75,22 +76,22 @@ size_t sampleBytes(const TrainingSample& sample) {
         6 * sizeof(double) + 2 * sizeof(std::size_t);
 }
 
-std::unique_ptr<LearningMemory> makeMemory(const std::string& name, size_t capacity) {
+std::unique_ptr<LearningMemory> makeMemory(const std::string& name, size_t capacity, std::uint32_t seed = 1234u) {
     if (name == "fifo") {
         return std::make_unique<FIFOMemory>(capacity);
     }
     if (name == "reservoir") {
-        return std::make_unique<ReservoirMemory>(capacity, 1234u);
+        return std::make_unique<ReservoirMemory>(capacity, seed);
     }
     if (name == "prioritized") {
-        return std::make_unique<PrioritizedMemory>(capacity, 0.6, 1234u);
+        return std::make_unique<PrioritizedMemory>(capacity, 0.6, seed);
     }
     if (name == "novelty") {
         return std::make_unique<NoveltyMemory>(capacity, 1.0);
     }
     if (name == "hybrid") {
         const HybridMemoryRatios ratios{0.25, 0.25, 0.25, 0.25};
-        return std::make_unique<HybridMemory>(capacity, ratios, 1.0, 1234u);
+        return std::make_unique<HybridMemory>(capacity, ratios, 1.0, seed);
     }
     throw std::invalid_argument("Unknown benchmark memory strategy: " + name);
 }
@@ -192,36 +193,75 @@ int main() {
         }
     };
 
+    // Seeds repetees pour chaque scenario borne : la seed pilote a la fois
+    // l'initialisation des poids (DenseLayer::seedWeightInitialization) et
+    // le generateur de la memoire d'apprentissage (Reservoir, Prioritized,
+    // Hybrid), pour caracteriser la variance reelle du scenario plutot
+    // qu'un unique tirage.
+    const std::vector<std::uint32_t> seeds = {1234u, 2345u, 3456u};
+
     // Capacites de memoire bornee comparees au dataset complet (voir
     // docs/benchmark.md, section « Baseline obligatoire »).
     for (const size_t memory_capacity : {32u, 64u, 128u, 256u}) {
         for (const std::string memory_name : {"fifo", "reservoir", "prioritized", "novelty", "hybrid"}) {
             for (const std::string& optimizer_name : optimizers) {
-                NeuralNetwork network = makeNetwork();
-                MSELoss loss;
-                std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
-                std::unique_ptr<LearningMemory> memory = makeMemory(memory_name, memory_capacity);
-                LearningEngine engine(network, loss, *optimizer);
+                std::vector<BenchmarkResult> seed_results;
+                seed_results.reserve(seeds.size());
 
-                double training_loss = 0.0;
-                const auto start = std::chrono::steady_clock::now();
-                for (const TrainingSample& sample : training) {
-                    training_loss += engine.learn(*memory, sample, 8);
+                for (const std::uint32_t seed : seeds) {
+                    DenseLayer::seedWeightInitialization(seed);
+                    NeuralNetwork network = makeNetwork();
+                    MSELoss loss;
+                    std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
+                    std::unique_ptr<LearningMemory> memory = makeMemory(memory_name, memory_capacity, seed);
+                    LearningEngine engine(network, loss, *optimizer);
+
+                    double training_loss = 0.0;
+                    const auto start = std::chrono::steady_clock::now();
+                    for (const TrainingSample& sample : training) {
+                        training_loss += engine.learn(*memory, sample, 8);
+                    }
+                    const auto end = std::chrono::steady_clock::now();
+
+                    BenchmarkResult result = evaluate(
+                        network, *optimizer, loss, validation, memory_name, optimizer_name,
+                        training_loss / static_cast<double>(training.size()),
+                        std::chrono::duration<double, std::milli>(end - start).count(),
+                        memory->size(), memory->size() * sampleBytes(training.front()),
+                        training.size(), memory_capacity
+                    );
+                    result.seed = seed;
+                    applyFullDatasetRatio(result, optimizer_name);
+                    seed_results.push_back(result);
                 }
-                const auto end = std::chrono::steady_clock::now();
 
-                BenchmarkResult result = evaluate(
-                    network, *optimizer, loss, validation, memory_name, optimizer_name,
-                    training_loss / static_cast<double>(training.size()),
-                    std::chrono::duration<double, std::milli>(end - start).count(),
-                    memory->size(), memory->size() * sampleBytes(training.front()),
-                    training.size(), memory_capacity
-                );
-                applyFullDatasetRatio(result, optimizer_name);
-                results.push_back(result);
+                double mae_sum = 0.0;
+                for (const BenchmarkResult& seed_result : seed_results) {
+                    mae_sum += seed_result.mae;
+                }
+                const double mae_mean = mae_sum / static_cast<double>(seed_results.size());
+
+                double variance_sum = 0.0;
+                for (const BenchmarkResult& seed_result : seed_results) {
+                    const double difference = seed_result.mae - mae_mean;
+                    variance_sum += difference * difference;
+                }
+                const double mae_stddev = std::sqrt(variance_sum / static_cast<double>(seed_results.size()));
+
+                for (BenchmarkResult& seed_result : seed_results) {
+                    seed_result.mae_mean = mae_mean;
+                    seed_result.mae_stddev = mae_stddev;
+                    results.push_back(seed_result);
+                }
             }
         }
     }
+
+    // Les scenarios full_dataset ci-dessus, et quantifies/forgetting
+    // plus bas, restent a une seule seed (1234) : leur perte est deja
+    // proche de zero (full_dataset) ou hors du perimetre de cette
+    // extension (quantifies, forgetting) — voir docs/roadmap.md.
+    DenseLayer::seedWeightInitialization(1234);
 
     // Reste a une capacite unique pour cette section (voir docs/roadmap.md,
     // « Priorité moyenne : benchmark scientifique » : etendre le balayage

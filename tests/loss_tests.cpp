@@ -968,6 +968,9 @@ void testBenchmarkCsv() {
     result.samples_stored = 32;
     result.memory_capacity = 64;
     result.mae_ratio_to_full_dataset = 2.5;
+    result.seed = 1234u;
+    result.mae_mean = 0.5;
+    result.mae_stddev = 0.25;
     BenchmarkCsv::write(path, {result});
 
     std::ifstream stream(path);
@@ -977,8 +980,10 @@ void testBenchmarkCsv() {
     );
     assert(content.find("memory_strategy,precision,optimizer") == 0);
     assert(content.find("memory_capacity,mae_ratio_to_full_dataset") != std::string::npos);
+    assert(content.find("seed,mae_mean,mae_stddev") != std::string::npos);
     assert(content.find("\"hybrid,8kb\",int16,sgd") != std::string::npos);
     assert(content.find(",64,2.5") != std::string::npos);
+    assert(content.find(",1234,0.5,0.25") != std::string::npos);
     std::remove(path.c_str());
 }
 

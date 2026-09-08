@@ -39,7 +39,8 @@ void BenchmarkCsv::write(
 
     stream << "memory_strategy,precision,optimizer,training_loss,validation_loss,mae,rmse,"
               "training_time_ms,inference_time_us,memory_used_bytes,samples_stored,"
-              "parameter_updates,forgetting,memory_capacity,mae_ratio_to_full_dataset\n";
+              "parameter_updates,forgetting,memory_capacity,mae_ratio_to_full_dataset,"
+              "seed,mae_mean,mae_stddev\n";
     stream << std::setprecision(17);
     for (const BenchmarkResult& result : results) {
         writeField(stream, result.memory_strategy);
@@ -58,7 +59,10 @@ void BenchmarkCsv::write(
                << ',' << result.parameter_updates
                << ',' << result.forgetting
                << ',' << result.memory_capacity
-               << ',' << result.mae_ratio_to_full_dataset << '\n';
+               << ',' << result.mae_ratio_to_full_dataset
+               << ',' << result.seed
+               << ',' << result.mae_mean
+               << ',' << result.mae_stddev << '\n';
     }
     if (!stream) {
         throw std::runtime_error("Unable to write benchmark CSV");

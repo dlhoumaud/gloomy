@@ -113,13 +113,13 @@ grep forgetting benchmark_results.csv
 ```
 
 ```text
-forgetting_no_replay,float64,sgd,...,-19.129849122787149,0,0
-forgetting_fifo_replay,float64,sgd,...,-4.8141447652225127,0,0
+forgetting_no_replay,float64,sgd,...,-19.323349698741723,0,0,0,0,0
+forgetting_fifo_replay,float64,sgd,...,-4.830387588019887,0,0,0,0,0
 ```
 
-La colonne `forgetting` est `Metrics::forgetting` (perte sur `régime A` avant moins après ; plus proche de `0` est mieux). **Sans mémoire, l'oubli est environ 4 fois plus important** (`-19.13` contre `-4.81`) : rejouer même un sous-ensemble d'anciennes observations pendant l'apprentissage du nouveau régime préserve nettement mieux ce qui avait été appris. C'est le problème central que les stratégies de mémoire (FIFO, Reservoir, Prioritized, Novelty, Hybrid — voir [Mémoire d'apprentissage](memory.md)) essaient chacune d'atténuer différemment.
+La colonne `forgetting` est `Metrics::forgetting` (perte sur `régime A` avant moins après ; plus proche de `0` est mieux). **Sans mémoire, l'oubli est environ 4 fois plus important** (`-19.32` contre `-4.83`) : rejouer même un sous-ensemble d'anciennes observations pendant l'apprentissage du nouveau régime préserve nettement mieux ce qui avait été appris. C'est le problème central que les stratégies de mémoire (FIFO, Reservoir, Prioritized, Novelty, Hybrid — voir [Mémoire d'apprentissage](memory.md)) essaient chacune d'atténuer différemment.
 
-Ces valeurs précises dépendent de l'état du générateur de poids partagé (`DenseLayer::seedWeightInitialization`, voir [Couches et neurones](architecture.md)) au moment où ce scénario s'exécute dans `main()` : elles peuvent donc légèrement varier si d'autres scénarios sont ajoutés avant lui dans `BenchmarkRunner.cpp`, sans remettre en cause le rapport d'environ `4x` entre les deux.
+Ces valeurs précises dépendent de l'état du générateur de poids partagé (`DenseLayer::seedWeightInitialization`, voir [Couches et neurones](architecture.md)) au moment où ce scénario s'exécute dans `main()`. `BenchmarkRunner.cpp` réinitialise explicitement ce générateur à la seed `1234` juste avant les scénarios quantifiés qui précèdent celui-ci, ce qui stabilise ces valeurs pour l'avenir ; elles ne devraient donc plus varier sauf modification du code exécuté entre ce point de réinitialisation et ce scénario, sans remettre en cause le rapport d'environ `4x` entre les deux.
 
 ## Ce que Gloomy ne sait pas (encore) apprendre
 

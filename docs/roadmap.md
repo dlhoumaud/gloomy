@@ -149,15 +149,16 @@ Métriques disponibles :
 Le runner benchmark compare actuellement :
 
 - dataset complet (référence 100 epochs) ;
-- FIFO, Reservoir, Prioritized, Novelty, Hybrid, chacune à 4 capacités (`32`, `64`, `128`, `256`) ;
-- FIFO int16 et FIFO int8 (capacité `16`) ;
+- FIFO, Reservoir, Prioritized, Novelty, Hybrid, chacune à 4 capacités (`32`, `64`, `128`, `256`) et 3 seeds ;
+- FIFO int16 et FIFO int8 (capacité `16`, seed unique) ;
 - SGD, Momentum et Adam ;
 - temps d'entraînement ;
 - latence d'inférence ;
 - mémoire des paramètres et de l'état optimiseur ;
 - mémoire d'apprentissage ;
 - MAE, RMSE et pertes ;
-- ratio MAE au dataset complet, par optimiseur.
+- ratio MAE au dataset complet, par optimiseur ;
+- moyenne et écart-type du MAE sur les 3 seeds, par scénario borné.
 
 Il contient aussi une expérience synthétique de catastrophic forgetting avec et sans replay FIFO.
 
@@ -302,8 +303,8 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 - ~~Novelty et Hybrid~~ fait, dans le même changement que les capacités ;
 - float64, int16 et int8 sur les mêmes données — partiel : int16/int8 comparés au même dataset mais pas encore sur le même balayage de capacités que float64 ;
 - pertes MSE, MAE et Huber — non fait : tout le runner utilise encore `MSELoss` uniquement ;
-- plusieurs seeds — non fait : seed fixe `1234` (`DenseLayer::seedWeightInitialization`) et seeds fixes pour les mémoires (`1234u`) ;
-- moyenne, écart-type et intervalles de confiance — non fait (nécessite plusieurs seeds d'abord) ;
+- ~~plusieurs seeds~~ fait pour les 5 stratégies float64 bornées (FIFO, Reservoir, Prioritized, Novelty, Hybrid) × 4 capacités × 3 optimiseurs : chaque scénario est répété sur 3 seeds (`1234`, `2345`, `3456`), qui pilotent à la fois `DenseLayer::seedWeightInitialization` et le générateur de la mémoire (`makeMemory` accepte désormais une seed). Reste non fait : dataset complet et scénarios quantifiés (int16/int8), toujours à seed unique ;
+- ~~moyenne et écart-type~~ fait pour le même périmètre : nouvelles colonnes `mae_mean`/`mae_stddev` (écart-type population, diviseur N=3), calculées sur le MAE des 3 seeds d'un même scénario et dupliquées sur chaque ligne du groupe. **Intervalles de confiance** restent non faits ;
 - baseline dernière valeur connue — non fait ;
 - ~~ratio `performance_memory_limited / performance_full_dataset`~~ fait : nouvelle colonne `mae_ratio_to_full_dataset` (`BenchmarkResult`/`BenchmarkCsv`), calculée pour chaque scénario borné par rapport au MAE `full_dataset` du même optimiseur. **Limite importante** : `full_dataset` entraîne 100 epochs en batch (MAE proche de zéro sur cette régression synthétique) alors que les scénarios bornés font un seul passage online ; le ratio observé mélange donc l'effet du nombre de passages et celui de la capacité mémoire (valeurs parfois de l'ordre du million). Isoler l'effet de la seule capacité, à nombre de passages égal, reste à faire — voir [Benchmark](benchmark.md) ;
 - coût CPU et nombre d'opérations approximatif — non fait ;
@@ -344,7 +345,7 @@ Au passage : le format de `benchmark_results.csv` (colonnes `memory_capacity`, `
 6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3).
 7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI.
 8. ~~Ajouter `TRAINING_RUNTIME` dans le CLI.~~ Fait via `runtime=training`, avec `epochs` et sauvegarde de `model_path`.
-9. Étendre les benchmarks aux capacités et stratégies restantes. Partiel : capacités `32`/`64`/`128`/`256` et stratégies Novelty/Hybrid ajoutées pour float64, ainsi qu'un ratio au dataset complet (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : pertes MSE/MAE/Huber, plusieurs seeds avec statistiques, baseline naïve, coûts CPU/débit, CSV séparés par expérience.
+9. Étendre les benchmarks aux capacités et stratégies restantes. Partiel : capacités `32`/`64`/`128`/`256` et stratégies Novelty/Hybrid ajoutées pour float64, chacune répétée sur 3 seeds avec moyenne/écart-type du MAE, ainsi qu'un ratio au dataset complet (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : pertes MSE/MAE/Huber, seeds multiples pour le dataset complet et les scénarios quantifiés, intervalles de confiance, baseline naïve, coûts CPU/débit, CSV séparés par expérience.
 10. Ajouter les tests de concept drift et catastrophic forgetting.
 11. Optimiser les allocations et la représentation mémoire.
 12. Préparer le runtime embarqué et la quantification des poids.
