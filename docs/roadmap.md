@@ -126,7 +126,7 @@ Persistance séparée déjà disponible pour :
 - état de l'optimiseur (SGD, Momentum, Adam) via `OptimizerSerialization` ;
 - mémoire d'apprentissage native (FIFO, Reservoir, Prioritized, Novelty, Hybrid) via `LearningMemorySerialization`.
 
-Le fichier réseau, le fichier optimiseur et le fichier mémoire sont versionnés et protégés par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption. Pour l'optimiseur, `load()` reconstruit le type concret à partir du fichier et refuse de restaurer un état dont la forme (nombre de couches, dimensions par couche) ne correspond pas exactement au réseau fourni. Pour la mémoire, `load()` restaure aussi l'état complet du générateur `std::mt19937` (Reservoir, Prioritized, Hybrid) et les partitions (Hybrid), afin que le replay reste reproductible après un redémarrage. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes.
+Un format unifié `GLOOMY_MODEL` est désormais également disponible via `ModelSerialization` (`src/headers/ModelSerialization.h`, `src/ModelSerialization.cpp`) : il regroupe dans un fichier versionné et protégé par checksum le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage. Le fichier réseau, le fichier optimiseur, le fichier mémoire et le fichier unifié sont tous vérifiés par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption. Pour l'optimiseur, `load()` reconstruit le type concret à partir du fichier et refuse de restaurer un état dont la forme (nombre de couches, dimensions par couche) ne correspond pas exactement au réseau fourni. Pour la mémoire, `load()` restaure aussi l'état complet du générateur `std::mt19937` (Reservoir, Prioritized, Hybrid) et les partitions (Hybrid), afin que le replay reste reproductible après un redémarrage. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes.
 
 ### Métriques et benchmark
 
@@ -157,23 +157,11 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
 ### Priorité haute : runtime d'apprentissage complet
 
-1. **Format `GLOOMY_MODEL` unifié**
+1. **Format `GLOOMY_MODEL` unifié — fait via `ModelSerialization`**
 
-   Regrouper dans un seul fichier versionné :
+   Le format unifié existe désormais dans `ModelSerialization` : il regroupe dans un seul fichier versionné le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage, avec un checksum global et un chargement vérifié.
 
-   - header global ;
-   - architecture ;
-   - poids et biais ;
-   - activation et post-activation ;
-   - normalisation ;
-   - paramètres de quantification ;
-   - mémoire d'apprentissage ;
-   - configuration de l'optimiseur ;
-   - état de l'optimiseur ;
-   - métadonnées ;
-   - checksum global.
-
-   Le format doit prévoir des sections, des tailles, une version et une compatibilité future. Le chargement doit être atomique : un fichier invalide ne doit pas laisser un modèle partiellement modifié.
+   Il reste à intégrer ce fichier unifié dans le CLI et à l'étendre progressivement aux composants encore hors périmètre, en particulier les mémoires quantifiées et les paramètres de quantification.
 
 2. **Persistance de l'état des optimiseurs — fait**
 
@@ -221,7 +209,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
    `TRAINING_RUNTIME` (entraînement par epochs sur un jeu de données complet, via `LearningEngine::train()`) reste à faire — c'est un mode différent de l'online learning et n'a pas encore de point d'entrée CLI.
 
-   Limites connues de cette première version : le réseau du runtime online est fixé à une entrée/sortie scalaire (pas de fenêtre configurable) ; il n'y a pas encore de persistance du modèle/optimiseur/mémoire entraînés à la fin du runtime (voir points 1 à 3) ; la sortie est un flux `stdout` ligne par ligne, pas encore un format structuré.
+   Limites connues de cette première version : le réseau du runtime online est fixé à une entrée/sortie scalaire (pas de fenêtre configurable) ; le CLI ne charge pas encore un modèle sauvegardé au démarrage, et la sortie reste un flux `stdout` ligne par ligne, pas encore un format structuré. La persistance du modèle entraîné est désormais branchée : si `model_path` est renseigné, le runtime online sauvegarde le réseau, la normalisation, l'optimiseur et la mémoire via `ModelSerialization` au terme de son exécution.
 
 ### Configuration fichier
 
@@ -261,7 +249,7 @@ model_path=model.gloomy
 metrics_path=benchmark.csv
 ```
 
-**État** : les défauts sont maintenant centralisés dans `GloomyConfig` (`src/headers/GloomyConfig.h`, `src/GloomyConfig.cpp`). La structure reprend, champ par champ, le défaut déjà utilisé par chaque composant existant quand il en a un (`HuberLoss`, `MomentumOptimizer`, `AdamOptimizer`, `PrioritizedMemory`, `HybridMemoryRatios`, seed partagé de `std::mt19937`) et établit un défaut central documenté pour les champs qui n'en avaient pas encore (`learning_rate`, `memory_capacity`, `batch_size`, chemins de persistance). Le CLI (`src/main.cpp`) lit désormais ses cinq défauts actuels (`predictions`, `hidden_layers`, `neurons`, `activation`, `post_activation`) depuis `GloomyConfig::defaults()` au lieu de littéraux dupliqués ; le comportement du CLI est inchangé (vérifié manuellement). Un test caractérise chaque valeur pour empêcher une dérive silencieuse. Le parseur `-f/--config` et le reste des champs (loss, optimizer, memory, precision, scheduling) restent à brancher — c'est l'objet des points 5 et 6 ci-dessous.
+**État** : les défauts sont maintenant centralisés dans `GloomyConfig` (`src/headers/GloomyConfig.h`, `src/GloomyConfig.cpp`). La structure reprend, champ par champ, le défaut déjà utilisé par chaque composant existant quand il en a un (`HuberLoss`, `MomentumOptimizer`, `AdamOptimizer`, `PrioritizedMemory`, `HybridMemoryRatios`, seed partagé de `std::mt19937`) et établit un défaut central documenté pour les champs qui n'en avaient pas encore (`learning_rate`, `memory_capacity`, `batch_size`, chemins de persistance). Le CLI (`src/main.cpp`) lit désormais ses cinq défauts actuels (`predictions`, `hidden_layers`, `neurons`, `activation`, `post_activation`) depuis `GloomyConfig::defaults()` au lieu de littéraux dupliqués ; le comportement du CLI est inchangé (vérifié manuellement). Un test caractérise chaque valeur pour empêcher une dérive silencieuse. Le parseur `-f/--config` couvre désormais tous les champs de `GloomyConfig`, et le runtime online consomme explicitement `model_path` pour sauvegarder le modèle entraîné au terme de l'exécution ; les chemins `optimizer_path`, `memory_path` et `metrics_path` restent encore à utiliser proprement dans des étapes ultérieures.
 
 Avant de l'implémenter, il faudra décider :
 
@@ -344,15 +332,16 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 4. ~~Centraliser les défauts dans une configuration C++.~~ Fait (`GloomyConfig`, voir section 2 et 3).
 5. ~~Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.~~ Fait (`GloomyConfigFile`, voir section 2 et 3).
 6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3). `TRAINING_RUNTIME` reste à faire.
-7. Étendre les benchmarks aux capacités et stratégies restantes.
-8. Ajouter les tests de concept drift et catastrophic forgetting.
-9. Optimiser les allocations et la représentation mémoire.
-10. Préparer le runtime embarqué et la quantification des poids.
+7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI. `TRAINING_RUNTIME` et le chargement d'un modèle sauvegardé restent à faire.
+8. Étendre les benchmarks aux capacités et stratégies restantes.
+9. Ajouter les tests de concept drift et catastrophic forgetting.
+10. Optimiser les allocations et la représentation mémoire.
+11. Préparer le runtime embarqué et la quantification des poids.
 
 ## 5. Limites connues à ne pas oublier
 
 - le CLI recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires (`INFERENCE_RUNTIME` uniquement ; sans effet sur `ONLINE_LEARNING_RUNTIME`, qui garde un seul réseau du début à la fin) ;
-- le CLI ne charge pas encore de modèle sauvegardé, et le runtime online ne sauvegarde pas encore le réseau/l'optimiseur/la mémoire entraînés à la fin de son exécution ;
+- le CLI ne charge pas encore de modèle sauvegardé ; le runtime online sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin de son exécution lorsqu'un `model_path` est renseigné ;
 - le CLI ne lance pas encore d'entraînement par epochs sur un jeu de données complet (`TRAINING_RUNTIME` reste à faire ; `ONLINE_LEARNING_RUNTIME`, lui, est fonctionnel) ;
 - le réseau du runtime online est fixé à une entrée/sortie scalaire, sans fenêtre configurable ;
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
@@ -360,7 +349,7 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 - les mémoires natives stockent encore des `double` ;
 - les poids restent en float64 ;
 - les mémoires quantifiées (int16/int8) ne sont pas encore persistées ;
-- les serializers séparés (réseau, normalisation, optimiseur, mémoire, échantillons) ne constituent pas encore un fichier modèle complet ;
+- un format `GLOOMY_MODEL` unifié existe maintenant via `ModelSerialization`, en mode online il est désormais branché dans le CLI via `model_path`, et il reste à compléter les sections encore non couvertes (mémoires quantifiées, paramètres de quantification, éventuels métadonnées supplémentaires) ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles.
 

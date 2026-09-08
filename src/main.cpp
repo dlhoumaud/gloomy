@@ -9,6 +9,7 @@
 #include "headers/GloomyConfig.h"
 #include "headers/GloomyConfigFile.h"
 #include "headers/OnlineLearningRuntime.h"
+#include "headers/ModelSerialization.h"
 
 // Fonction pour analyser les entrées sous forme de chaîne de caractères et les convertir en vecteur de doubles
 std::vector<double> parseInputs(const std::string &str) {
@@ -149,6 +150,15 @@ int runInference(const GloomyConfig &config, std::vector<double> sequence) {
 int runOnline(const GloomyConfig &config, const std::vector<double> &sequence) {
     try {
         const OnlineLearningResult result = runOnlineLearning(config, sequence);
+        if (!config.model_path.empty()) {
+            ModelSerialization::save(
+                config.model_path,
+                result.network,
+                *result.normalizer,
+                *result.optimizer,
+                *result.memory
+            );
+        }
         for (size_t index = 0; index < result.steps.size(); ++index) {
             const OnlineLearningStep &step = result.steps[index];
             std::cout << index << '\t' << step.observation << '\t' << step.target

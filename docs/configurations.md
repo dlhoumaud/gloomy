@@ -57,7 +57,7 @@ batch_size=4
 
 Chaque valeur consécutive de la séquence devient une observation (`x[i]`) et sa cible (`x[i+1]`) : le réseau du runtime online a donc une entrée et une sortie de dimension `1`, quels que soient `hidden_layers`/`neurons` (qui ne dimensionnent que les couches cachées). Une ligne est affichée par observation (`index observation cible prédiction perte`, avant mise à jour des poids), suivie d'un résumé (`average_loss`, `memory_size`).
 
-Les chemins de persistance (`model_path`, `optimizer_path`, `memory_path`, `metrics_path`) sont acceptés et validés, mais ne sont pas encore consommés : le runtime online ne sauvegarde pas encore le réseau, l'optimiseur ou la mémoire entraînés à la fin de son exécution (voir [feuille de route](roadmap.md), points 1 à 3 et 6).
+Les chemins de persistance (`model_path`, `optimizer_path`, `memory_path`, `metrics_path`) sont acceptés et validés. Le runtime online les consomme désormais au moins partiellement : lorsqu'un `model_path` est renseigné, il sauvegarde le réseau entraîné, la normalisation, l'optimiseur et la mémoire dans un fichier `GLOOMY_MODEL` unifié au terme de l'exécution. Les chemins `optimizer_path`/`memory_path` restent documentés pour les futures extensions, et `metrics_path` reste encore non consommé par le CLI actuel (voir [feuille de route](roadmap.md), points 1 à 3 et 6).
 
 C'est la première brique du futur fichier `gloomy.config` décrit dans la [feuille de route](roadmap.md), section « Configuration fichier ».
 

@@ -1444,6 +1444,20 @@ void testOnlineLearningRuntime() {
         }
     }
 
+    // The online learning result should expose the fully trained state for the
+    // CLI to persist as a unified GLOOMY_MODEL.
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.memory_capacity = 8;
+
+        const OnlineLearningResult result = runOnlineLearning(config, sequence);
+        assert(result.network.layers().size() > 0);
+        assert(result.normalizer != nullptr);
+        assert(result.optimizer != nullptr);
+        assert(result.memory != nullptr);
+        assert(result.memory_size == result.memory->size());
+    }
+
     // A sequence with fewer than two values is rejected.
     {
         bool threw = false;

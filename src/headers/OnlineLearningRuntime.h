@@ -2,7 +2,12 @@
 #define ONLINE_LEARNING_RUNTIME_H
 
 #include "GloomyConfig.h"
+#include "NeuralNetwork.h"
+#include "Normalization.h"
+#include "Optimizer.h"
+#include "LearningMemory.h"
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 // Une observation traitée par le runtime online, avant la mise à jour des
@@ -18,6 +23,10 @@ struct OnlineLearningResult {
     std::vector<OnlineLearningStep> steps;
     double average_loss = 0.0;
     std::size_t memory_size = 0;
+    NeuralNetwork network;
+    std::unique_ptr<StreamingNormalizer> normalizer;
+    std::unique_ptr<Optimizer> optimizer;
+    std::unique_ptr<LearningMemory> memory;
 };
 
 // Exécute le ONLINE_LEARNING_RUNTIME décrit dans docs/roadmap.md : chaque

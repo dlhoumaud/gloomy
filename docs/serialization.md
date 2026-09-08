@@ -25,24 +25,33 @@ const std::vector<TrainingSample> restored =
 
 Le lecteur vérifie le magic, la version, les tailles maximales et les lectures complètes. Les fichiers tronqués, incompatibles ou contenant des tailles excessives sont refusés.
 
-## Limites et évolution
+## Format `GLOOMY_MODEL` unifié
 
-Ce premier format d'échantillons ne sauvegarde pas encore l'état de l'optimiseur, les paramètres de quantification ou les statistiques de normalisation dans le même fichier. Ces composants disposent toutefois maintenant de sérialiseurs séparés, y compris l'état de l'optimiseur (voir ci-dessous).
+Le format unifié est maintenant disponible via `ModelSerialization` :
 
-La prochaine évolution pourra encapsuler ces sections dans un format `GLOOMY_MODEL` versionné :
+```cpp
+ModelSerialization::save("model.gloomy", network, normalizer, optimizer, memory);
+ModelSerialization::LoadedModel loaded = ModelSerialization::load("model.gloomy");
+```
+
+Le fichier contient un header versionné, un checksum global, et quatre sections principales :
 
 ```text
 HEADER
-ARCHITECTURE
+NETWORK
 NORMALIZATION
-QUANTIZATION
-WEIGHTS
-BIASES
-OPTIMIZER_STATE
-LEARNING_MEMORY
-METADATA
+OPTIMIZER
+MEMORY
 CHECKSUM
 ```
+
+La section `NETWORK` est le contenu produit par `NetworkSerialization`, la section `NORMALIZATION` contient l'état Welford restaurable par `NormalizationSerialization`, la section `OPTIMIZER` contient le type concret et l'état complet de l'optimiseur, et la section `MEMORY` contient la mémoire d'apprentissage sérialisée avec `LearningMemorySerialization`.
+
+Le chargement vérifie la magie, la version, les tailles et le checksum avant de reconstituer chaque section. Un fichier tronqué, corrompu ou de version différente est rejeté avec une exception plutôt que de laisser un modèle partiellement restauré.
+
+## Limites et évolution
+
+Le format unifié couvre désormais le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage dans un seul fichier binaire. Les méta-données, la quantification et les mémoires quantifiées restent encore à compléter selon les besoins des prochains runtimes et des scénarios embarqués.
 
 ## Réseau neuronal
 

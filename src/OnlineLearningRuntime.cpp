@@ -96,12 +96,12 @@ OnlineLearningResult runOnlineLearning(
     }
 
     const std::unique_ptr<LossFunction> loss = makeLoss(config);
-    const std::unique_ptr<Optimizer> optimizer = makeOptimizer(config);
-    const std::unique_ptr<LearningMemory> memory = makeMemory(config);
+    std::unique_ptr<Optimizer> optimizer = makeOptimizer(config);
+    std::unique_ptr<LearningMemory> memory = makeMemory(config);
     const std::unique_ptr<TrainingScheduler> scheduler = makeScheduler(config);
 
     LearningEngine engine(network, *loss, *optimizer);
-    StreamingNormalizer normalizer(1);
+    auto normalizer = std::make_unique<StreamingNormalizer>(1);
 
     OnlineLearningResult result;
     result.steps.reserve(sequence.size() - 1);
@@ -111,9 +111,9 @@ OnlineLearningResult runOnlineLearning(
         const std::vector<double> raw_observation = {sequence[index]};
         const std::vector<double> raw_target = {sequence[index + 1]};
 
-        normalizer.update(raw_observation);
-        const std::vector<double> observation = normalizer.normalize(raw_observation);
-        const std::vector<double> target = normalizer.normalize(raw_target);
+        normalizer->update(raw_observation);
+        const std::vector<double> observation = normalizer->normalize(raw_observation);
+        const std::vector<double> target = normalizer->normalize(raw_target);
 
         const std::vector<double> prediction = network.forward(observation);
 
@@ -131,7 +131,12 @@ OnlineLearningResult runOnlineLearning(
         total_loss += step_loss;
     }
 
+    result.network = std::move(network);
+    result.normalizer = std::move(normalizer);
+    result.optimizer = std::move(optimizer);
+    result.memory = std::move(memory);
+
     result.average_loss = total_loss / static_cast<double>(result.steps.size());
-    result.memory_size = memory->size();
+    result.memory_size = result.memory->size();
     return result;
 }
