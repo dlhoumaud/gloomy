@@ -11,6 +11,7 @@ FIFOMemory::FIFOMemory(size_t capacity)
 }
 
 void FIFOMemory::add(const TrainingSample& sample) {
+    validateTrainingSampleVectors(sample);
     if (samples.size() == memory_capacity) {
         samples.erase(samples.begin());
     }

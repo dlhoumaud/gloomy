@@ -23,6 +23,8 @@ public:
     size_t memoryUsedBytes() const;
 
 private:
+    friend class LearningMemorySerialization;
+
     size_t memory_capacity;
     Int8TrainingSampleQuantizer sample_quantizer;
     size_t input_dimensions = 0;

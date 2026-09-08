@@ -64,6 +64,17 @@ TrainingResult runTraining(
     const std::vector<double>& sequence
 );
 
+// Variante qui reprend un modele deja entraine depuis `model_path`, s'il
+// existe, au lieu de repartir d'un reseau neuf a chaque appel (meme principe
+// que la variante a trois arguments de runOnlineLearning ci-dessus). Le
+// reseau, la normalisation, l'optimiseur et la memoire charges sont alors
+// reutilises et continuent d'accumuler de l'etat sur `sequence`.
+TrainingResult runTraining(
+    const GloomyConfig& config,
+    const std::vector<double>& sequence,
+    const std::string& model_path
+);
+
 void saveTrainingArtifacts(
     const GloomyConfig& config,
     const TrainingResult& result

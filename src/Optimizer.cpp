@@ -1,5 +1,23 @@
 #include "headers/Optimizer.h"
+#include <cmath>
 #include <stdexcept>
+
+void validateFiniteGradients(const std::vector<DenseLayer>& layers) {
+    for (const DenseLayer& layer : layers) {
+        for (const auto& row : layer.weightGradients()) {
+            for (double value : row) {
+                if (!std::isfinite(value)) {
+                    throw std::invalid_argument("Optimizer received non-finite weight gradients");
+                }
+            }
+        }
+        for (double value : layer.biasGradients()) {
+            if (!std::isfinite(value)) {
+                throw std::invalid_argument("Optimizer received non-finite bias gradients");
+            }
+        }
+    }
+}
 
 SGDOptimizer::SGDOptimizer(double learning_rate)
     : learning_rate(learning_rate) {
@@ -9,9 +27,10 @@ SGDOptimizer::SGDOptimizer(double learning_rate)
 }
 
 void SGDOptimizer::update(std::vector<DenseLayer>& layers, double gradient_scale) {
-    if (gradient_scale <= 0.0) {
-        throw std::invalid_argument("Gradient scale must be positive");
+    if (gradient_scale <= 0.0 || !std::isfinite(gradient_scale)) {
+        throw std::invalid_argument("Gradient scale must be finite and positive");
     }
+    validateFiniteGradients(layers);
 
     for (auto& layer : layers) {
         auto& parameters = layer.weights();

@@ -4,6 +4,10 @@
 #include "headers/PrioritizedMemory.h"
 #include "headers/NoveltyMemory.h"
 #include "headers/HybridMemory.h"
+#include "headers/QuantizedFIFOMemory.h"
+#include "headers/QuantizedInt8FIFOMemory.h"
+#include "headers/TrainingSampleQuantization.h"
+#include "headers/Int8TrainingSampleQuantization.h"
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -15,15 +19,21 @@
 
 namespace {
 constexpr char magic[] = "GLOOMYLM";
-// Version 2 : ajout de correction_exponent (beta) pour PrioritizedMemory
-// (correction du biais d'echantillonnage, voir docs/memory.md). Un fichier
-// version 1 est refuse plutot que mal interprete.
-constexpr std::uint32_t format_version = 2;
+// Version 3 : ajout des memoires quantifiees QuantizedFIFOMemory (int16) et
+// QuantizedInt8FIFOMemory (int8), avec leurs parametres de calibration
+// (scale/zero_point) partages par tous les echantillons stockes (voir
+// docs/quantization.md et docs/memory.md). Version 2 : ajout de
+// correction_exponent (beta) pour PrioritizedMemory (correction du biais
+// d'echantillonnage). Un fichier d'une version anterieure est refuse plutot
+// que mal interprete.
+constexpr std::uint32_t format_version = 3;
 constexpr std::uint32_t strategy_fifo = 0;
 constexpr std::uint32_t strategy_reservoir = 1;
 constexpr std::uint32_t strategy_prioritized = 2;
 constexpr std::uint32_t strategy_novelty = 3;
 constexpr std::uint32_t strategy_hybrid = 4;
+constexpr std::uint32_t strategy_quantized_fifo_int16 = 5;
+constexpr std::uint32_t strategy_quantized_fifo_int8 = 6;
 constexpr std::uint64_t maximum_capacity = 1'000'000;
 constexpr std::uint64_t maximum_vector_size = 1'000'000;
 constexpr std::uint64_t checksum_offset = 1469598103934665603ULL;
@@ -152,6 +162,94 @@ void restoreRngState(std::mt19937& generator, const std::string& state) {
     state_stream >> generator;
     if (!state_stream) throw std::runtime_error("Learning memory RNG state is invalid");
 }
+
+// Les parametres de calibration (scale/zero_point) sont partages par tous
+// les echantillons d'une meme memoire quantifiee (voir TrainingSampleQuantizer
+// / Int8TrainingSampleQuantizer : encode() utilise toujours les memes
+// parametres, fixes a la construction) : ils ne sont donc ecrits qu'une
+// seule fois par memoire, pas repetes par echantillon.
+void writeQuantizationParameters(std::ostream& stream, const QuantizationParameters& parameters) {
+    writeDouble(stream, parameters.scale);
+    writeBytes(stream, &parameters.zero_point, sizeof(parameters.zero_point));
+}
+
+QuantizationParameters readQuantizationParameters(std::istream& stream) {
+    QuantizationParameters parameters{};
+    parameters.scale = readDouble(stream);
+    readBytes(stream, &parameters.zero_point, sizeof(parameters.zero_point));
+    return parameters;
+}
+
+void writeInt16Values(std::ostream& stream, const std::vector<std::int16_t>& values) {
+    const std::uint64_t size = values.size();
+    writeBytes(stream, &size, sizeof(size));
+    if (!values.empty()) writeBytes(stream, values.data(), values.size() * sizeof(std::int16_t));
+}
+
+std::vector<std::int16_t> readInt16Values(std::istream& stream) {
+    std::uint64_t size = 0;
+    readBytes(stream, &size, sizeof(size));
+    if (size > maximum_vector_size || size > std::numeric_limits<size_t>::max()) {
+        throw std::runtime_error("Quantized learning memory vector size is invalid");
+    }
+    std::vector<std::int16_t> values(static_cast<size_t>(size));
+    if (!values.empty()) readBytes(stream, values.data(), values.size() * sizeof(std::int16_t));
+    return values;
+}
+
+void writeInt8Values(std::ostream& stream, const std::vector<std::int8_t>& values) {
+    const std::uint64_t size = values.size();
+    writeBytes(stream, &size, sizeof(size));
+    if (!values.empty()) writeBytes(stream, values.data(), values.size() * sizeof(std::int8_t));
+}
+
+std::vector<std::int8_t> readInt8Values(std::istream& stream) {
+    std::uint64_t size = 0;
+    readBytes(stream, &size, sizeof(size));
+    if (size > maximum_vector_size || size > std::numeric_limits<size_t>::max()) {
+        throw std::runtime_error("Quantized learning memory vector size is invalid");
+    }
+    std::vector<std::int8_t> values(static_cast<size_t>(size));
+    if (!values.empty()) readBytes(stream, values.data(), values.size() * sizeof(std::int8_t));
+    return values;
+}
+
+// Metadonnees d'un echantillon quantifie : memes champs que TrainingSample,
+// hors input/target (deja geres separement en int16/int8 ci-dessus).
+struct QuantizedSampleMetadata {
+    double priority = 0.0;
+    double error = 0.0;
+    double novelty = 0.0;
+    double rarity = 0.0;
+    double recency = 0.0;
+    double diversity = 0.0;
+    std::size_t age = 0;
+    std::size_t usage_count = 0;
+};
+
+void writeQuantizedMetadata(std::ostream& stream, const QuantizedSampleMetadata& metadata) {
+    writeDouble(stream, metadata.priority);
+    writeDouble(stream, metadata.error);
+    writeDouble(stream, metadata.novelty);
+    writeDouble(stream, metadata.rarity);
+    writeDouble(stream, metadata.recency);
+    writeDouble(stream, metadata.diversity);
+    writeUint64(stream, static_cast<std::uint64_t>(metadata.age));
+    writeUint64(stream, static_cast<std::uint64_t>(metadata.usage_count));
+}
+
+QuantizedSampleMetadata readQuantizedMetadata(std::istream& stream) {
+    QuantizedSampleMetadata metadata;
+    metadata.priority = readDouble(stream);
+    metadata.error = readDouble(stream);
+    metadata.novelty = readDouble(stream);
+    metadata.rarity = readDouble(stream);
+    metadata.recency = readDouble(stream);
+    metadata.diversity = readDouble(stream);
+    metadata.age = static_cast<std::size_t>(readUint64(stream));
+    metadata.usage_count = static_cast<std::size_t>(readUint64(stream));
+    return metadata;
+}
 }
 
 void LearningMemorySerialization::save(const std::string& path, const LearningMemory& memory) {
@@ -200,6 +298,40 @@ void LearningMemorySerialization::save(const std::string& path, const LearningMe
         for (const HybridMemory::StoredSample& stored : hybrid->samples) {
             writeSample(payload, stored.sample);
             writeUint32(payload, static_cast<std::uint32_t>(stored.partition));
+        }
+    } else if (const auto* quantized16 = dynamic_cast<const QuantizedFIFOMemory*>(&memory)) {
+        writeUint32(payload, strategy_quantized_fifo_int16);
+        writeUint64(payload, quantized16->memory_capacity);
+        writeQuantizationParameters(payload, quantized16->sample_quantizer.inputParameters());
+        writeQuantizationParameters(payload, quantized16->sample_quantizer.targetParameters());
+        writeUint64(payload, quantized16->input_dimensions);
+        writeUint64(payload, quantized16->target_dimensions);
+        writeUint64(payload, quantized16->samples.size());
+        for (const QuantizedTrainingSample& stored : quantized16->samples) {
+            writeInt16Values(payload, stored.input.values);
+            writeInt16Values(payload, stored.target.values);
+            writeQuantizedMetadata(payload, {
+                stored.priority, stored.error, stored.novelty,
+                stored.rarity, stored.recency, stored.diversity,
+                stored.age, stored.usage_count
+            });
+        }
+    } else if (const auto* quantized8 = dynamic_cast<const QuantizedInt8FIFOMemory*>(&memory)) {
+        writeUint32(payload, strategy_quantized_fifo_int8);
+        writeUint64(payload, quantized8->memory_capacity);
+        writeQuantizationParameters(payload, quantized8->sample_quantizer.inputParameters());
+        writeQuantizationParameters(payload, quantized8->sample_quantizer.targetParameters());
+        writeUint64(payload, quantized8->input_dimensions);
+        writeUint64(payload, quantized8->target_dimensions);
+        writeUint64(payload, quantized8->samples.size());
+        for (const Int8QuantizedTrainingSample& stored : quantized8->samples) {
+            writeInt8Values(payload, stored.input.values);
+            writeInt8Values(payload, stored.target.values);
+            writeQuantizedMetadata(payload, {
+                stored.priority, stored.error, stored.novelty,
+                stored.rarity, stored.recency, stored.diversity,
+                stored.age, stored.usage_count
+            });
         }
     } else {
         throw std::runtime_error("Unsupported learning memory strategy for serialization");
@@ -332,6 +464,96 @@ std::unique_ptr<LearningMemory> LearningMemorySerialization::load(const std::str
                 throw std::runtime_error("Learning memory hybrid partition tag is invalid");
             }
             samples.push_back({std::move(sample), static_cast<HybridMemory::Partition>(partition_tag)});
+        }
+        memory->samples = std::move(samples);
+        return memory;
+    }
+
+    if (strategy == strategy_quantized_fifo_int16) {
+        const QuantizationParameters input_parameters = readQuantizationParameters(stream);
+        const QuantizationParameters target_parameters = readQuantizationParameters(stream);
+        const std::uint64_t input_dimensions = readUint64(stream);
+        const std::uint64_t target_dimensions = readUint64(stream);
+        if (input_dimensions > maximum_vector_size || target_dimensions > maximum_vector_size) {
+            throw std::runtime_error("Quantized learning memory dimensions are invalid");
+        }
+        const std::uint64_t sample_count = readUint64(stream);
+        if (sample_count > capacity) throw std::runtime_error("Learning memory sample count exceeds capacity");
+
+        auto memory = std::make_unique<QuantizedFIFOMemory>(
+            static_cast<size_t>(capacity),
+            TrainingSampleQuantizer(input_parameters, target_parameters)
+        );
+        memory->input_dimensions = static_cast<size_t>(input_dimensions);
+        memory->target_dimensions = static_cast<size_t>(target_dimensions);
+
+        std::vector<QuantizedTrainingSample> samples;
+        samples.reserve(static_cast<size_t>(sample_count));
+        for (std::uint64_t index = 0; index < sample_count; ++index) {
+            QuantizedTrainingSample stored;
+            stored.input.values = readInt16Values(stream);
+            stored.input.parameters = input_parameters;
+            stored.target.values = readInt16Values(stream);
+            stored.target.parameters = target_parameters;
+            if (stored.input.values.size() != input_dimensions ||
+                stored.target.values.size() != target_dimensions) {
+                throw std::runtime_error("Quantized learning memory sample dimensions do not match");
+            }
+            const QuantizedSampleMetadata metadata = readQuantizedMetadata(stream);
+            stored.priority = metadata.priority;
+            stored.error = metadata.error;
+            stored.novelty = metadata.novelty;
+            stored.rarity = metadata.rarity;
+            stored.recency = metadata.recency;
+            stored.diversity = metadata.diversity;
+            stored.age = metadata.age;
+            stored.usage_count = metadata.usage_count;
+            samples.push_back(std::move(stored));
+        }
+        memory->samples = std::move(samples);
+        return memory;
+    }
+
+    if (strategy == strategy_quantized_fifo_int8) {
+        const QuantizationParameters input_parameters = readQuantizationParameters(stream);
+        const QuantizationParameters target_parameters = readQuantizationParameters(stream);
+        const std::uint64_t input_dimensions = readUint64(stream);
+        const std::uint64_t target_dimensions = readUint64(stream);
+        if (input_dimensions > maximum_vector_size || target_dimensions > maximum_vector_size) {
+            throw std::runtime_error("Quantized learning memory dimensions are invalid");
+        }
+        const std::uint64_t sample_count = readUint64(stream);
+        if (sample_count > capacity) throw std::runtime_error("Learning memory sample count exceeds capacity");
+
+        auto memory = std::make_unique<QuantizedInt8FIFOMemory>(
+            static_cast<size_t>(capacity),
+            Int8TrainingSampleQuantizer(input_parameters, target_parameters)
+        );
+        memory->input_dimensions = static_cast<size_t>(input_dimensions);
+        memory->target_dimensions = static_cast<size_t>(target_dimensions);
+
+        std::vector<Int8QuantizedTrainingSample> samples;
+        samples.reserve(static_cast<size_t>(sample_count));
+        for (std::uint64_t index = 0; index < sample_count; ++index) {
+            Int8QuantizedTrainingSample stored;
+            stored.input.values = readInt8Values(stream);
+            stored.input.parameters = input_parameters;
+            stored.target.values = readInt8Values(stream);
+            stored.target.parameters = target_parameters;
+            if (stored.input.values.size() != input_dimensions ||
+                stored.target.values.size() != target_dimensions) {
+                throw std::runtime_error("Quantized learning memory sample dimensions do not match");
+            }
+            const QuantizedSampleMetadata metadata = readQuantizedMetadata(stream);
+            stored.priority = metadata.priority;
+            stored.error = metadata.error;
+            stored.novelty = metadata.novelty;
+            stored.rarity = metadata.rarity;
+            stored.recency = metadata.recency;
+            stored.diversity = metadata.diversity;
+            stored.age = metadata.age;
+            stored.usage_count = metadata.usage_count;
+            samples.push_back(std::move(stored));
         }
         memory->samples = std::move(samples);
         return memory;

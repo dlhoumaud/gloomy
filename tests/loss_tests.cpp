@@ -804,6 +804,113 @@ void testQuantizedFIFOMemory() {
     assert(std::abs(restored[0].input[0] - 0.0) <= 1.0);
 }
 
+void testMemoryRejectsNonFiniteOrEmptySamples() {
+    // Before this change, FIFO/Reservoir/Hybrid never validated input/target
+    // at all; Prioritized only validated `priority`; Novelty only validated
+    // non-emptiness and dimension consistency. All seven strategies must
+    // now reject an empty or non-finite sample the same way, via the shared
+    // validateTrainingSampleVectors (voir docs/roadmap.md, « Priorité
+    // haute »).
+    const double nan_value = std::numeric_limits<double>::quiet_NaN();
+    const double inf_value = std::numeric_limits<double>::infinity();
+
+    {
+        FIFOMemory memory(2);
+        bool threw = false;
+        try {
+            memory.add({{}, {1.0}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+
+        threw = false;
+        try {
+            memory.add({{nan_value}, {1.0}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+
+        threw = false;
+        try {
+            memory.add({{1.0}, {inf_value}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+        assert(memory.size() == 0);
+    }
+    {
+        ReservoirMemory memory(2, 1234u);
+        bool threw = false;
+        try {
+            memory.add({{nan_value}, {1.0}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        PrioritizedMemory memory(2, 0.6, 1234u);
+        bool threw = false;
+        try {
+            memory.add({{nan_value}, {1.0}, 0.5});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        NoveltyMemory memory(2, 0.5);
+        bool threw = false;
+        try {
+            memory.add({{1.0}, {inf_value}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        HybridMemory memory(4);
+        bool threw = false;
+        try {
+            memory.add({{nan_value}, {1.0}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        const std::vector<TrainingSample> calibration_samples = {
+            {{0.0}, {0.0}},
+            {{10.0}, {10.0}}
+        };
+        QuantizedFIFOMemory memory(2, TrainingSampleQuantizer::calibrate(calibration_samples));
+        bool threw = false;
+        try {
+            memory.add({{nan_value}, {1.0}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        const std::vector<TrainingSample> calibration_samples = {
+            {{0.0}, {0.0}},
+            {{10.0}, {10.0}}
+        };
+        QuantizedInt8FIFOMemory memory(2, Int8TrainingSampleQuantizer::calibrate(calibration_samples));
+        bool threw = false;
+        try {
+            memory.add({{1.0}, {inf_value}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
 void testTrainingSampleSerialization() {
     const std::string path = "/tmp/gloomy_training_samples.bin";
     const std::vector<TrainingSample> samples = {
@@ -1164,6 +1271,85 @@ void testAdamOptimizer() {
     assert(optimizer.stateBytes() == sizeof(double) * 4);
 }
 
+void testOptimizerRejectsNonFiniteGradients() {
+    // DenseLayer::backward already rejects a non-finite *incoming* gradient
+    // (see testNonFiniteValuesRejected), so it cannot be used here to get a
+    // non-finite weight gradient into an optimizer. A legitimate way this
+    // can still happen is numeric overflow during backward's own
+    // multiplication/accumulation (input * local_gradient) when both
+    // operands are finite but extreme — this is exactly what
+    // Optimizer::update's own validation (voir docs/roadmap.md, « Priorité
+    // haute ») must catch, since backward() never re-checks its own output.
+    auto makeOverflowingLayer = []() {
+        DenseLayer layer(1, 1);
+        layer.set_algorithm("none");
+        layer.weights()[0][0] = 0.0;
+        layer.bias()[0] = 0.0;
+        layer.forward({1e200});
+        layer.zeroGradients();
+        layer.backward({1e200});
+        return layer;
+    };
+    assert(!std::isfinite(makeOverflowingLayer().weightGradients()[0][0]));
+
+    {
+        std::vector<DenseLayer> layers;
+        layers.push_back(makeOverflowingLayer());
+        bool threw = false;
+        try {
+            SGDOptimizer(0.1).update(layers);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        std::vector<DenseLayer> layers;
+        layers.push_back(makeOverflowingLayer());
+        bool threw = false;
+        try {
+            MomentumOptimizer(0.1, 0.9).update(layers);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        std::vector<DenseLayer> layers;
+        layers.push_back(makeOverflowingLayer());
+        bool threw = false;
+        try {
+            AdamOptimizer(0.05).update(layers);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // A non-finite or non-positive gradient_scale is rejected too, even
+    // with otherwise-finite gradients.
+    {
+        DenseLayer layer(1, 1);
+        layer.set_algorithm("none");
+        layer.weights()[0][0] = 0.0;
+        layer.bias()[0] = 0.0;
+        layer.forward({1.0});
+        layer.zeroGradients();
+        layer.backward({1.0});
+        std::vector<DenseLayer> layers;
+        layers.push_back(layer);
+
+        SGDOptimizer optimizer(0.1);
+        bool threw = false;
+        try {
+            optimizer.update(layers, std::numeric_limits<double>::quiet_NaN());
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
 void testOptimizerSerialization() {
     const std::string path = "/tmp/gloomy_optimizer.bin";
 
@@ -1377,6 +1563,56 @@ void testLearningMemorySerialization() {
         }
     }
 
+    // QuantizedFIFOMemory (int16) round-trip: capacity, calibration
+    // parameters (scale/zero_point, shared by all samples) and quantized
+    // samples must survive, within the codec's own quantization error.
+    {
+        const std::vector<TrainingSample> calibration_samples = {
+            {{0.0, 1.0}, {0.0}},
+            {{10.0, 11.0}, {10.0}}
+        };
+        QuantizedFIFOMemory original(3, TrainingSampleQuantizer::calibrate(calibration_samples));
+        original.add(calibration_samples[0]);
+        original.add(calibration_samples[1]);
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        assert(dynamic_cast<QuantizedFIFOMemory*>(restored.get()) != nullptr);
+        assert(restored->capacity() == 3);
+        assert(restored->size() == 2);
+
+        const std::vector<TrainingSample> expected = original.sample(2);
+        const std::vector<TrainingSample> actual = restored->sample(2);
+        assert(expected.size() == actual.size());
+        for (size_t index = 0; index < expected.size(); ++index) {
+            assertClose(expected[index].input[0], actual[index].input[0]);
+            assertClose(expected[index].target[0], actual[index].target[0]);
+        }
+    }
+
+    // QuantizedInt8FIFOMemory round-trip: same as above, int8 codec.
+    {
+        const std::vector<TrainingSample> calibration_samples = {
+            {{0.0, 1.0}, {0.0}},
+            {{10.0, 11.0}, {10.0}}
+        };
+        QuantizedInt8FIFOMemory original(3, Int8TrainingSampleQuantizer::calibrate(calibration_samples));
+        original.add(calibration_samples[0]);
+        original.add(calibration_samples[1]);
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        assert(dynamic_cast<QuantizedInt8FIFOMemory*>(restored.get()) != nullptr);
+        assert(restored->capacity() == 3);
+        assert(restored->size() == 2);
+
+        const std::vector<TrainingSample> expected = original.sample(2);
+        const std::vector<TrainingSample> actual = restored->sample(2);
+        assert(expected.size() == actual.size());
+        for (size_t index = 0; index < expected.size(); ++index) {
+            assertClose(expected[index].input[0], actual[index].input[0]);
+            assertClose(expected[index].target[0], actual[index].target[0]);
+        }
+    }
+
     // Corruption must be rejected.
     {
         FIFOMemory original(2);
@@ -1413,6 +1649,9 @@ void testGloomyConfigDefaults() {
     assert(config.hidden_layers == 2);
     assert(config.neurons == 2);
     assert(config.predictions == 1);
+    // window_size = 1 reproduces the historical scalar-only runtime input
+    // exactly (voir docs/roadmap.md, « Priorité haute »).
+    assert(config.window_size == 1);
 
     // Loss: matches HuberLoss's own constructor default.
     assert(config.loss == "mse");
@@ -1470,6 +1709,7 @@ void testGloomyConfigFile() {
         file << "memory_strategy=hybrid\n";
         file << "memory_capacity=64\n";
         file << "seed=99\n";
+        file << "window_size=5\n";
         file.close();
 
         const GloomyConfig config = GloomyConfigFile::load(path);
@@ -1479,6 +1719,7 @@ void testGloomyConfigFile() {
         assert(config.memory_strategy == "hybrid");
         assert(config.memory_capacity == 64);
         assert(config.seed == 99u);
+        assert(config.window_size == 5);
         // Untouched keys keep the base value (defaults here).
         assert(config.neurons == GloomyConfig::defaults().neurons);
         assert(config.post_activation == GloomyConfig::defaults().post_activation);
@@ -1573,6 +1814,83 @@ void testTrainingRuntime() {
         threw = true;
     }
     assert(threw);
+
+    // window_size > 1: the network's input dimension must follow, and a
+    // sequence with at most window_size values must be rejected (voir
+    // docs/roadmap.md, « Priorité haute »).
+    {
+        GloomyConfig windowed = config;
+        windowed.window_size = 3;
+        const TrainingResult windowed_result = runTraining(windowed, sequence);
+        assert(windowed_result.network.layers().front().weights().size() == 3);
+        assert(std::isfinite(windowed_result.average_loss));
+
+        bool window_rejected = false;
+        try {
+            runTraining(windowed, {1.0, 2.0, 3.0});
+        } catch (const std::invalid_argument&) {
+            window_rejected = true;
+        }
+        assert(window_rejected);
+    }
+
+    // window_size = 0 is rejected outright.
+    {
+        GloomyConfig zero_window = config;
+        zero_window.window_size = 0;
+        bool window_zero_rejected = false;
+        try {
+            runTraining(zero_window, sequence);
+        } catch (const std::invalid_argument&) {
+            window_zero_rejected = true;
+        }
+        assert(window_zero_rejected);
+    }
+}
+
+void testTrainingRuntimeResumesFromSavedModel() {
+    const std::string path = "/tmp/gloomy_training_loaded_model.bin";
+    std::remove(path.c_str());
+
+    const std::vector<double> sequence = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+
+    GloomyConfig config = GloomyConfig::defaults();
+    config.runtime = "training";
+    config.batch_size = 4;
+    config.epochs = 2;
+    config.model_path = path;
+
+    const TrainingResult baseline = runTraining(config, sequence);
+    ModelSerialization::save(
+        path,
+        baseline.network,
+        *baseline.normalizer,
+        *baseline.optimizer,
+        *baseline.memory
+    );
+
+    // Resuming must reuse the saved network/normalizer/optimizer/memory
+    // rather than rebuilding a fresh network from config.
+    const TrainingResult resumed = runTraining(config, sequence, path);
+    assert(resumed.network.layers().size() > 0);
+    assert(resumed.normalizer != nullptr);
+    assert(resumed.optimizer != nullptr);
+    assert(resumed.memory != nullptr);
+    assert(std::isfinite(resumed.average_loss));
+
+    // A window_size mismatch against the resumed model is rejected rather
+    // than silently reinterpreting the input dimension.
+    GloomyConfig mismatched = config;
+    mismatched.window_size = 2;
+    bool threw = false;
+    try {
+        runTraining(mismatched, sequence, path);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    std::remove(path.c_str());
 }
 
 void testTrainingRuntimePersistencePaths() {
@@ -1771,6 +2089,88 @@ void testOnlineLearningRuntime() {
             threw = true;
         }
         assert(threw);
+    }
+}
+
+void testOnlineLearningRuntimeWindowSize() {
+    const std::vector<double> sequence = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+
+    // window_size = 3: the network's input dimension must follow, the
+    // number of steps must shrink to one per full window, and the recorded
+    // scalar observation/target keep their existing meaning (the newest raw
+    // value entering the window / the following value) — voir
+    // docs/roadmap.md, « Priorité haute ».
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.window_size = 3;
+        config.memory_capacity = 8;
+        const OnlineLearningResult result = runOnlineLearning(config, sequence);
+        assert(result.steps.size() == sequence.size() - config.window_size);
+        assert(result.network.layers().front().weights().size() == 3);
+        for (size_t index = 0; index < result.steps.size(); ++index) {
+            assertClose(result.steps[index].observation, sequence[index + config.window_size - 1]);
+            assertClose(result.steps[index].target, sequence[index + config.window_size]);
+        }
+        assert(std::isfinite(result.average_loss));
+    }
+
+    // A sequence with at most window_size values cannot produce a single
+    // step and must be rejected.
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.window_size = 4;
+        bool threw = false;
+        try {
+            runOnlineLearning(config, {1.0, 2.0, 3.0, 4.0});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // window_size = 0 is rejected outright.
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.window_size = 0;
+        bool threw = false;
+        try {
+            runOnlineLearning(config, sequence);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Resuming a saved model with a different window_size than the one it
+    // was trained with is rejected rather than silently mismatched.
+    {
+        const std::string path = "/tmp/gloomy_online_window_mismatch.bin";
+        std::remove(path.c_str());
+
+        GloomyConfig config = GloomyConfig::defaults();
+        config.window_size = 2;
+        config.memory_capacity = 8;
+        config.model_path = path;
+        const OnlineLearningResult baseline = runOnlineLearning(config, sequence);
+        ModelSerialization::save(
+            path,
+            baseline.network,
+            *baseline.normalizer,
+            *baseline.optimizer,
+            *baseline.memory
+        );
+
+        GloomyConfig mismatched = config;
+        mismatched.window_size = 3;
+        bool threw = false;
+        try {
+            runOnlineLearning(mismatched, sequence, path);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+
+        std::remove(path.c_str());
     }
 }
 
@@ -1973,6 +2373,7 @@ int main() {
     testQuantizedInt8FIFOMemory();
     testTrainingSampleQuantization();
     testQuantizedFIFOMemory();
+    testMemoryRejectsNonFiniteOrEmptySamples();
     testTrainingSampleSerialization();
     testModelSerialization();
     testNetworkSerialization();
@@ -1982,14 +2383,17 @@ int main() {
     testBenchmarkCsv();
     testMomentumOptimizer();
     testAdamOptimizer();
+    testOptimizerRejectsNonFiniteGradients();
     testOptimizerSerialization();
     testLearningMemorySerialization();
     testGloomyConfigDefaults();
     testGloomyConfigFile();
     testTrainingRuntime();
+    testTrainingRuntimeResumesFromSavedModel();
     testTrainingRuntimePersistencePaths();
     testOnlineLearningRuntimePersistencePaths();
     testOnlineLearningRuntime();
+    testOnlineLearningRuntimeWindowSize();
     testOnlineLearningRuntimeLongSequenceStability();
     testCatastrophicForgettingWithoutReplay();
     testCatastrophicForgettingMitigatedByReplay();

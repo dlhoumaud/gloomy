@@ -41,6 +41,7 @@ HybridMemory::HybridMemory(
 }
 
 void HybridMemory::add(const TrainingSample& sample) {
+    validateTrainingSampleVectors(sample);
     ++seen_samples;
     const Partition partition = choosePartition(sample);
     const size_t limit = partitionCapacity(partition);

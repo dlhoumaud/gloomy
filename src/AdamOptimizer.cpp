@@ -28,9 +28,10 @@ void AdamOptimizer::update(
     std::vector<DenseLayer>& layers,
     double gradient_scale
 ) {
-    if (gradient_scale <= 0.0) {
-        throw std::invalid_argument("Gradient scale must be positive");
+    if (gradient_scale <= 0.0 || !std::isfinite(gradient_scale)) {
+        throw std::invalid_argument("Gradient scale must be finite and positive");
     }
+    validateFiniteGradients(layers);
     ensureState(layers);
     ++update_count;
 

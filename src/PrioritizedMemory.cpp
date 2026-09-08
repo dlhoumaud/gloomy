@@ -23,6 +23,7 @@ PrioritizedMemory::PrioritizedMemory(
 }
 
 void PrioritizedMemory::add(const TrainingSample& sample) {
+    validateTrainingSampleVectors(sample);
     if (sample.priority < 0.0 || !std::isfinite(sample.priority)) {
         throw std::invalid_argument("Sample priority must be finite and non-negative");
     }

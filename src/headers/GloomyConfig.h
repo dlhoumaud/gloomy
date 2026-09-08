@@ -28,6 +28,16 @@ struct GloomyConfig {
     int neurons = 2;
     int predictions = 1;
 
+    // Taille de la fenetre d'entree des runtimes online/training : nombre de
+    // valeurs consecutives de la sequence utilisees comme entree du reseau
+    // pour predire la valeur suivante (voir OnlineLearningRuntime.cpp et
+    // docs/roadmap.md, « Priorité haute »). window_size = 1 (defaut)
+    // reproduit exactement le comportement scalaire historique (une entree,
+    // une sortie) ; une valeur plus grande donne au reseau plusieurs pas
+    // passes a la fois. Seule la fenetre d'entree est configurable ici : la
+    // sortie reste un scalaire (la valeur suivante).
+    std::size_t window_size = 1;
+
     // Fonction de perte : "mse" comme choix le plus simple ; huber_delta
     // reprend le défaut de HuberLoss (voir src/headers/LossFunction.h).
     std::string loss = "mse";

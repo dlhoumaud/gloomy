@@ -16,9 +16,7 @@ NoveltyMemory::NoveltyMemory(size_t capacity, double novelty_threshold)
 }
 
 void NoveltyMemory::add(const TrainingSample& sample) {
-    if (sample.input.empty()) {
-        throw std::invalid_argument("Novelty sample input cannot be empty");
-    }
+    validateTrainingSampleVectors(sample);
     if (!samples.empty() && sample.input.size() != samples.front().input.size()) {
         throw std::invalid_argument("Novelty sample input dimensions must match");
     }

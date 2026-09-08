@@ -159,7 +159,15 @@ std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load("me
 
 Un fichier tronqué, corrompu, de version incompatible ou dont le nombre d'échantillons dépasse la capacité est rejeté par une exception plutôt que de restaurer un état invalide.
 
-Cette persistance reste utile comme export séparé du réseau, de la normalisation et de l'optimiseur, mais elle est aussi incluse dans le format unifié `GLOOMY_MODEL` via `ModelSerialization`. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes ; leur persistance nécessitera de réutiliser les codecs `TrainingSampleQuantization`/`Int8TrainingSampleQuantization` avec les paramètres `scale`/`zero_point`. Voir la [feuille de route](roadmap.md).
+Cette persistance reste utile comme export séparé du réseau, de la normalisation et de l'optimiseur, mais elle est aussi incluse dans le format unifié `GLOOMY_MODEL` via `ModelSerialization`.
+
+### Mémoires quantifiées
+
+`QuantizedFIFOMemory` et `QuantizedInt8FIFOMemory` (format version 3) sont désormais couvertes elles aussi, en réutilisant les codecs `TrainingSampleQuantizer`/`Int8TrainingSampleQuantizer` : les paramètres de calibration (`scale`/`zero_point`, communs à tous les échantillons d'une même mémoire — voir [Quantification](quantization.md)) ne sont écrits qu'une seule fois, puis chaque échantillon quantifié (`int16` ou `int8`) et ses métadonnées (`priority`, `error`, ..., `usage_count`) sont écrits séparément. `load()` reconstruit le quantizer à partir des paramètres sauvegardés et vérifie que chaque vecteur restauré a bien la dimension déclarée. Un fichier version 1 ou 2 (antérieur à cet ajout) est rejeté plutôt que mal interprété.
+
+## Validation des échantillons à l'ajout
+
+Toutes les stratégies (y compris les mémoires quantifiées) rejettent désormais, via `add()`, un `TrainingSample` dont `input` ou `target` est vide ou contient une valeur non finie (`NaN`/infini), sur le même principe que `LossFunction::validateInputs` et `DenseLayer::forward`/`backward` (voir [Robustesse](roadmap.md)). Avant ce changement, seule `NoveltyMemory` validait la non-vacuité et la cohérence dimensionnelle de `input` ; `PrioritizedMemory` ne validait que `priority` ; FIFO, Reservoir et Hybrid n'effectuaient aucune validation.
 
 ## Training Scheduler
 

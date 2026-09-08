@@ -137,7 +137,9 @@ Persistance séparée déjà disponible pour :
 - état de l'optimiseur (SGD, Momentum, Adam) via `OptimizerSerialization` ;
 - mémoire d'apprentissage native (FIFO, Reservoir, Prioritized, Novelty, Hybrid) via `LearningMemorySerialization`.
 
-Un format unifié `GLOOMY_MODEL` est désormais également disponible via `ModelSerialization` (`src/headers/ModelSerialization.h`, `src/ModelSerialization.cpp`) : il regroupe dans un fichier versionné et protégé par checksum le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage. Le fichier réseau, le fichier optimiseur, le fichier mémoire et le fichier unifié sont tous vérifiés par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption. Pour l'optimiseur, `load()` reconstruit le type concret à partir du fichier et refuse de restaurer un état dont la forme (nombre de couches, dimensions par couche) ne correspond pas exactement au réseau fourni. Pour la mémoire, `load()` restaure aussi l'état complet du générateur `std::mt19937` (Reservoir, Prioritized, Hybrid) et les partitions (Hybrid), afin que le replay reste reproductible après un redémarrage. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes.
+Un format unifié `GLOOMY_MODEL` est désormais également disponible via `ModelSerialization` (`src/headers/ModelSerialization.h`, `src/ModelSerialization.cpp`) : il regroupe dans un fichier versionné et protégé par checksum le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage. Le fichier réseau, le fichier optimiseur, le fichier mémoire et le fichier unifié sont tous vérifiés par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption. Pour l'optimiseur, `load()` reconstruit le type concret à partir du fichier et refuse de restaurer un état dont la forme (nombre de couches, dimensions par couche) ne correspond pas exactement au réseau fourni. Pour la mémoire, `load()` restaure aussi l'état complet du générateur `std::mt19937` (Reservoir, Prioritized, Hybrid) et les partitions (Hybrid), afin que le replay reste reproductible après un redémarrage. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) sont désormais couvertes elles aussi (format version 3), avec leurs paramètres de calibration `scale`/`zero_point` — voir [Mémoire d'apprentissage](memory.md), « Mémoires quantifiées ».
+
+Les runtimes `online_learning` **et** `training` relisent désormais `model_path` au démarrage pour reprendre un état sauvegardé (réseau, normalisation, optimiseur, mémoire) plutôt que d'en construire un neuf ; un `window_size` de configuration incompatible avec le modèle repris est rejeté explicitement plutôt que mélangé silencieusement. `optimizer_path`, `memory_path` et `metrics_path` sont également déjà consommés à l'écriture par les deux runtimes (`saveOnlineArtifacts`/`saveTrainingArtifacts`), en plus du fichier unifié.
 
 Un artefact minimal distinct existe également pour le déploiement : `QuantizedNetworkSerialization` (magic `GLOOMYQN`, même schéma de robustesse — version, dimensions, checksum FNV-1a) persiste uniquement un `QuantizedNetwork` (poids/biais int8 + paramètres de calibration), sans aucune métadonnée d'entraînement. Il n'est pas destiné à reprendre l'entraînement, contrairement à `GLOOMY_MODEL` — voir [Quantification](quantization.md), « Artefact compact : QuantizedNetworkSerialization ».
 
@@ -175,7 +177,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
    Le format unifié existe désormais dans `ModelSerialization` : il regroupe dans un seul fichier versionné le réseau, la normalisation, l'optimiseur et la mémoire d'apprentissage, avec un checksum global et un chargement vérifié.
 
-   Le runtime online l'utilise désormais via `model_path` pour sauvegarder l'état entraîné au terme d'une exécution. Il reste à étendre ce format aux composants encore hors périmètre, en particulier les mémoires quantifiées et les paramètres de quantification.
+   Les runtimes online et training l'utilisent désormais via `model_path` pour sauvegarder l'état entraîné au terme d'une exécution, et pour le relire au démarrage afin de reprendre un entraînement (voir point 4 ci-dessous). Les mémoires quantifiées sont désormais couvertes elles aussi (voir point 3) ; reste hors périmètre : les paramètres de quantification d'un réseau (poids/biais), qui ont leur propre artefact minimal distinct (`QuantizedNetworkSerialization`), volontairement séparé de `GLOOMY_MODEL` — voir [Quantification](quantization.md).
 
 2. **Persistance de l'état des optimiseurs — fait**
 
@@ -188,9 +190,9 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    - vitesses Momentum ;
    - premiers et seconds moments Adam.
 
-   L'état est vérifié contre la forme des couches (nombre de couches, dimensions d'entrée/sortie) fournies à `load()` pour éviter de restaurer un buffer incompatible ; un fichier tronqué, corrompu ou de version différente est également rejeté. Le format `GLOOMY_MODEL` unifié couvre désormais ce composant, et le CLI online l'utilise via `model_path` pour sauvegarder l'état entraîné au terme d'une exécution.
+   L'état est vérifié contre la forme des couches (nombre de couches, dimensions d'entrée/sortie) fournies à `load()` pour éviter de restaurer un buffer incompatible ; un fichier tronqué, corrompu ou de version différente est également rejeté. Le format `GLOOMY_MODEL` unifié couvre désormais ce composant, et les runtimes online et training l'utilisent via `model_path` pour sauvegarder (et relire au démarrage) l'état entraîné.
 
-3. **Persistance des mémoires — fait pour la représentation float64**
+3. **Persistance des mémoires — fait, float64 et quantifiées**
 
    `LearningMemorySerialization::save`/`load` persiste, pour FIFO, Reservoir, Prioritized, Novelty et Hybrid :
 
@@ -200,7 +202,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    - partitions Hybrid ;
    - paramètres propres à chaque stratégie (`alpha` pour Prioritized, `novelty_threshold` pour Novelty et Hybrid, ratios pour Hybrid).
 
-   Reste à faire : les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) avec leur représentation int16/int8 et leurs paramètres `scale`/`zero_point`.
+   Fait également (format bumpé en version 3) : `QuantizedFIFOMemory` (int16) et `QuantizedInt8FIFOMemory` (int8), avec leurs paramètres de calibration `scale`/`zero_point` (partagés par tous les échantillons de la mémoire, écrits une seule fois) et leurs échantillons quantifiés. Voir [Mémoire d'apprentissage](memory.md), « Mémoires quantifiées ».
 
 4. **CLI d'entraînement et runtime online**
 
@@ -217,13 +219,13 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    -> erreur -> mémoire -> scheduler -> replay -> mise à jour
    ```
 
-   **État** : `INFERENCE_RUNTIME` (comportement historique, inchangé) et `ONLINE_LEARNING_RUNTIME` sont faits. `runOnlineLearning()` (`src/headers/OnlineLearningRuntime.h`, `src/OnlineLearningRuntime.cpp`) implémente exactement la boucle ci-dessus en réutilisant les composants déjà testés séparément : `NeuralNetwork` scalaire (entrée/sortie de dimension 1), `StreamingNormalizer`, une perte/un optimiseur/une mémoire construits depuis `GloomyConfig` (`loss`, `optimizer`, `memory_strategy` et leurs hyperparamètres), un `TrainingScheduler` (`EverySampleScheduler` ou `EveryNScheduler(train_every)`), et `LearningEngine::learn()` pour le replay et la mise à jour. Chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`).
+   **État** : `INFERENCE_RUNTIME` (comportement historique, inchangé) et `ONLINE_LEARNING_RUNTIME` sont faits. `runOnlineLearning()` (`src/headers/OnlineLearningRuntime.h`, `src/OnlineLearningRuntime.cpp`) implémente exactement la boucle ci-dessus en réutilisant les composants déjà testés séparément : `NeuralNetwork` (entrée de dimension `window_size`, sortie scalaire), `StreamingNormalizer`, une perte/un optimiseur/une mémoire construits depuis `GloomyConfig` (`loss`, `optimizer`, `memory_strategy` et leurs hyperparamètres), un `TrainingScheduler` (`EverySampleScheduler` ou `EveryNScheduler(train_every)`), et `LearningEngine::learn()` pour le replay et la mise à jour. Par défaut (`window_size=1`), chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`) ; avec `window_size > 1`, l'observation devient une fenêtre (`x[i..i+window_size-1]`) et la cible reste `x[i+window_size]`.
 
    Le CLI sélectionne ce runtime via la clé `runtime=online_learning` d'un fichier `-f`/`--config` (voir section « Configuration fichier » ci-dessous) ; `main.cpp` a été réorganisé pour faire circuler un unique `GloomyConfig` du parsing jusqu'au dispatch (`runInference`/`runOnline`), au lieu de cinq variables locales dispersées. Un runtime inconnu est rejeté avec un message explicite, de même qu'une perte, un optimiseur ou une stratégie de mémoire inconnus (tous les cas testés).
 
-   `TRAINING_RUNTIME` (entraînement par epochs sur un jeu de données complet, via `LearningEngine::train()`) est maintenant exposé dans le CLI via `runtime=training`. Le runtime construit un réseau scalaire, normalise la séquence, entraîne sur le dataset complet puis sauvegarde l'état complet si `model_path` est fourni.
+   `TRAINING_RUNTIME` (entraînement par epochs sur un jeu de données complet, via `LearningEngine::train()`) est maintenant exposé dans le CLI via `runtime=training`. Le runtime construit un réseau (même fenêtre `window_size`), normalise la séquence, entraîne sur le dataset complet puis sauvegarde l'état complet si `model_path` est fourni.
 
-   Limites connues de cette première version : le réseau du runtime online est fixé à une entrée/sortie scalaire (pas de fenêtre configurable) ; le CLI ne charge pas encore un modèle sauvegardé au démarrage, et la sortie reste un flux `stdout` ligne par ligne, pas encore un format structuré. La persistance du modèle entraîné est désormais branchée : si `model_path` est renseigné, le runtime online sauvegarde le réseau, la normalisation, l'optimiseur et la mémoire via `ModelSerialization` au terme de son exécution.
+   Fait depuis : `window_size` rend la fenêtre d'entrée configurable (défaut `1`, comportement historique inchangé) ; `bin/gloomy` charge désormais `model_path` au démarrage pour **online_learning et training**, et reprend le réseau/la normalisation/l'optimiseur/la mémoire sauvegardés plutôt que d'en construire des neufs — un `window_size` incompatible avec le modèle repris est rejeté (`std::invalid_argument`) plutôt que mélangé silencieusement. Limites restantes : la sortie reste un flux `stdout` ligne par ligne, pas encore un format structuré ; la sortie du réseau reste toujours scalaire (seule la fenêtre d'entrée est configurable, pas de prédiction multi-pas).
 
 ### Configuration fichier
 
@@ -239,6 +241,7 @@ Le fichier pourrait contenir :
 
 ```ini
 runtime=online_learning
+window_size=1
 activation=tanh
 post_activation=none
 hidden_layers=2
@@ -263,7 +266,7 @@ model_path=model.gloomy
 metrics_path=benchmark.csv
 ```
 
-**État** : les défauts sont maintenant centralisés dans `GloomyConfig` (`src/headers/GloomyConfig.h`, `src/GloomyConfig.cpp`). La structure reprend, champ par champ, le défaut déjà utilisé par chaque composant existant quand il en a un (`HuberLoss`, `MomentumOptimizer`, `AdamOptimizer`, `PrioritizedMemory`, `HybridMemoryRatios`, seed partagé de `std::mt19937`) et établit un défaut central documenté pour les champs qui n'en avaient pas encore (`learning_rate`, `memory_capacity`, `batch_size`, chemins de persistance). Le CLI (`src/main.cpp`) lit désormais ses cinq défauts actuels (`predictions`, `hidden_layers`, `neurons`, `activation`, `post_activation`) depuis `GloomyConfig::defaults()` au lieu de littéraux dupliqués ; le comportement du CLI est inchangé (vérifié manuellement). Un test caractérise chaque valeur pour empêcher une dérive silencieuse. Le parseur `-f/--config` couvre désormais tous les champs de `GloomyConfig`, et le runtime online consomme explicitement `model_path` pour sauvegarder le modèle entraîné au terme de l'exécution ; les chemins `optimizer_path`, `memory_path` et `metrics_path` restent encore à utiliser proprement dans des étapes ultérieures.
+**État** : les défauts sont maintenant centralisés dans `GloomyConfig` (`src/headers/GloomyConfig.h`, `src/GloomyConfig.cpp`). La structure reprend, champ par champ, le défaut déjà utilisé par chaque composant existant quand il en a un (`HuberLoss`, `MomentumOptimizer`, `AdamOptimizer`, `PrioritizedMemory`, `HybridMemoryRatios`, seed partagé de `std::mt19937`) et établit un défaut central documenté pour les champs qui n'en avaient pas encore (`learning_rate`, `memory_capacity`, `batch_size`, `window_size`, chemins de persistance). Le CLI (`src/main.cpp`) lit désormais ses cinq défauts actuels (`predictions`, `hidden_layers`, `neurons`, `activation`, `post_activation`) depuis `GloomyConfig::defaults()` au lieu de littéraux dupliqués ; le comportement du CLI est inchangé (vérifié manuellement). Un test caractérise chaque valeur pour empêcher une dérive silencieuse. Le parseur `-f/--config` couvre désormais tous les champs de `GloomyConfig`, et les deux runtimes (`online_learning`, `training`) consomment explicitement `model_path`/`optimizer_path`/`memory_path`/`metrics_path` pour sauvegarder l'état entraîné au terme de l'exécution, et relisent `model_path` au démarrage pour reprendre un entraînement s'il existe déjà.
 
 Avant de l'implémenter, il faudra décider :
 
@@ -286,7 +289,7 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 - ~~tests de stabilité avec très grandes valeurs~~ fait : `testActivationStabilityWithLargeValues` vérifie que sigmoid/tanh/relu/leaky_relu restent finis (forward et gradients) pour des entrées `±1e8` ;
 - ~~test de reproductibilité avec seed injectable~~ fait : `DenseLayer::seedWeightInitialization(seed)` (voir [Couches et neurones](architecture.md), section « Initialisation des poids et reproductibilité »), appelé par le CLI avec `GloomyConfig::seed` une fois la configuration résolue. `testDenseLayerSeededInitialization` vérifie qu'un même seed produit des poids identiques et que deux seeds différents en produisent des différents ;
 - ~~remplacement de `rand()` par un générateur contrôlable~~ fait, dans le même changement : `DenseLayer` utilise maintenant `std::mt19937` + `std::uniform_real_distribution` au lieu de `rand()`/`RAND_MAX` process-global. `BenchmarkRunner` a été mis à jour pour utiliser `DenseLayer::seedWeightInitialization(1234)` à la place de `std::srand(1234)`, avec le même effet (vérifié : les colonnes de perte/MAE/RMSE du benchmark restent bit-identiques d'un run à l'autre, seules les colonnes de temps varient, comme avant) ;
-- ~~validation systématique des valeurs non finies dans tous les composants~~ partiellement fait : `LossFunction::compute`/`gradient` et `DenseLayer::forward`/`backward` rejettent maintenant `NaN`/infini en entrée avec un message clair (`testNonFiniteValuesRejected`), comme le faisait déjà `StreamingNormalizer`. Restent à couvrir : les gradients accumulés par lot dans `Optimizer::update`, et les échantillons stockés dans les mémoires d'apprentissage (`TrainingSample::input`/`target` ne sont pas vérifiés à l'ajout, sauf dimension pour `NoveltyMemory`).
+- ~~validation systématique des valeurs non finies dans tous les composants~~ fait : `LossFunction::compute`/`gradient` et `DenseLayer::forward`/`backward` rejettent `NaN`/infini en entrée avec un message clair (`testNonFiniteValuesRejected`), comme le faisait déjà `StreamingNormalizer`. `SGDOptimizer`/`MomentumOptimizer`/`AdamOptimizer::update` rejettent désormais aussi tout gradient de poids/biais non fini et tout `gradient_scale` non fini ou non positif (`validateFiniteGradients`, partagée entre les trois — voir [Optimiseurs](optimizers.md)) : un cas réel non couvert par la validation d'entrée de `backward()` est le dépassement de capacité du `double` pendant ses propres multiplications/accumulations internes, avec des opérandes finis mais extrêmes. Toutes les stratégies de mémoire (FIFO, Reservoir, Prioritized, Novelty, Hybrid, `QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) rejettent désormais aussi, dans `add()`, un `TrainingSample` dont `input`/`target` est vide ou non fini (`validateTrainingSampleVectors`, partagée — voir [Mémoire d'apprentissage](memory.md)) ; avant ce changement, seule `NoveltyMemory` validait la non-vacuité/dimension, et `PrioritizedMemory` ne validait que `priority`.
 
 ### Priorité moyenne : mémoire et continual learning
 
@@ -347,9 +350,9 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 
 ### Étapes déjà réalisées (historique)
 
-1. ~~Stabiliser la sérialisation unifiée du modèle.~~ Fait : `ModelSerialization` regroupe réseau, normalisation, optimiseur et mémoire dans un fichier `GLOOMY_MODEL` versionné et protégé par checksum, avec round-trip et rejet de corruption testés, et est branché dans le CLI via `model_path` (voir section 2, « Persistance »). Reste ouvert, reporté dans la nouvelle liste ci-dessous : les mémoires quantifiées n'y sont pas encore couvertes.
+1. ~~Stabiliser la sérialisation unifiée du modèle.~~ Fait : `ModelSerialization` regroupe réseau, normalisation, optimiseur et mémoire dans un fichier `GLOOMY_MODEL` versionné et protégé par checksum, avec round-trip et rejet de corruption testés, et est branché dans le CLI via `model_path` (voir section 2, « Persistance »). Les mémoires quantifiées y sont désormais couvertes aussi (voir « Prochaines étapes recommandées », point 1 ci-dessous).
 2. ~~Ajouter la persistance de l'état Optimizer.~~ Fait (`OptimizerSerialization`, voir section 2 et 3).
-3. ~~Ajouter la persistance des mémoires~~ Fait pour la représentation float64 (`LearningMemorySerialization`, voir section 2 et 3). Reste : les paramètres de quantification (int16/int8).
+3. ~~Ajouter la persistance des mémoires~~ Fait pour la représentation float64 **et** quantifiée (int16/int8) — voir `LearningMemorySerialization`, section 2 et 3, et « Prochaines étapes recommandées », point 1.
 4. ~~Centraliser les défauts dans une configuration C++.~~ Fait (`GloomyConfig`, voir section 2 et 3).
 5. ~~Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.~~ Fait (`GloomyConfigFile`, voir section 2 et 3).
 6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3).
@@ -364,13 +367,13 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 
 Cette liste remplace l'ancienne numérotation 1-12 ci-dessus (désormais entièrement réalisée) comme référence pour la suite. Elle reprend, triés par priorité décroissante, les points encore ouverts identifiés section 3.
 
-**Priorité haute**
+**Priorité haute — toutes faites dans cette itération**
 
-1. Étendre `GLOOMY_MODEL`/`LearningMemorySerialization` aux mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) avec leurs paramètres `scale`/`zero_point` — seule la représentation float64 est persistée aujourd'hui.
-2. Brancher `optimizer_path`, `memory_path` et `metrics_path` dans le CLI principal (`bin/gloomy`) — seul `model_path` est consommé aujourd'hui ; ou documenter explicitement pourquoi ils restent inutilisés si `GLOOMY_MODEL` les rend redondants.
-3. Permettre à `bin/gloomy` de charger un modèle sauvegardé au démarrage pour reprendre un entraînement ou un online learning depuis un état persistant (aujourd'hui, seul `bin/gloomy_infer` charge un modèle sauvegardé, en inférence seule — voir [Quantification](quantization.md)).
-4. Rendre configurable la fenêtre d'entrée/sortie du runtime online, aujourd'hui fixée à un scalaire (une entrée, une sortie) — condition nécessaire avant d'envisager des séries multivariées.
-5. Compléter la validation des valeurs non finies : gradients accumulés dans `Optimizer::update`, et `TrainingSample::input`/`target` à l'ajout en mémoire (seul `NoveltyMemory` vérifie la dimension aujourd'hui) — voir section 3, « Priorité moyenne : robustesse mathématique ».
+1. ~~Étendre `GLOOMY_MODEL`/`LearningMemorySerialization` aux mémoires quantifiées~~ Fait : `QuantizedFIFOMemory` et `QuantizedInt8FIFOMemory` sont persistées (format version 3) avec leurs paramètres `scale`/`zero_point`, écrits une seule fois par mémoire — voir [Mémoire d'apprentissage](memory.md), « Mémoires quantifiées ».
+2. ~~Brancher `optimizer_path`, `memory_path` et `metrics_path` dans le CLI principal~~ En réalité déjà fait avant cette itération : `saveOnlineArtifacts`/`saveTrainingArtifacts` (`OnlineLearningRuntime.cpp`) consommaient déjà les quatre chemins pour les deux runtimes — cette entrée de la liste précédente reposait sur une lecture incorrecte du code, corrigée ici.
+3. ~~Permettre à `bin/gloomy` de charger un modèle sauvegardé au démarrage~~ Fait pour `runtime=training` (déjà fait avant cette itération pour `runtime=online_learning`, via la même lecture incorrecte que le point précédent) : `runTraining()` accepte désormais une variante à trois arguments (`model_path`) utilisée par `main.cpp`, qui reprend réseau/normalisation/optimiseur/mémoire sauvegardés plutôt que d'en construire des neufs. `bin/gloomy_infer` reste le seul binaire à charger un modèle pour de l'inférence pure, sans reprendre l'entraînement.
+4. ~~Rendre configurable la fenêtre d'entrée/sortie du runtime online~~ Fait pour la fenêtre d'**entrée** : nouveau champ `window_size` (défaut `1`, comportement historique inchangé) dans `GloomyConfig`, consommé par `runOnlineLearning()` et `runTraining()` pour construire un réseau à `window_size` entrées et faire glisser une fenêtre sur la séquence. Un `window_size` incompatible avec un modèle repris (`model_path`) est rejeté explicitement. La sortie reste un scalaire (un seul pas de sortie) : la fenêtre de **sortie** (prédiction multi-pas) n'a pas été touchée.
+5. ~~Compléter la validation des valeurs non finies~~ Fait : `Optimizer::update` (SGD/Momentum/Adam) rejette les gradients de poids/biais non finis et un `gradient_scale` non fini/non positif ; les sept stratégies de mémoire (y compris les deux quantifiées) rejettent un `TrainingSample` vide ou non fini à l'ajout — voir section 3, « Priorité moyenne : robustesse mathématique ».
 
 **Priorité moyenne**
 
@@ -393,15 +396,13 @@ Cette liste remplace l'ancienne numérotation 1-12 ci-dessus (désormais entièr
 ## 5. Limites connues à ne pas oublier
 
 - le CLI (`bin/gloomy`) recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires (`INFERENCE_RUNTIME` uniquement ; sans effet sur `ONLINE_LEARNING_RUNTIME`, qui garde un seul réseau du début à la fin) ;
-- `bin/gloomy` ne charge pas encore de modèle sauvegardé au démarrage : les runtimes `online_learning`/`training` savent seulement sauvegarder l'état entraîné en fin d'exécution (`model_path`), jamais le relire pour reprendre dessus. Seul le binaire séparé `bin/gloomy_infer` (voir [Quantification](quantization.md)) sait charger un modèle sauvegardé, et uniquement pour de l'inférence, pas pour reprendre un entraînement ;
-- le réseau du runtime online est fixé à une entrée/sortie scalaire, sans fenêtre configurable ;
+- le réseau des runtimes `online_learning`/`training` a une sortie toujours scalaire (un seul pas de prédiction) ; l'entrée est configurable via `window_size` (défaut `1`, comportement historique), mais il n'existe pas de prédiction multi-pas ni de séries multivariées ;
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;
 - les mémoires natives stockent encore des `double` ;
 - le réseau s'entraîne toujours en float64 ; seule une copie post-entraînement peut être quantifiée en int8 via `NetworkQuantization`, avec un ratio mémoire réel dépendant fortement de la taille du réseau (mesuré à 2.25× sur un petit réseau 1-8-1, loin du 8× théorique) — voir [Quantification](quantization.md) ;
-- les mémoires quantifiées (int16/int8, `QuantizedFIFOMemory`/`QuantizedInt8FIFOMemory`) ne sont persistées ni dans leur propre format ni dans `GLOOMY_MODEL` ;
 - `bin/gloomy_infer` ne couvre que le chemin `forward()` ; les couches y utilisent toujours des vecteurs imbriqués non contigus, et aucune cible embarquée réelle n'a pu être testée (pas de chaîne de compilation croisée ni de matériel disponible) ;
-- le format `GLOOMY_MODEL` unifié (`ModelSerialization`) couvre réseau, normalisation, optimiseur et mémoire native, mais ni les mémoires quantifiées ni les poids quantifiés d'un réseau : ces derniers ont leur propre artefact minimal et distinct (`QuantizedNetworkSerialization`, magic `GLOOMYQN`), volontairement dépourvu de métadonnées d'entraînement et donc non destiné à reprendre un entraînement — voir [Quantification](quantization.md) ;
+- le format `GLOOMY_MODEL` unifié (`ModelSerialization`) couvre réseau, normalisation, optimiseur et mémoire d'apprentissage (natives et quantifiées) ; il ne couvre pas les poids quantifiés d'un réseau, qui ont leur propre artefact minimal et distinct (`QuantizedNetworkSerialization`, magic `GLOOMYQN`), volontairement dépourvu de métadonnées d'entraînement et donc non destiné à reprendre un entraînement — voir [Quantification](quantization.md) ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles.
 

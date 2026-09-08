@@ -78,6 +78,24 @@ OnlineLearningResult runOnlineLearning(
     return runOnlineLearning(config, sequence, "");
 }
 
+namespace {
+// Verifie que la dimension d'entree du reseau (neuf ou repris d'un modele
+// sauvegarde) correspond bien a config.window_size, pour eviter de melanger
+// silencieusement un window_size de configuration avec un reseau entraine
+// avec une autre fenetre (voir docs/roadmap.md, « Priorité haute »).
+void validateNetworkWindowSize(const NeuralNetwork& network, const GloomyConfig& config) {
+    if (network.layers().empty()) {
+        throw std::invalid_argument("Network has no layers");
+    }
+    const std::size_t actual_input_size = network.layers().front().weights().size();
+    if (actual_input_size != config.window_size) {
+        throw std::invalid_argument(
+            "Resumed model's input window size does not match config.window_size"
+        );
+    }
+}
+}
+
 void saveTrainingArtifacts(
     const GloomyConfig& config,
     const TrainingResult& result
@@ -139,9 +157,20 @@ TrainingResult runTraining(
     const GloomyConfig& config,
     const std::vector<double>& sequence
 ) {
-    if (sequence.size() < 2) {
+    return runTraining(config, sequence, "");
+}
+
+TrainingResult runTraining(
+    const GloomyConfig& config,
+    const std::vector<double>& sequence,
+    const std::string& model_path
+) {
+    if (config.window_size == 0) {
+        throw std::invalid_argument("window_size must be positive");
+    }
+    if (sequence.size() <= config.window_size) {
         throw std::invalid_argument(
-            "Training requires at least two values in the input sequence"
+            "Training requires more values in the input sequence than window_size"
         );
     }
     if (config.batch_size == 0) {
@@ -152,42 +181,79 @@ TrainingResult runTraining(
     }
 
     const std::unique_ptr<LossFunction> loss = makeLoss(config);
+
     auto network = std::make_unique<NeuralNetwork>();
-    network->algorithm = config.activation;
-    network->post_algorithm = config.post_activation;
-    if (config.hidden_layers <= 0) {
-        network->addLayer(1, 1);
-    } else {
-        network->addLayer(1, config.neurons);
-        for (int index = 1; index < config.hidden_layers; ++index) {
-            network->addLayer(config.neurons, config.neurons);
+    auto normalizer = std::make_unique<StreamingNormalizer>(1);
+    std::unique_ptr<Optimizer> optimizer;
+    std::unique_ptr<LearningMemory> memory;
+
+    if (!model_path.empty()) {
+        std::ifstream input(model_path, std::ios::binary);
+        if (input.good()) {
+            ModelSerialization::LoadedModel loaded = ModelSerialization::load(model_path);
+            network = std::make_unique<NeuralNetwork>(std::move(loaded.network));
+            normalizer = std::move(loaded.normalizer);
+            optimizer = std::move(loaded.optimizer);
+            memory = std::move(loaded.memory);
         }
-        network->addLayer(config.neurons, 1);
     }
 
-    auto normalizer = std::make_unique<StreamingNormalizer>(1);
-    auto optimizer = makeOptimizer(config);
-    auto memory = makeMemory(config);
+    if (!optimizer || !memory || !normalizer) {
+        network->algorithm = config.activation;
+        network->post_algorithm = config.post_activation;
+        const int window_size = static_cast<int>(config.window_size);
+        if (config.hidden_layers <= 0) {
+            network->addLayer(window_size, 1);
+        } else {
+            network->addLayer(window_size, config.neurons);
+            for (int index = 1; index < config.hidden_layers; ++index) {
+                network->addLayer(config.neurons, config.neurons);
+            }
+            network->addLayer(config.neurons, 1);
+        }
 
-    // raw_observation/raw_target/observation/target sont reutilises d'une
-    // iteration a l'autre (voir docs/roadmap.md, « Priorité moyenne :
-    // compression et embarqué ») : une fois leur capacite etablie a la
-    // premiere iteration, l'affectation d'un element ou normalize(..., out)
-    // ne reallouent plus. Seule la copie finale dans `samples` (necessaire,
-    // le dataset doit survivre a la boucle) alloue encore.
-    std::vector<double> raw_observation(1);
+        optimizer = makeOptimizer(config);
+        memory = makeMemory(config);
+        normalizer = std::make_unique<StreamingNormalizer>(1);
+    }
+    validateNetworkWindowSize(*network, config);
+
+    // observation/target/scratch sont reutilises d'une iteration a l'autre
+    // (voir docs/roadmap.md, « Priorité moyenne : compression et embarqué ») :
+    // une fois leur capacite etablie a la premiere iteration, l'affectation
+    // d'un element ou normalize(..., out) ne reallouent plus. Seule la copie
+    // finale dans `samples` (necessaire, le dataset doit survivre a la
+    // boucle) alloue encore.
+    std::vector<double> observation(config.window_size);
     std::vector<double> raw_target(1);
-    std::vector<double> observation(1);
     std::vector<double> target(1);
+    std::vector<double> scratch(1);
+    std::vector<double> normalized_scratch(1);
+
+    // Bootstrap : sequence[0 .. window_size-2] n'apparaissent jamais comme
+    // la valeur la plus recente entrant dans une fenetre (ce role commence a
+    // sequence[window_size-1], mise a jour au debut de l'iteration 0
+    // ci-dessous) — elles ne seraient donc jamais vues par le normaliseur
+    // sans cette boucle prealable (voir docs/roadmap.md, « Priorité
+    // haute »).
+    for (std::size_t index = 0; index + 1 < config.window_size; ++index) {
+        scratch[0] = sequence[index];
+        normalizer->update(scratch);
+    }
 
     std::vector<TrainingSample> samples;
-    samples.reserve(sequence.size() - 1);
-    for (std::size_t index = 0; index + 1 < sequence.size(); ++index) {
-        raw_observation[0] = sequence[index];
-        raw_target[0] = sequence[index + 1];
+    samples.reserve(sequence.size() - config.window_size);
+    for (std::size_t step = 0; step + config.window_size < sequence.size(); ++step) {
+        scratch[0] = sequence[step + config.window_size - 1];
+        normalizer->update(scratch);
 
-        normalizer->update(raw_observation);
-        normalizer->normalize(raw_observation, observation);
+        for (std::size_t position = 0; position < config.window_size; ++position) {
+            scratch[0] = sequence[step + position];
+            normalizer->normalize(scratch, normalized_scratch);
+            observation[position] = normalized_scratch[0];
+        }
+
+        raw_target[0] = sequence[step + config.window_size];
         normalizer->normalize(raw_target, target);
         samples.push_back({observation, target});
     }
@@ -209,9 +275,12 @@ OnlineLearningResult runOnlineLearning(
     const std::vector<double>& sequence,
     const std::string& model_path
 ) {
-    if (sequence.size() < 2) {
+    if (config.window_size == 0) {
+        throw std::invalid_argument("window_size must be positive");
+    }
+    if (sequence.size() <= config.window_size) {
         throw std::invalid_argument(
-            "Online learning requires at least two values in the input sequence"
+            "Online learning requires more values in the input sequence than window_size"
         );
     }
     if (config.batch_size == 0) {
@@ -240,10 +309,11 @@ OnlineLearningResult runOnlineLearning(
     if (!optimizer || !memory || !normalizer) {
         network->algorithm = config.activation;
         network->post_algorithm = config.post_activation;
+        const int window_size = static_cast<int>(config.window_size);
         if (config.hidden_layers <= 0) {
-            network->addLayer(1, 1);
+            network->addLayer(window_size, 1);
         } else {
-            network->addLayer(1, config.neurons);
+            network->addLayer(window_size, config.neurons);
             for (int index = 1; index < config.hidden_layers; ++index) {
                 network->addLayer(config.neurons, config.neurons);
             }
@@ -254,11 +324,12 @@ OnlineLearningResult runOnlineLearning(
         memory = makeMemory(config);
         normalizer = std::make_unique<StreamingNormalizer>(1);
     }
+    validateNetworkWindowSize(*network, config);
 
     LearningEngine engine(*network, *loss, *optimizer);
 
     OnlineLearningResult result;
-    result.steps.reserve(sequence.size() - 1);
+    result.steps.reserve(sequence.size() - config.window_size);
     double total_loss = 0.0;
 
     // Buffers reutilises d'une iteration a l'autre plutot que reconstruits :
@@ -268,18 +339,30 @@ OnlineLearningResult runOnlineLearning(
     // LearningEngine::learn(), qui en fait immediatement sa propre copie
     // avant de la modifier — le reutiliser ici ne fait donc courir aucun
     // risque d'aliasing avec ce qui est stocke en memoire.
-    std::vector<double> raw_observation(1);
+    std::vector<double> observation(config.window_size);
     std::vector<double> raw_target(1);
-    std::vector<double> observation(1);
     std::vector<double> target(1);
+    std::vector<double> scratch(1);
+    std::vector<double> normalized_scratch(1);
     TrainingSample sample;
 
-    for (std::size_t index = 0; index + 1 < sequence.size(); ++index) {
-        raw_observation[0] = sequence[index];
-        raw_target[0] = sequence[index + 1];
+    // Bootstrap : voir le commentaire equivalent dans runTraining ci-dessus.
+    for (std::size_t index = 0; index + 1 < config.window_size; ++index) {
+        scratch[0] = sequence[index];
+        normalizer->update(scratch);
+    }
 
-        normalizer->update(raw_observation);
-        normalizer->normalize(raw_observation, observation);
+    for (std::size_t step = 0; step + config.window_size < sequence.size(); ++step) {
+        scratch[0] = sequence[step + config.window_size - 1];
+        normalizer->update(scratch);
+
+        for (std::size_t position = 0; position < config.window_size; ++position) {
+            scratch[0] = sequence[step + position];
+            normalizer->normalize(scratch, normalized_scratch);
+            observation[position] = normalized_scratch[0];
+        }
+
+        raw_target[0] = sequence[step + config.window_size];
         normalizer->normalize(raw_target, target);
 
         const std::vector<double> prediction = network->forward(observation);
@@ -288,12 +371,12 @@ OnlineLearningResult runOnlineLearning(
         sample.target = target;
         const double step_loss = engine.learn(*memory, sample, config.batch_size, *scheduler);
 
-        OnlineLearningStep step;
-        step.observation = raw_observation[0];
-        step.target = raw_target[0];
-        step.prediction_before_update = prediction[0];
-        step.loss_before_update = step_loss;
-        result.steps.push_back(step);
+        OnlineLearningStep online_step;
+        online_step.observation = sequence[step + config.window_size - 1];
+        online_step.target = sequence[step + config.window_size];
+        online_step.prediction_before_update = prediction[0];
+        online_step.loss_before_update = step_loss;
+        result.steps.push_back(online_step);
         total_loss += step_loss;
     }
 

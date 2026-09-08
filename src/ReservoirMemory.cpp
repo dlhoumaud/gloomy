@@ -11,6 +11,7 @@ ReservoirMemory::ReservoirMemory(size_t capacity, std::uint32_t seed)
 }
 
 void ReservoirMemory::add(const TrainingSample& sample) {
+    validateTrainingSampleVectors(sample);
     ++seen_samples;
     if (samples.size() < memory_capacity) {
         samples.push_back(sample);

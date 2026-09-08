@@ -89,6 +89,7 @@ GloomyConfig GloomyConfigFile::load(const std::string& path, const GloomyConfig&
         else if (key == "hidden_layers") config.hidden_layers = parseInt(key, value);
         else if (key == "neurons") config.neurons = parseInt(key, value);
         else if (key == "predictions") config.predictions = parseInt(key, value);
+        else if (key == "window_size") config.window_size = parseSize(key, value);
         else if (key == "loss") config.loss = value;
         else if (key == "huber_delta") config.huber_delta = parseDouble(key, value);
         else if (key == "optimizer") config.optimizer = value;

@@ -19,9 +19,7 @@ QuantizedInt8FIFOMemory::QuantizedInt8FIFOMemory(
 }
 
 void QuantizedInt8FIFOMemory::add(const TrainingSample& sample) {
-    if (sample.input.empty() || sample.target.empty()) {
-        throw std::invalid_argument("Quantized samples cannot contain empty vectors");
-    }
+    validateTrainingSampleVectors(sample);
     if (input_dimensions == 0) {
         input_dimensions = sample.input.size();
         target_dimensions = sample.target.size();

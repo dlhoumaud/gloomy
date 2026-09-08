@@ -148,7 +148,7 @@ int runInference(const GloomyConfig &config, std::vector<double> sequence) {
 // avec une seule passe par epoch et un batch configure par config.batch_size.
 int runTrainingRuntime(const GloomyConfig &config, const std::vector<double> &sequence) {
     try {
-        const TrainingResult result = runTraining(config, sequence);
+        const TrainingResult result = runTraining(config, sequence, config.model_path);
         saveTrainingArtifacts(config, result);
         std::cerr << "average_loss=" << result.average_loss << std::endl;
     } catch (const std::exception &e) {

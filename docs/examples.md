@@ -6,7 +6,7 @@ Cette page répond concrètement à une question simple : **avec le Gloomy actue
 
 Gloomy n'est pas un système à qui l'on « enseigne » des connaissances générales (pas de texte, pas d'images, pas de conversation). C'est un petit moteur de réseau dense en C++ qui sait aujourd'hui faire deux types d'apprentissage réel sur des séries scalaires : `ONLINE_LEARNING_RUNTIME` et `TRAINING_RUNTIME` (voir [Configurations et limites](configurations.md)).
 
-- `ONLINE_LEARNING_RUNTIME` apprend, en continu et sans réentraînement complet, à **prédire la valeur suivante d'une série scalaire** : chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`).
+- `ONLINE_LEARNING_RUNTIME` apprend, en continu et sans réentraînement complet, à **prédire la valeur suivante d'une série scalaire** : par défaut, chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`) ; avec `window_size > 1`, l'observation devient une fenêtre des `window_size` dernières valeurs (`x[i..i+window_size-1]`) et la cible reste la valeur suivante (`x[i+window_size]`).
 - `TRAINING_RUNTIME` entraîne le réseau sur l'ensemble complet de la séquence avec `LearningEngine::train()` puis peut sauvegarder l'état complet si `model_path` est renseigné.
 
 Concrètement, on peut lui apprendre à anticiper la suite d'un flux de mesures : un compteur, une température, une charge, un cours simplifié, un capteur — tant que c'est une seule valeur numérique par instant. Les exemples ci-dessous sont réels : chaque commande a été exécutée telle quelle avec le CLI actuel, les sorties sont copiées telles quelles.
@@ -125,10 +125,9 @@ Ces valeurs précises dépendent de l'état du générateur de poids partagé (`
 
 Pour ne pas se tromper d'attentes :
 
-- **Une seule valeur à la fois** : le runtime online est scalaire (une entrée, une sortie). Pas de séries multivariées, pas d'image, pas de texte.
-- **Pas de vraie mémoire de contexte** : chaque prédiction ne voit que l'observation courante, pas une fenêtre des valeurs précédentes (pas de couche récurrente).
+- **Une seule série à la fois** : le runtime online prédit toujours une seule valeur suivante, à partir d'une seule série scalaire. `window_size` (défaut `1`, configurable) permet de lui faire voir les `window_size` dernières valeurs à chaque prédiction — pas une vraie couche récurrente, mais une fenêtre glissante explicite — sans jamais mélanger plusieurs séries indépendantes ni prédire plusieurs valeurs futures d'un coup. Pas d'image, pas de texte.
 - **Pas de classification** : `softmax` existe et son gradient est vérifié (voir [Fonctions d'activation](activations.md)), mais aucun runtime CLI ne l'exploite avec une sortie à plusieurs neurones et des cibles de classe.
-- **`bin/gloomy` ne charge pas encore** un modèle sauvegardé au démarrage ; le runtime `online_learning` sauvegarde désormais le réseau/l'optimiseur/la mémoire entraînés à la fin d'un run si `model_path` est renseigné, et le runtime `training` fait de même après un entraînement complet. Un binaire séparé, `bin/gloomy_infer`, peut en revanche charger un réseau déjà entraîné (au format `NetworkSerialization` ou, en int8, `QuantizedNetworkSerialization`) et produire une prédiction directement — voir [Quantification](quantization.md), « Runtime d'inférence minimal ». Il ne réentraîne rien : c'est un chemin d'inférence seule, pensé pour un déploiement plus léger.
+- **`bin/gloomy` charge désormais un modèle sauvegardé au démarrage**, pour `runtime=online_learning` **et** `runtime=training` : si `model_path` pointe vers un fichier `GLOOMY_MODEL` existant, l'exécution reprend le réseau, la normalisation, l'optimiseur et la mémoire sauvegardés au lieu de repartir de zéro (rejeté proprement si `window_size` ne correspond pas au modèle repris) ; les deux runtimes sauvegardent toujours l'état à la fin de l'exécution si `model_path` est renseigné. Un binaire séparé, `bin/gloomy_infer`, charge lui aussi un réseau déjà entraîné (au format `NetworkSerialization` ou, en int8, `QuantizedNetworkSerialization`) mais uniquement pour produire une prédiction, sans réentraîner — voir [Quantification](quantization.md), « Runtime d'inférence minimal ».
 
 ## Pour aller plus loin
 
