@@ -52,3 +52,17 @@ parameter -= learning_rate * corrected_m / (sqrt(corrected_v) + epsilon)
 Il conserve deux `double` par paramètre, soit environ deux fois le coût d'état de Momentum. Adam peut être plus rapide sur certains problèmes, mais sa mémoire et ses opérations supplémentaires le rendent moins évident pour un microcontrôleur. `stateBytes()` permet de comparer ce coût directement.
 
 Adam doit être comparé à SGD et Momentum sur les mêmes données, seeds, nombre d'updates et budgets mémoire. Il ne doit pas être considéré comme supérieur par défaut.
+
+## Persistance de l'état
+
+`OptimizerSerialization` sauvegarde et restaure n'importe quel `Optimizer` concret (SGD, Momentum ou Adam) dans un fichier binaire versionné, protégé par un checksum FNV-1a :
+
+```cpp
+OptimizerSerialization::save("optimizer.bin", optimizer);
+std::unique_ptr<Optimizer> restored =
+    OptimizerSerialization::load("optimizer.bin", network.layers());
+```
+
+Le fichier contient le type d'optimiseur, ses hyperparamètres (`learning_rate`, `momentum`, `beta1`/`beta2`/`epsilon`), le compte d'updates pour Adam, ainsi que les vitesses de Momentum ou les premiers et seconds moments d'Adam. `load()` reconstruit l'optimiseur concret et vérifie que la forme de chaque couche sauvegardée correspond exactement au réseau fourni (`network.layers()`) avant de restaurer le buffer : un fichier taillé pour une autre architecture, tronqué, corrompu ou de version incompatible est rejeté avec une exception plutôt que de restaurer un état invalide.
+
+Cette persistance reste un fichier séparé du réseau et de la mémoire d'apprentissage ; leur regroupement dans un unique format `GLOOMY_MODEL` reste à faire (voir [feuille de route](roadmap.md)).

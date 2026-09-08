@@ -25,6 +25,8 @@ public:
     size_t stateBytes() const;
 
 private:
+    friend class OptimizerSerialization;
+
     struct LayerState {
         std::vector<std::vector<double>> first_moment;
         std::vector<std::vector<double>> second_moment;

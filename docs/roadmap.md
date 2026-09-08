@@ -4,7 +4,7 @@ Ce document sert de fil conducteur du projet. Il décrit ce qui est réellement 
 
 ## 1. État actuel
 
-Gloomy possède maintenant un moteur Dense C++ avec propagation avant, rétropropagation, entraînement par mini-batches, mémoires d'apprentissage interchangeables, quantification expérimentale, persistance partielle, métriques et benchmark.
+Gloomy possède maintenant un moteur Dense C++ avec propagation avant, rétropropagation, entraînement par mini-batches, mémoires d'apprentissage interchangeables, quantification expérimentale, persistance partielle, métriques et benchmark. Le CLI (`bin/gloomy`) sait générer des prédictions (`INFERENCE_RUNTIME`, comportement historique) et exécuter un flux d'apprentissage en continu configurable (`ONLINE_LEARNING_RUNTIME`, via un fichier `-f`/`--config`).
 
 Le projet compile sans dépendance externe avec C++17 et Make.
 
@@ -18,6 +18,14 @@ make benchmark
 ```
 
 Le benchmark produit `benchmark_results.csv`, ignoré par Git.
+
+### Bug corrigé : dépendances de headers absentes du Makefile
+
+Le `Makefile` compilait `bin/gloomy` de façon incrémentale (`$(OBJ_DIR)/%.o: src/%.cpp`), mais chaque `.o` ne dépendait que de son propre `.cpp`, pas des headers qu'il inclut. Après plusieurs changements de header sans `make clean` intermédiaire, `make` pouvait relier des `.o` compilés contre des versions différentes (incompatibles) d'un même header — une violation de l'ODR silencieuse, sans erreur de compilation. Symptôme observé : `bin/gloomy -f config.gloomy` avec `runtime=online_learning` corrompait le tas après quelques itérations d'apprentissage (`free(): invalid pointer`), de façon non déterministe selon l'historique de compilation, **uniquement pour la cible `bin/gloomy`** (`make test` et `make benchmark` compilent toujours toutes leurs sources en une seule invocation `g++`, donc n'étaient jamais affectés — ce qui explique pourquoi la suite de tests ne l'a pas détecté).
+
+Corrigé en ajoutant `-MMD -MP` à `CXXFLAGS` et un `-include $(OBJ:.o=.d)` en bas du `Makefile` : chaque `.o` déclare désormais ses headers comme dépendances réelles, et `make` recompile correctement tout fichier affecté par un changement de header. Vérifié : modifier un header partagé par 10 fichiers déclenche maintenant la recompilation exacte de ces 10 fichiers (contre 0 avant le correctif) ; `bin/gloomy` a été testé sur des séquences de longueur 5 à 80 et les 5 stratégies de mémoire sans aucune récurrence après correction. Les fichiers `.d` générés sont ignorés par Git (`.gitignore`).
+
+**Leçon retenue pour la suite** : après avoir modifié un header partagé, préférer `make clean && make && make test && make benchmark` à un `make` incrémental tant qu'un doute subsiste, même si le correctif ci-dessus élimine la cause en principe.
 
 ## 2. Fonctionnalités implémentées
 
@@ -114,9 +122,11 @@ Persistance séparée déjà disponible pour :
 
 - `TrainingSample` ;
 - architecture et paramètres du réseau ;
-- statistiques de normalisation.
+- statistiques de normalisation ;
+- état de l'optimiseur (SGD, Momentum, Adam) via `OptimizerSerialization` ;
+- mémoire d'apprentissage native (FIFO, Reservoir, Prioritized, Novelty, Hybrid) via `LearningMemorySerialization`.
 
-Le fichier réseau est versionné et protégé par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption.
+Le fichier réseau, le fichier optimiseur et le fichier mémoire sont versionnés et protégés par un checksum FNV-1a. Les tests vérifient le round-trip et le rejet d'une corruption. Pour l'optimiseur, `load()` reconstruit le type concret à partir du fichier et refuse de restaurer un état dont la forme (nombre de couches, dimensions par couche) ne correspond pas exactement au réseau fourni. Pour la mémoire, `load()` restaure aussi l'état complet du générateur `std::mt19937` (Reservoir, Prioritized, Hybrid) et les partitions (Hybrid), afin que le replay reste reproductible après un redémarrage. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes.
 
 ### Métriques et benchmark
 
@@ -165,33 +175,30 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
    Le format doit prévoir des sections, des tailles, une version et une compatibilité future. Le chargement doit être atomique : un fichier invalide ne doit pas laisser un modèle partiellement modifié.
 
-2. **Persistance de l'état des optimiseurs**
+2. **Persistance de l'état des optimiseurs — fait**
 
-   Ajouter à l'abstraction `Optimizer` un contrat de sauvegarde/restauration. Il faudra persister :
+   `OptimizerSerialization::save`/`load` persiste :
 
    - type d'optimiseur ;
    - learning rate ;
-   - hyperparamètres ;
+   - hyperparamètres (`momentum`, `beta1`, `beta2`, `epsilon`) ;
    - compte d'updates Adam ;
    - vitesses Momentum ;
    - premiers et seconds moments Adam.
 
-   L'état doit être vérifié contre la forme des couches pour éviter de restaurer un buffer incompatible.
+   L'état est vérifié contre la forme des couches (nombre de couches, dimensions d'entrée/sortie) fournies à `load()` pour éviter de restaurer un buffer incompatible ; un fichier tronqué, corrompu ou de version différente est également rejeté. Reste à faire : intégrer ce fichier séparé dans le format `GLOOMY_MODEL` unifié (point 1) et brancher cette persistance dans le CLI (point 4).
 
-3. **Persistance des mémoires**
+3. **Persistance des mémoires — fait pour la représentation float64**
 
-   Sauvegarder et restaurer :
+   `LearningMemorySerialization::save`/`load` persiste, pour FIFO, Reservoir, Prioritized, Novelty et Hybrid :
 
-   - stratégie utilisée ;
-   - capacité ;
-   - seed et état RNG si la reproductibilité est requise ;
-   - échantillons ;
-   - priorités ;
-   - âge et usages ;
+   - stratégie utilisée et capacité ;
+   - état RNG complet (pas seulement la seed) et compteur d'observations vues pour Reservoir, Prioritized et Hybrid ;
+   - échantillons avec toutes leurs métadonnées (priorité, erreur, novelty, rarity, recency, diversity, âge, usage_count) ;
    - partitions Hybrid ;
-   - paramètres de Novelty et Prioritized ;
-   - représentation float64/int16/int8 ;
-   - paramètres `scale` / `zero_point`.
+   - paramètres propres à chaque stratégie (`alpha` pour Prioritized, `novelty_threshold` pour Novelty et Hybrid, ratios pour Hybrid).
+
+   Reste à faire : les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) avec leur représentation int16/int8 et leurs paramètres `scale`/`zero_point`.
 
 4. **CLI d'entraînement et runtime online**
 
@@ -208,9 +215,17 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    -> erreur -> mémoire -> scheduler -> replay -> mise à jour
    ```
 
+   **État** : `INFERENCE_RUNTIME` (comportement historique, inchangé) et `ONLINE_LEARNING_RUNTIME` sont faits. `runOnlineLearning()` (`src/headers/OnlineLearningRuntime.h`, `src/OnlineLearningRuntime.cpp`) implémente exactement la boucle ci-dessus en réutilisant les composants déjà testés séparément : `NeuralNetwork` scalaire (entrée/sortie de dimension 1), `StreamingNormalizer`, une perte/un optimiseur/une mémoire construits depuis `GloomyConfig` (`loss`, `optimizer`, `memory_strategy` et leurs hyperparamètres), un `TrainingScheduler` (`EverySampleScheduler` ou `EveryNScheduler(train_every)`), et `LearningEngine::learn()` pour le replay et la mise à jour. Chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`).
+
+   Le CLI sélectionne ce runtime via la clé `runtime=online_learning` d'un fichier `-f`/`--config` (voir section « Configuration fichier » ci-dessous) ; `main.cpp` a été réorganisé pour faire circuler un unique `GloomyConfig` du parsing jusqu'au dispatch (`runInference`/`runOnline`), au lieu de cinq variables locales dispersées. Un runtime inconnu est rejeté avec un message explicite, de même qu'une perte, un optimiseur ou une stratégie de mémoire inconnus (tous les cas testés).
+
+   `TRAINING_RUNTIME` (entraînement par epochs sur un jeu de données complet, via `LearningEngine::train()`) reste à faire — c'est un mode différent de l'online learning et n'a pas encore de point d'entrée CLI.
+
+   Limites connues de cette première version : le réseau du runtime online est fixé à une entrée/sortie scalaire (pas de fenêtre configurable) ; il n'y a pas encore de persistance du modèle/optimiseur/mémoire entraînés à la fin du runtime (voir points 1 à 3) ; la sortie est un flux `stdout` ligne par ligne, pas encore un format structuré.
+
 ### Configuration fichier
 
-Aucune nouvelle option CLI n'a encore été ajoutée, et c'est cohérent pour l'instant : les nouvelles fonctionnalités sont des composants C++ testés séparément, tandis que le CLI historique reste focalisé sur l'inférence.
+Aucune nouvelle option CLI n'a été ajoutée pour piloter l'architecture d'inférence (toujours `-c`/`-l`/`-n`/`-a`/`-A`) ; en revanche `-f`/`--config` sélectionne maintenant le runtime et ses hyperparamètres (voir point 6 ci-dessus et [Configurations et limites](configurations.md)).
 
 À terme, un fichier de configuration est préférable à une commande contenant des dizaines d'options. L'idée proposée est :
 
@@ -246,6 +261,8 @@ model_path=model.gloomy
 metrics_path=benchmark.csv
 ```
 
+**État** : les défauts sont maintenant centralisés dans `GloomyConfig` (`src/headers/GloomyConfig.h`, `src/GloomyConfig.cpp`). La structure reprend, champ par champ, le défaut déjà utilisé par chaque composant existant quand il en a un (`HuberLoss`, `MomentumOptimizer`, `AdamOptimizer`, `PrioritizedMemory`, `HybridMemoryRatios`, seed partagé de `std::mt19937`) et établit un défaut central documenté pour les champs qui n'en avaient pas encore (`learning_rate`, `memory_capacity`, `batch_size`, chemins de persistance). Le CLI (`src/main.cpp`) lit désormais ses cinq défauts actuels (`predictions`, `hidden_layers`, `neurons`, `activation`, `post_activation`) depuis `GloomyConfig::defaults()` au lieu de littéraux dupliqués ; le comportement du CLI est inchangé (vérifié manuellement). Un test caractérise chaque valeur pour empêcher une dérive silencieuse. Le parseur `-f/--config` et le reste des champs (loss, optimizer, memory, precision, scheduling) restent à brancher — c'est l'objet des points 5 et 6 ci-dessous.
+
 Avant de l'implémenter, il faudra décider :
 
 - format INI simple, JSON sans dépendance externe, ou format clé-valeur propriétaire ;
@@ -258,20 +275,22 @@ Avant de l'implémenter, il faudra décider :
 
 Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendance externe, avec priorité `CLI > fichier > défauts`. Ne pas appeler ce fichier `.env` au sens strict si ses valeurs ne sont pas destinées à être des variables d'environnement ; `gloomy.config` ou `gloomy.ini` serait plus explicite. Un alias `-f` peut néanmoins accepter n'importe quel chemin.
 
+**État** : fait. `GloomyConfigFile::load()` (`src/headers/GloomyConfigFile.h`, `src/GloomyConfigFile.cpp`) implémente ce parseur clé-valeur minimal (pas de sections, pas de guillemets ; `#`/`;` en commentaire ; espaces trimés) et applique toutes les clés de `GloomyConfig` reconnues. `main.cpp` accepte `-f`/`--config PATH` avec la priorité `CLI > fichier > défauts` : le fichier est appliqué en première passe par-dessus les défauts, puis les flags `-c`/`-l`/`-n`/`-a`/`-A` explicites sont appliqués en seconde passe et l'emportent toujours. Une clé inconnue, une ligne malformée, une valeur numérique invalide ou un fichier introuvable sont rejetés avec un message explicite. Seules les clés `activation`, `post_activation`, `hidden_layers`, `neurons` et `predictions` influencent le CLI d'inférence actuel ; les autres (loss, optimizer, memory, precision, scheduling, chemins) sont acceptées et validées mais pas encore consommées — c'est l'objet du point 6 ci-dessous. Voir [Configurations et limites](configurations.md) pour le détail et des exemples.
+
 ### Priorité moyenne : robustesse mathématique
 
-- gradient checking généralisé à toutes les activations et plusieurs couches ;
-- tests de gradient softmax multi-sortie ;
-- tests de stabilité avec très grandes valeurs ;
-- test de reproductibilité avec seed injectable ;
-- remplacement de `rand()` par un générateur contrôlable ;
-- validation systématique des valeurs non finies dans tous les composants.
+- ~~gradient checking généralisé à toutes les activations et plusieurs couches~~ fait : `checkNetworkGradient` (`tests/loss_tests.cpp`) compare gradient analytique et différence centrée sur un réseau à 3 couches, pour `none`/`sigmoid`/`relu`/`leaky_relu`/`tanh` (`testGradientCheckingAllActivations`). `sigmoid_derivative`/`tanh_derivative` restent exclues car `DenseLayer::backward` les rejette déjà comme activations d'entraînement ;
+- ~~tests de gradient softmax multi-sortie~~ fait : `testSoftmaxGradientCheck` exerce une couche de sortie à 3 neurones avec `post_algorithm=softmax`, y compris le terme croisé du gradient softmax, jamais couvert par les tests à une seule sortie ;
+- ~~tests de stabilité avec très grandes valeurs~~ fait : `testActivationStabilityWithLargeValues` vérifie que sigmoid/tanh/relu/leaky_relu restent finis (forward et gradients) pour des entrées `±1e8` ;
+- ~~test de reproductibilité avec seed injectable~~ fait : `DenseLayer::seedWeightInitialization(seed)` (voir [Couches et neurones](architecture.md), section « Initialisation des poids et reproductibilité »), appelé par le CLI avec `GloomyConfig::seed` une fois la configuration résolue. `testDenseLayerSeededInitialization` vérifie qu'un même seed produit des poids identiques et que deux seeds différents en produisent des différents ;
+- ~~remplacement de `rand()` par un générateur contrôlable~~ fait, dans le même changement : `DenseLayer` utilise maintenant `std::mt19937` + `std::uniform_real_distribution` au lieu de `rand()`/`RAND_MAX` process-global. `BenchmarkRunner` a été mis à jour pour utiliser `DenseLayer::seedWeightInitialization(1234)` à la place de `std::srand(1234)`, avec le même effet (vérifié : les colonnes de perte/MAE/RMSE du benchmark restent bit-identiques d'un run à l'autre, seules les colonnes de temps varient, comme avant) ;
+- ~~validation systématique des valeurs non finies dans tous les composants~~ partiellement fait : `LossFunction::compute`/`gradient` et `DenseLayer::forward`/`backward` rejettent maintenant `NaN`/infini en entrée avec un message clair (`testNonFiniteValuesRejected`), comme le faisait déjà `StreamingNormalizer`. Restent à couvrir : les gradients accumulés par lot dans `Optimizer::update`, et les échantillons stockés dans les mémoires d'apprentissage (`TrainingSample::input`/`target` ne sont pas vérifiés à l'ajout, sauf dimension pour `NoveltyMemory`).
 
 ### Priorité moyenne : mémoire et continual learning
 
 - mise à jour de toutes les composantes du score d'importance ;
-- vraie récence fondée sur l'âge plutôt que l'alternance actuelle de Hybrid ;
-- mise à jour des priorités avec correction de biais d'échantillonnage ;
+- ~~vraie récence fondée sur l'âge plutôt que l'alternance actuelle de Hybrid~~ fait : `choosePartition()` n'alterne plus par `seen_samples % 2` — toute observation générique (ni erreur, ni nouveauté) rejoint directement `recent`. Lorsque `recent` est pleine, elle évince son membre le plus ancien **par `TrainingSample::age` réel** (pas par position dans le vecteur, qui ne reflétait plus l'âge après un premier remplacement en place — un vrai bug corrigé au passage) et le **promeut** dans `historical` au lieu de le perdre ; `error`/`novelty` bénéficient de la même correction d'éviction par âge réel. Supprimé au passage : `removeOldestFromPartition`, du code mort jamais appelé. Voir [Mémoire d'apprentissage](memory.md), « Vraie récence fondée sur l'âge », et `testHybridMemoryTrueRecency` ;
+- ~~mise à jour des priorités avec correction de biais d'échantillonnage~~ fait : `PrioritizedMemory` calcule un poids d'importance-sampling `(N·P(i))^(-beta)` (normalisé au maximum du batch) pour chaque échantillon tiré par `sampleIndexed()` ; `beta` est un nouveau paramètre de construction (défaut `0.4`, `0` désactive la correction). `LearningEngine::trainFromMemory` applique ce poids à la contribution de chaque échantillon au gradient via `MemoryEntry::importance_weight` (`1.0` par défaut, donc neutre pour les autres stratégies) et la nouvelle méthode privée `trainWeightedBatch`, dont `trainBatch` est maintenant un cas particulier (tous les poids à `1.0`). Persisté par `LearningMemorySerialization` (format bumpé en version 2). Voir [Mémoire d'apprentissage](memory.md), « Correction de biais d'échantillonnage », et les tests `testPrioritizedMemoryBiasCorrection`/`testLearningEngineTrainBatchWeighting`. Reste ouvert : l'annealing de `beta` au fil de l'entraînement n'est pas implémenté (valeur fixe) ;
 - exploration contrôlée des échantillons de faible priorité ;
 - prototypes / coreset ;
 - mémoire par régimes ;
@@ -320,11 +339,11 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 ## 4. Ordre recommandé pour la suite
 
 1. Stabiliser la sérialisation unifiée du modèle.
-2. Ajouter la persistance de l'état Optimizer.
-3. Ajouter la persistance des mémoires et des paramètres de quantification.
-4. Centraliser les défauts dans une configuration C++.
-5. Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.
-6. Exposer un mode online fonctionnel dans le CLI.
+2. ~~Ajouter la persistance de l'état Optimizer.~~ Fait (`OptimizerSerialization`, voir section 2 et 3).
+3. ~~Ajouter la persistance des mémoires~~ Fait pour la représentation float64 (`LearningMemorySerialization`, voir section 2 et 3). Reste : les paramètres de quantification (int16/int8).
+4. ~~Centraliser les défauts dans une configuration C++.~~ Fait (`GloomyConfig`, voir section 2 et 3).
+5. ~~Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.~~ Fait (`GloomyConfigFile`, voir section 2 et 3).
+6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3). `TRAINING_RUNTIME` reste à faire.
 7. Étendre les benchmarks aux capacités et stratégies restantes.
 8. Ajouter les tests de concept drift et catastrophic forgetting.
 9. Optimiser les allocations et la représentation mémoire.
@@ -332,15 +351,16 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 
 ## 5. Limites connues à ne pas oublier
 
-- le CLI recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires ;
-- le CLI ne charge pas encore de modèle sauvegardé ;
-- le CLI ne lance pas encore l'entraînement ;
+- le CLI recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires (`INFERENCE_RUNTIME` uniquement ; sans effet sur `ONLINE_LEARNING_RUNTIME`, qui garde un seul réseau du début à la fin) ;
+- le CLI ne charge pas encore de modèle sauvegardé, et le runtime online ne sauvegarde pas encore le réseau/l'optimiseur/la mémoire entraînés à la fin de son exécution ;
+- le CLI ne lance pas encore d'entraînement par epochs sur un jeu de données complet (`TRAINING_RUNTIME` reste à faire ; `ONLINE_LEARNING_RUNTIME`, lui, est fonctionnel) ;
+- le réseau du runtime online est fixé à une entrée/sortie scalaire, sans fenêtre configurable ;
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;
 - les mémoires natives stockent encore des `double` ;
 - les poids restent en float64 ;
-- les optimiseurs ne sont pas encore persistés ;
-- les serializers séparés ne constituent pas encore un fichier modèle complet ;
+- les mémoires quantifiées (int16/int8) ne sont pas encore persistées ;
+- les serializers séparés (réseau, normalisation, optimiseur, mémoire, échantillons) ne constituent pas encore un fichier modèle complet ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles.
 

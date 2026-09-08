@@ -39,3 +39,5 @@ Dans le code, softmax est appliqué uniquement à la dernière couche. Il ne fau
 La sortie actuelle contient un seul neurone (`... -> 1`). Avec un seul élément, softmax vaut toujours `1`, quelle que soit l'activation précédente. `-A softmax` n'a donc aucun intérêt pour ce mode de prédiction scalaire. Pour une classification, il faudrait une sortie de `K` neurones, une cible de classe et une fonction de perte, puis choisir la classe de probabilité maximale.
 
 Softmax ne corrige pas une activation mal choisie : il normalise seulement les sorties finales. Il est adapté à une sortie multi-classe, pas à une régression ou à une série numérique scalaire.
+
+Le gradient de `softmax` (y compris son terme croisé entre sorties) est maintenant vérifié par gradient checking sur une couche à plusieurs neurones (voir [Couches et neurones](architecture.md)), même si le CLI n'expose pas encore de sortie multi-classe.

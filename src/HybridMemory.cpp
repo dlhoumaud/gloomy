@@ -60,12 +60,27 @@ void HybridMemory::add(const TrainingSample& sample) {
         return;
     }
 
-    size_t replacement_index = partition_indices.front();
     if (partition == Partition::Historical) {
         std::uniform_int_distribution<size_t> distribution(0, partition_indices.size() - 1);
-        replacement_index = partition_indices[distribution(generator)];
+        samples[partition_indices[distribution(generator)]] = {sample, partition};
+        return;
     }
-    samples[replacement_index] = {sample, partition};
+
+    // Recent/Error/Novelty : evincer le membre le plus ancien (age le plus
+    // eleve), pas le premier trouve dans le vecteur — une position seule ne
+    // reflete plus l'age reel une fois qu'un remplacement en place a deja
+    // eu lieu dans cette partition (voir docs/memory.md).
+    const size_t oldest_index = oldestIndexInPartition(partition_indices);
+    if (partition == Partition::Recent) {
+        // Vraie recence : le membre le plus ancien de Recent n'est pas
+        // perdu, il est promu vers Historical, qui se peuple ainsi par
+        // vieillissement reel plutot que par une alternance a l'admission.
+        const TrainingSample demoted = samples[oldest_index].sample;
+        samples[oldest_index] = {sample, Partition::Recent};
+        demoteToHistorical(demoted);
+        return;
+    }
+    samples[oldest_index] = {sample, partition};
 }
 
 void HybridMemory::remove(size_t index) {
@@ -178,14 +193,18 @@ HybridMemory::Partition HybridMemory::choosePartition(const TrainingSample& samp
         }
     }
 
-    if (recent_capacity > 0 && seen_samples % 2 == 0) {
+    // Toute observation generique (ni erreur, ni nouveaute) est par
+    // definition la plus recente au moment de son arrivee : elle rejoint
+    // Recent directement, sans alternance. Recent evince ensuite son membre
+    // le plus ancien (par age reel) vers Historical au lieu de le perdre
+    // (voir add()), pour que Historical reste un veritable reservoir
+    // d'anciens elements plutot qu'une seconde file alimentee par
+    // alternance a l'admission.
+    if (recent_capacity > 0) {
         return Partition::Recent;
     }
     if (historical_capacity > 0) {
         return Partition::Historical;
-    }
-    if (recent_capacity > 0) {
-        return Partition::Recent;
     }
     if (novelty_capacity > 0) {
         return Partition::Novelty;
@@ -211,13 +230,37 @@ size_t HybridMemory::partitionSize(Partition partition) const {
     ));
 }
 
-void HybridMemory::removeOldestFromPartition(Partition partition) {
-    const auto iterator = std::find_if(
-        samples.begin(),
-        samples.end(),
-        [partition](const StoredSample& stored) { return stored.partition == partition; }
-    );
-    if (iterator != samples.end()) {
-        samples.erase(iterator);
+size_t HybridMemory::oldestIndexInPartition(const std::vector<size_t>& partition_indices) const {
+    size_t oldest_index = partition_indices.front();
+    std::size_t oldest_age = samples[oldest_index].sample.age;
+    for (size_t index : partition_indices) {
+        if (samples[index].sample.age > oldest_age) {
+            oldest_age = samples[index].sample.age;
+            oldest_index = index;
+        }
     }
+    return oldest_index;
+}
+
+void HybridMemory::demoteToHistorical(const TrainingSample& sample) {
+    if (historical_capacity == 0) {
+        // Pas de partition Historical configuree : l'element qui vieillit
+        // hors de Recent est perdu, comme avant ce changement.
+        return;
+    }
+
+    std::vector<size_t> historical_indices;
+    for (size_t index = 0; index < samples.size(); ++index) {
+        if (samples[index].partition == Partition::Historical) {
+            historical_indices.push_back(index);
+        }
+    }
+
+    if (historical_indices.size() < historical_capacity) {
+        samples.push_back({sample, Partition::Historical});
+        return;
+    }
+
+    std::uniform_int_distribution<size_t> distribution(0, historical_indices.size() - 1);
+    samples[historical_indices[distribution(generator)]] = {sample, Partition::Historical};
 }

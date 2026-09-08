@@ -11,16 +11,37 @@ LearningEngine::LearningEngine(
     : network(network), loss(loss), optimizer(optimizer) {}
 
 double LearningEngine::trainBatch(const std::vector<TrainingSample>& batch) {
+    return trainWeightedBatch(batch, std::vector<double>(batch.size(), 1.0));
+}
+
+double LearningEngine::trainWeightedBatch(
+    const std::vector<TrainingSample>& batch,
+    const std::vector<double>& sample_weights
+) {
     if (batch.empty()) {
         throw std::invalid_argument("Training batch cannot be empty");
+    }
+    if (batch.size() != sample_weights.size()) {
+        throw std::invalid_argument("Sample weights must match the batch size");
     }
 
     network.zeroGradients();
     double total_loss = 0.0;
-    for (const TrainingSample& sample : batch) {
+    for (size_t index = 0; index < batch.size(); ++index) {
+        const TrainingSample& sample = batch[index];
+        const double weight = sample_weights[index];
+        if (!std::isfinite(weight) || weight < 0.0) {
+            throw std::invalid_argument("Sample weights must be finite and non-negative");
+        }
+
         const std::vector<double> prediction = network.forward(sample.input);
         total_loss += loss.compute(prediction, sample.target);
-        network.backward(loss.gradient(prediction, sample.target));
+
+        std::vector<double> gradient = loss.gradient(prediction, sample.target);
+        for (double& value : gradient) {
+            value *= weight;
+        }
+        network.backward(gradient);
     }
 
     optimizer.update(network.layers(), 1.0 / static_cast<double>(batch.size()));
@@ -35,12 +56,19 @@ double LearningEngine::trainFromMemory(LearningMemory& memory, size_t batch_size
     memory.advanceAges();
     const std::vector<MemoryEntry> entries = memory.sampleIndexed(batch_size);
     std::vector<TrainingSample> batch;
+    std::vector<double> sample_weights;
     batch.reserve(entries.size());
+    sample_weights.reserve(entries.size());
     for (const MemoryEntry& entry : entries) {
         batch.push_back(entry.sample);
+        sample_weights.push_back(entry.importance_weight);
     }
 
-    const double batch_loss = trainBatch(batch);
+    // entry.importance_weight vaut 1.0 (neutre) pour toute strategie a
+    // echantillonnage uniforme ; seule PrioritizedMemory le calcule
+    // reellement, ce qui reproduit ici la correction de biais
+    // d'echantillonnage du prioritized replay.
+    const double batch_loss = trainWeightedBatch(batch, sample_weights);
     ImportanceScorer scorer;
     for (const MemoryEntry& entry : entries) {
         TrainingSample updated_sample = entry.sample;

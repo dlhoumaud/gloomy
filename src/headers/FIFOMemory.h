@@ -19,6 +19,8 @@ public:
     void clear() override;
 
 private:
+    friend class LearningMemorySerialization;
+
     size_t memory_capacity;
     std::vector<TrainingSample> samples;
 };

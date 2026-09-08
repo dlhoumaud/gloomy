@@ -19,6 +19,8 @@ public:
     size_t stateBytes() const;
 
 private:
+    friend class OptimizerSerialization;
+
     struct LayerState {
         std::vector<std::vector<double>> weight_velocity;
         std::vector<double> bias_velocity;

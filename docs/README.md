@@ -14,11 +14,13 @@ make
 - `-n N` : nombre de neurones dans chaque couche cachée, par défaut `2`.
 - `-a A` : activation utilisée par chaque couche.
 - `-A softmax` : normalisation de la dernière couche uniquement.
+- `-f, --config PATH` : charge un fichier de configuration `clé=valeur` par-dessus les défauts (voir [Configurations et limites](configurations.md)). Priorité `CLI > fichier > défauts` : un flag explicite l'emporte toujours sur le fichier.
 
-Une prédiction est ajoutée à la séquence avant la suivante. Le réseau est alors reconstruit, avec de nouveaux poids aléatoires : les prédictions successives ne constituent donc pas une vraie boucle autorégressive entraînée.
+Sans `-f`, le CLI reste en `INFERENCE_RUNTIME` : une prédiction est ajoutée à la séquence avant la suivante, et le réseau est reconstruit avec de nouveaux poids aléatoires (les prédictions successives ne constituent donc pas une vraie boucle autorégressive entraînée). Cette suite de tirages est toutefois reproductible d'une exécution à l'autre : à seed égal (`GloomyConfig::seed`, `5489` par défaut), deux exécutions identiques produisent exactement les mêmes poids et les mêmes prédictions (voir [Couches et neurones](architecture.md)). Un fichier de configuration avec `runtime=online_learning` bascule vers `ONLINE_LEARNING_RUNTIME`, qui entraîne réellement un unique réseau au fil de la séquence (voir [Configurations et limites](configurations.md)).
 
 ## Guides
 
+- [Qu'est-ce que je peux lui apprendre ?](examples.md)
 - [Fonctions d'activation et softmax](activations.md)
 - [Fonctions de perte](losses.md)
 - [Couches et neurones](architecture.md)

@@ -64,7 +64,25 @@ Cette première intégration entraîne après chaque observation lorsqu'elle est
 
 La méthode `LearningEngine::learn()` calcule automatiquement une priorité égale à l'erreur absolue maximale entre la prédiction et la cible. Les appels directs à `LearningMemory::add()` peuvent définir eux-mêmes la priorité dans `TrainingSample`.
 
-La priorité est recalculée après chaque replay indexé. La correction de biais d'échantillonnage n'est pas encore implémentée ; elle sera nécessaire pour une comparaison expérimentale rigoureuse avec un replay uniforme.
+La priorité est recalculée après chaque replay indexé.
+
+### Correction de biais d'échantillonnage (importance sampling)
+
+Un replay prioritisé sur-échantillonne les observations à forte priorité : sans correction, la mise à jour des poids est biaisée vers elles. `PrioritizedMemory` calcule maintenant, pour chaque échantillon tiré par `sampleIndexed()`, un poids d'importance-sampling qui corrige ce biais :
+
+```text
+P(i) = priority_i^alpha / somme_j(priority_j^alpha)   (sur toute la mémoire, au moment du tirage)
+w_i  = (N * P(i))^(-beta)
+w_i  = w_i / max_du_batch(w_i)                          (le plus grand poids du batch vaut 1)
+```
+
+`beta` (nouveau paramètre du constructeur, défaut `0.4`) contrôle l'intensité de la correction : `beta = 0` la désactive complètement (tous les poids valent `1.0`, comportement identique à avant ce changement) ; `beta = 1` corrige entièrement le biais. `LearningEngine::trainFromMemory` applique ce poids à la contribution de chaque échantillon au gradient avant la mise à jour des poids (`MemoryEntry::importance_weight`, `1.0` par défaut et donc neutre pour les autres stratégies).
+
+```cpp
+PrioritizedMemory memory(256, /*alpha=*/0.6, /*seed=*/5489u, /*beta=*/0.4);
+```
+
+Cette version calcule `P(i)` sur l'ensemble de la mémoire au moment du tirage (avant tout retrait pour l'échantillonnage sans remise), une approximation standard qui ignore la légère dépendance entre tirages successifs d'un même batch. L'annealing de `beta` au fil de l'entraînement (souvent de `0.4` vers `1.0` dans la littérature) n'est pas implémenté : `beta` reste une valeur fixe configurée à la construction.
 
 ## Novelty Memory
 
@@ -96,11 +114,15 @@ HybridMemory memory(256, ratios, novelty_threshold);
 
 Les ratios sont normalisés automatiquement et les arrondis sont attribués à la partition récente. La capacité totale reste donc toujours égale à `256` au maximum.
 
-La politique de routage actuelle est déterministe : une priorité supérieure à `0.5` dirige l'observation vers `error`; une observation suffisamment éloignée dirige l'observation vers `novelty`; les autres observations alternent entre `recent` et `historical`. Chaque observation n'est stockée que dans une partition, afin d'éviter les duplications.
+La politique de routage est déterministe : une priorité supérieure à `0.5` dirige l'observation vers `error` ; une observation suffisamment éloignée dirige l'observation vers `novelty` ; toute autre observation (générique) rejoint directement `recent`, sans alternance — elle est par définition la plus récente au moment de son arrivée. Chaque observation n'est stockée que dans une partition, afin d'éviter les duplications.
 
-La partition `recent` évince son élément le plus ancien lorsqu'elle est pleine. La partition `historical` remplace un élément choisi aléatoirement. Le replay final mélange les partitions sans remise.
+### Vraie récence fondée sur l'âge
 
-Cette version est une base expérimentale : l'âge n'est pas encore une métadonnée de `TrainingSample`, la récence est donc approximée par le routage. Une future version pourra utiliser un score d'importance normalisé et une vraie politique hybride adaptative.
+`recent` se comporte comme une véritable fenêtre glissante : lorsqu'elle est pleine, elle évince son membre le plus ancien **par `TrainingSample::age` réel** (mis à jour par `advanceAges()`), pas par une simple position dans le vecteur interne ni par une alternance à l'admission. L'élément évincé n'est pas perdu : il est **promu** dans `historical` (en évinçant lui-même, si besoin, un élément choisi aléatoirement dans `historical`). `historical` se peuple donc par vieillissement réel des observations qui ont transité par `recent`, plutôt que par une seconde file alimentée par une alternance `seen_samples % 2` déconnectée de l'âge — c'était la limite explicitement documentée dans une version antérieure de ce fichier. Sans partition `historical` configurée (`historical_ratio = 0`), l'élément évincé de `recent` est simplement perdu, comme avant.
+
+`error` et `novelty` évincent elles aussi leur membre le plus ancien par âge réel lorsqu'elles sont pleines (même correctif : une position de vecteur ne reflète plus l'âge réel une fois qu'un remplacement en place a eu lieu). Le replay final mélange les partitions sans remise.
+
+Reste ouvert : `age` est incrémenté par cycle de replay (`advanceAges()`), pas par horloge murale ; plusieurs observations ajoutées sans replay entre elles peuvent donc partager le même âge (égalité départagée de façon stable mais arbitraire). Un score d'importance normalisé combinant réellement recency/error/novelty pour le routage (plutôt que ce jeu de règles explicites) reste une politique hybride adaptative future (voir [feuille de route](roadmap.md)).
 
 ## Score d'importance
 
@@ -117,6 +139,27 @@ Le score est une moyenne pondérée. Un poids égal à zéro désactive une comp
 `TrainingSample` conserve maintenant `priority`, `error`, `novelty`, `rarity`, `recency`, `diversity`, `age` et `usage_count`. Pour l'instant, `LearningEngine::learn()` renseigne automatiquement l'erreur et calcule une priorité `error-only` normalisée. À chaque appel de replay, `advanceAges()` augmente l'âge de tous les échantillons et la mémoire incrémente `usage_count` pour les éléments sélectionnés.
 
 Le replay indexé fournit maintenant l'indice mémoire avec chaque copie. `LearningEngine::trainFromMemory()` recalcule donc l'erreur après la mise à jour des poids et réécrit précisément l'échantillon concerné avec sa nouvelle priorité. Cela fonctionne même si deux observations ont des valeurs identiques, car leurs indices sont distincts.
+
+## Persistance
+
+`LearningMemorySerialization::save`/`load` sauvegarde et restaure une mémoire complète — FIFO, Reservoir, Prioritized, Novelty ou Hybrid — dans un fichier binaire versionné et protégé par un checksum FNV-1a, comme le fichier réseau et le fichier optimiseur :
+
+```cpp
+LearningMemorySerialization::save("memory.bin", memory);
+std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load("memory.bin");
+```
+
+`load()` reconstruit le type concret à partir du fichier avec :
+
+- la capacité et les hyperparamètres propres à la stratégie (`alpha` pour Prioritized, `novelty_threshold` pour Novelty et Hybrid, les ratios pour Hybrid) ;
+- tous les échantillons stockés avec leurs métadonnées complètes (`priority`, `error`, `novelty`, `rarity`, `recency`, `diversity`, `age`, `usage_count`) ;
+- la partition (`recent`/`error`/`novelty`/`historical`) de chaque échantillon pour Hybrid ;
+- l'état complet du générateur `std::mt19937` (pas seulement la seed) et le compteur d'observations vues (`seen_samples`) pour Reservoir, Prioritized et Hybrid, afin que les tirages futurs restent reproductibles après un redémarrage ;
+- une vérification que le nombre d'échantillons ne dépasse pas la capacité déclarée.
+
+Un fichier tronqué, corrompu, de version incompatible ou dont le nombre d'échantillons dépasse la capacité est rejeté par une exception plutôt que de restaurer un état invalide.
+
+Cette persistance reste un fichier séparé du réseau, de la normalisation et de l'optimiseur. Les mémoires quantifiées (`QuantizedFIFOMemory`, `QuantizedInt8FIFOMemory`) ne sont pas encore couvertes ; leur persistance nécessitera de réutiliser les codecs `TrainingSampleQuantization`/`Int8TrainingSampleQuantization` avec les paramètres `scale`/`zero_point`. Voir la [feuille de route](roadmap.md).
 
 ## Training Scheduler
 

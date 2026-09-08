@@ -11,7 +11,8 @@ public:
     explicit PrioritizedMemory(
         size_t capacity,
         double alpha = 0.6,
-        std::uint32_t seed = 5489u
+        std::uint32_t seed = 5489u,
+        double beta = 0.4
     );
 
     void add(const TrainingSample& sample) override;
@@ -25,12 +26,16 @@ public:
     void clear() override;
 
     double alpha() const;
+    double beta() const;
 
 private:
+    friend class LearningMemorySerialization;
+
     static constexpr double minimum_priority = 1e-12;
 
     size_t memory_capacity;
     double priority_exponent;
+    double correction_exponent;
     std::mt19937 generator;
     std::vector<TrainingSample> samples;
 };

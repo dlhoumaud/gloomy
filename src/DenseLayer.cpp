@@ -10,7 +10,24 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <random>
 #include <stdexcept>
+
+namespace {
+// Générateur partagé par toutes les instances de DenseLayer. Remplace
+// l'ancien rand()/RAND_MAX process-global par un std::mt19937 explicitement
+// contrôlable (voir DenseLayer::seedWeightInitialization), tout en gardant
+// le même comportement par défaut : sans seed explicite, l'initialisation
+// reste non déterministe d'un run à l'autre (ici via std::random_device).
+std::mt19937& weightInitializationGenerator() {
+    static std::mt19937 generator(std::random_device{}());
+    return generator;
+}
+}
+
+void DenseLayer::seedWeightInitialization(std::uint32_t seed) {
+    weightInitializationGenerator().seed(seed);
+}
 
 // Constructeur pour initialiser les poids et les biais
 DenseLayer::DenseLayer(int input_size, int output_size) {
@@ -23,10 +40,11 @@ DenseLayer::DenseLayer(int input_size, int output_size) {
     weight_gradients.resize(input_size, std::vector<double>(output_size, 0.0));
     bias_gradients.resize(output_size, 0.0);
 
-    // Initialisation aléatoire des poids
+    // Initialisation aléatoire des poids, plage [-0.5, 0.5]
+    std::uniform_real_distribution<double> distribution(-0.5, 0.5);
     for (auto &row : weights_data) {
         for (auto &weight : row) {
-            weight = ((double)rand() / RAND_MAX) - 0.5;  // Plage [-0.5, 0.5]
+            weight = distribution(weightInitializationGenerator());
         }
     }
 }
@@ -45,6 +63,11 @@ void DenseLayer::set_post_algorithm(std::string algo) {
 std::vector<double> DenseLayer::forward(const std::vector<double>& inputs) {
     if (inputs.size() != weights_data.size()) {
         throw std::invalid_argument("Input size does not match layer size");
+    }
+    for (double value : inputs) {
+        if (!std::isfinite(value)) {
+            throw std::invalid_argument("Layer input values must be finite");
+        }
     }
 
     this->inputs = inputs;
@@ -88,6 +111,11 @@ std::vector<double> DenseLayer::backward(const std::vector<double>& gradient_out
     }
     if (gradient_output.size() != bias_data.size()) {
         throw std::invalid_argument("Gradient size does not match layer output size");
+    }
+    for (double value : gradient_output) {
+        if (!std::isfinite(value)) {
+            throw std::invalid_argument("Gradient values must be finite");
+        }
     }
     if (algorithm == "sigmoid_derivative" || algorithm == "tanh_derivative") {
         throw std::invalid_argument("Derivative functions cannot be used as training activations");

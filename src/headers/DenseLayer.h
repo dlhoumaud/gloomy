@@ -9,12 +9,21 @@
 #ifndef DENSE_LAYER_H
 #define DENSE_LAYER_H
 
+#include <cstdint>
 #include <vector>
 #include <string>
 
 class DenseLayer {
 public:
     DenseLayer(int input_size, int output_size);
+
+    // Reseed le générateur (std::mt19937, partagé par toutes les couches)
+    // utilisé pour l'initialisation aléatoire des poids. À appeler avant de
+    // construire des couches pour rendre leur initialisation reproductible ;
+    // sans appel, le générateur est initialisé une fois avec
+    // std::random_device (comportement non déterministe, comme avant).
+    static void seedWeightInitialization(std::uint32_t seed);
+
     void set_algorithm(std::string algo);
     void set_post_algorithm(std::string algo);
     std::vector<double> forward(const std::vector<double>& inputs);

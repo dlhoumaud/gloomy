@@ -8,6 +8,11 @@
 struct MemoryEntry {
     size_t index;
     TrainingSample sample;
+    // Poids de correction du biais d'échantillonnage (importance-sampling
+    // weight), déjà normalisé à 1.0 au maximum. Vaut 1.0 (neutre) pour
+    // toutes les stratégies à échantillonnage uniforme ; seule
+    // PrioritizedMemory le calcule réellement (voir docs/memory.md).
+    double importance_weight = 1.0;
 };
 
 class LearningMemory {

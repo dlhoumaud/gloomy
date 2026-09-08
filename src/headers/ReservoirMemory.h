@@ -21,6 +21,8 @@ public:
     void clear() override;
 
 private:
+    friend class LearningMemorySerialization;
+
     size_t memory_capacity;
     size_t seen_samples = 0;
     std::mt19937 generator;

@@ -2,6 +2,65 @@
 
 Il n'existe pas de configuration universellement la plus juste. Elle dépend des données, de l'échelle des valeurs, de l'horizon de prédiction et d'une validation hors échantillon. Les recommandations ci-dessous sont des points de départ pour l'entraînement MSE + SGD disponible dans les classes C++.
 
+Les valeurs par défaut effectivement utilisées par le CLI (et, à terme, par les futurs runtimes d'entraînement et d'online learning) sont centralisées dans `GloomyConfig` (`src/headers/GloomyConfig.h`).
+
+## Fichier de configuration
+
+Le CLI accepte `-f PATH` ou `--config PATH` pour charger un fichier `clé=valeur` minimal, parsé par `GloomyConfigFile` (`src/headers/GloomyConfigFile.h`) :
+
+```ini
+# commentaire
+activation=tanh
+hidden_layers=2
+neurons=16
+learning_rate=0.001
+memory_strategy=hybrid
+memory_capacity=256
+```
+
+Règles du format :
+
+- une paire `clé=valeur` par ligne ; les espaces autour de la clé et de la valeur sont ignorés ;
+- les lignes vides et celles commençant par `#` ou `;` sont des commentaires ;
+- une clé inconnue, une ligne sans `=`, ou une valeur numérique invalide font échouer le chargement avec un message explicite ;
+- pas de sections, pas de guillemets : chaque valeur est une chaîne brute jusqu'à la fin de la ligne (déjà suffisant pour les clés actuelles, qui sont des nombres ou des mots simples).
+
+Priorité de résolution : **CLI > fichier > défauts**. Concrètement, le CLI applique d'abord les défauts de `GloomyConfig`, puis les valeurs du fichier passé à `-f`/`--config` si présent, puis les flags `-c`/`-l`/`-n`/`-a`/`-A` explicites, qui l'emportent toujours.
+
+La clé `runtime` sélectionne le mode d'exécution du CLI :
+
+- `runtime=inference` (défaut) : comportement historique, seules `activation`, `post_activation`, `hidden_layers`, `neurons` et `predictions` s'appliquent.
+- `runtime=online_learning` : exécute la boucle observation → normalisation → prédiction → cible → erreur → mémoire → scheduler → replay → mise à jour sur la séquence d'entrée (voir [Mémoire d'apprentissage](memory.md) et [feuille de route](roadmap.md), point 6). Toutes les clés de `GloomyConfig` s'appliquent alors : `loss`/`huber_delta`, `optimizer`/`learning_rate`/`momentum`/`beta1`/`beta2`/`epsilon`, `memory_strategy`/`memory_capacity`/`recent_ratio`/`error_ratio`/`novelty_ratio`/`historical_ratio`/`novelty_threshold`/`prioritized_alpha`/`prioritized_beta`/`seed`, `train_every`, `batch_size`. `prioritized_beta` (défaut `0.4`) contrôle la correction de biais d'échantillonnage du prioritized replay (`0` la désactive) — voir [Mémoire d'apprentissage](memory.md).
+
+Exemple :
+
+```ini
+# gloomy.config
+runtime=online_learning
+activation=tanh
+hidden_layers=1
+neurons=8
+loss=huber
+huber_delta=1.0
+optimizer=momentum
+learning_rate=0.01
+momentum=0.9
+memory_strategy=hybrid
+memory_capacity=64
+train_every=1
+batch_size=4
+```
+
+```bash
+./bin/gloomy "1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0" -f gloomy.config
+```
+
+Chaque valeur consécutive de la séquence devient une observation (`x[i]`) et sa cible (`x[i+1]`) : le réseau du runtime online a donc une entrée et une sortie de dimension `1`, quels que soient `hidden_layers`/`neurons` (qui ne dimensionnent que les couches cachées). Une ligne est affichée par observation (`index observation cible prédiction perte`, avant mise à jour des poids), suivie d'un résumé (`average_loss`, `memory_size`).
+
+Les chemins de persistance (`model_path`, `optimizer_path`, `memory_path`, `metrics_path`) sont acceptés et validés, mais ne sont pas encore consommés : le runtime online ne sauvegarde pas encore le réseau, l'optimiseur ou la mémoire entraînés à la fin de son exécution (voir [feuille de route](roadmap.md), points 1 à 3 et 6).
+
+C'est la première brique du futur fichier `gloomy.config` décrit dans la [feuille de route](roadmap.md), section « Configuration fichier ».
+
 ## Réglages par activation
 
 | Usage | `-a` conseillé | `-l` conseillé | `-n` conseillé |

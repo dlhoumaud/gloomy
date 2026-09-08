@@ -37,6 +37,16 @@ public:
     );
 
 private:
+    // Comme trainBatch, mais met a l'echelle la contribution au gradient de
+    // chaque echantillon par son poids (correction du biais
+    // d'echantillonnage, voir MemoryEntry::importance_weight et
+    // docs/memory.md). Un poids de 1.0 partout reproduit exactement
+    // trainBatch ; trainBatch delegue d'ailleurs a cette methode.
+    double trainWeightedBatch(
+        const std::vector<TrainingSample>& batch,
+        const std::vector<double>& sample_weights
+    );
+
     NeuralNetwork& network;
     const LossFunction& loss;
     Optimizer& optimizer;

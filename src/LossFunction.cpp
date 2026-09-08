@@ -13,6 +13,16 @@ void validateInputs(
     if (prediction.size() != target.size()) {
         throw std::invalid_argument("Prediction and target sizes must match");
     }
+    for (double value : prediction) {
+        if (!std::isfinite(value)) {
+            throw std::invalid_argument("Prediction values must be finite");
+        }
+    }
+    for (double value : target) {
+        if (!std::isfinite(value)) {
+            throw std::invalid_argument("Target values must be finite");
+        }
+    }
 }
 }
 

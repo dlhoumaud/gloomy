@@ -1,5 +1,6 @@
 #include "headers/AdamOptimizer.h"
 #include "headers/Benchmark.h"
+#include "headers/DenseLayer.h"
 #include "headers/LearningEngine.h"
 #include "headers/Metrics.h"
 #include "headers/MomentumOptimizer.h"
@@ -11,7 +12,6 @@
 #include "headers/QuantizedInt8FIFOMemory.h"
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <memory>
 #include <vector>
 
@@ -139,7 +139,7 @@ double datasetLoss(
 }
 
 int main() {
-    std::srand(1234);
+    DenseLayer::seedWeightInitialization(1234);
     const std::vector<TrainingSample> training = makeDataset(80, 0);
     const std::vector<TrainingSample> validation = makeDataset(20, 80);
     const std::vector<std::string> optimizers = {"sgd", "momentum", "adam"};

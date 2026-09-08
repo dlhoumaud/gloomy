@@ -36,6 +36,8 @@ public:
     std::vector<size_t> partitionSizes() const;
 
 private:
+    friend class LearningMemorySerialization;
+
     enum class Partition {
         Recent,
         Error,
@@ -55,7 +57,15 @@ private:
     Partition choosePartition(const TrainingSample& sample) const;
     size_t partitionCapacity(Partition partition) const;
     size_t partitionSize(Partition partition) const;
-    void removeOldestFromPartition(Partition partition);
+    // Index, parmi `partition_indices`, du membre dont TrainingSample::age
+    // est le plus grand (le plus ancien reellement, pas juste le premier
+    // trouve dans le vecteur des echantillons).
+    size_t oldestIndexInPartition(const std::vector<size_t>& partition_indices) const;
+    // Fait entrer `sample` dans la partition Historical, en evincant au
+    // besoin un membre choisi aleatoirement (politique Historical
+    // inchangee). Utilise pour promouvoir le membre le plus ancien de
+    // Recent lorsqu'il vieillit hors de Recent (vraie recence, voir add()).
+    void demoteToHistorical(const TrainingSample& sample);
 
     size_t memory_capacity;
     HybridMemoryRatios memory_ratios;

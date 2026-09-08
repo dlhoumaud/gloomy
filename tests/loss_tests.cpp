@@ -23,11 +23,18 @@
 #include "NormalizationSerialization.h"
 #include "MomentumOptimizer.h"
 #include "AdamOptimizer.h"
+#include "OptimizerSerialization.h"
+#include "LearningMemorySerialization.h"
+#include "GloomyConfig.h"
+#include "GloomyConfigFile.h"
+#include "OnlineLearningRuntime.h"
 #include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <cassert>
 #include <cmath>
+#include <limits>
+#include <memory>
 #include <stdexcept>
 
 namespace {
@@ -125,6 +132,185 @@ void testDenseLayerGradient() {
 
     const double numerical_bias = (loss_plus - loss_minus) / (2.0 * epsilon);
     assert(std::abs(numerical_bias - layer.biasGradients()[0]) < 1e-7);
+}
+
+void testDenseLayerSeededInitialization() {
+    DenseLayer::seedWeightInitialization(42u);
+    const DenseLayer first(3, 2);
+    DenseLayer::seedWeightInitialization(42u);
+    const DenseLayer second(3, 2);
+    assert(first.weights() == second.weights());
+    assert(first.bias() == second.bias());
+
+    DenseLayer::seedWeightInitialization(43u);
+    const DenseLayer third(3, 2);
+    assert(first.weights() != third.weights());
+
+    for (const auto& row : first.weights()) {
+        for (double weight : row) {
+            assert(weight >= -0.5 && weight <= 0.5);
+        }
+    }
+}
+
+// Verifie par difference centree que les gradients analytiques de `network`
+// (poids et biais de chaque couche) correspondent aux gradients numeriques
+// de `loss` sur (`input`, `target`). Couvre tout le reseau, y compris un
+// eventuel post_algorithm (softmax) applique sur la derniere couche.
+void checkNetworkGradient(
+    NeuralNetwork& network,
+    const LossFunction& loss,
+    const std::vector<double>& input,
+    const std::vector<double>& target
+) {
+    const double epsilon = 1e-6;
+    const double tolerance = 1e-6;
+
+    network.zeroGradients();
+    network.backward(loss.gradient(network.forward(input), target));
+
+    for (DenseLayer& layer : network.layers()) {
+        auto& weights = layer.weights();
+        const auto& weight_gradients = layer.weightGradients();
+        for (size_t input_index = 0; input_index < weights.size(); ++input_index) {
+            for (size_t output_index = 0; output_index < weights[input_index].size(); ++output_index) {
+                const double original = weights[input_index][output_index];
+                weights[input_index][output_index] = original + epsilon;
+                const double loss_plus = loss.compute(network.forward(input), target);
+                weights[input_index][output_index] = original - epsilon;
+                const double loss_minus = loss.compute(network.forward(input), target);
+                weights[input_index][output_index] = original;
+
+                const double numerical = (loss_plus - loss_minus) / (2.0 * epsilon);
+                assert(std::abs(numerical - weight_gradients[input_index][output_index]) < tolerance);
+            }
+        }
+
+        auto& biases = layer.bias();
+        const auto& bias_gradients = layer.biasGradients();
+        for (size_t output_index = 0; output_index < biases.size(); ++output_index) {
+            const double original = biases[output_index];
+            biases[output_index] = original + epsilon;
+            const double loss_plus = loss.compute(network.forward(input), target);
+            biases[output_index] = original - epsilon;
+            const double loss_minus = loss.compute(network.forward(input), target);
+            biases[output_index] = original;
+
+            const double numerical = (loss_plus - loss_minus) / (2.0 * epsilon);
+            assert(std::abs(numerical - bias_gradients[output_index]) < tolerance);
+        }
+    }
+}
+
+void testGradientCheckingAllActivations() {
+    // sigmoid_derivative/tanh_derivative sont volontairement exclues :
+    // DenseLayer::backward les rejette explicitement comme activations
+    // d'entrainement (voir docs/configurations.md).
+    const std::vector<std::string> activations = {"none", "sigmoid", "relu", "leaky_relu", "tanh"};
+    const std::vector<double> input = {0.6, -0.9, 0.3};
+    const std::vector<double> target = {0.4};
+    MSELoss loss;
+
+    for (const std::string& activation : activations) {
+        DenseLayer::seedWeightInitialization(7u);
+        NeuralNetwork network;
+        network.algorithm = activation;
+        network.addLayer(3, 4);
+        network.addLayer(4, 4);
+        network.addLayer(4, 1);
+        checkNetworkGradient(network, loss, input, target);
+    }
+}
+
+void testSoftmaxGradientCheck() {
+    // Sortie a 3 neurones avec softmax : exerce le terme croise du gradient
+    // softmax dans DenseLayer::backward (jamais couvert par les tests a une
+    // seule sortie).
+    DenseLayer::seedWeightInitialization(11u);
+    NeuralNetwork network;
+    network.algorithm = "none";
+    network.post_algorithm = "softmax";
+    network.addLayer(3, 4);
+    network.addLayer(4, 3);
+
+    const std::vector<double> input = {0.5, -0.2, 0.8};
+    const std::vector<double> target = {1.0, 0.0, 0.0};
+    MSELoss loss;
+    checkNetworkGradient(network, loss, input, target);
+}
+
+void testActivationStabilityWithLargeValues() {
+    const std::vector<std::string> activations = {"sigmoid", "tanh", "relu", "leaky_relu", "none"};
+    const std::vector<double> large_input = {1e8, -1e8};
+    MSELoss loss;
+    const std::vector<double> target = {0.5};
+
+    for (const std::string& activation : activations) {
+        DenseLayer::seedWeightInitialization(13u);
+        NeuralNetwork network;
+        network.algorithm = activation;
+        network.addLayer(2, 3);
+        network.addLayer(3, 1);
+
+        const std::vector<double> output = network.forward(large_input);
+        for (double value : output) {
+            assert(std::isfinite(value));
+        }
+
+        network.zeroGradients();
+        network.backward(loss.gradient(output, target));
+        for (const DenseLayer& layer : network.layers()) {
+            for (const auto& row : layer.weightGradients()) {
+                for (double gradient : row) {
+                    assert(std::isfinite(gradient));
+                }
+            }
+            for (double gradient : layer.biasGradients()) {
+                assert(std::isfinite(gradient));
+            }
+        }
+    }
+}
+
+void testNonFiniteValuesRejected() {
+    const double nan_value = std::numeric_limits<double>::quiet_NaN();
+    const double inf_value = std::numeric_limits<double>::infinity();
+
+    MSELoss loss;
+    bool threw = false;
+    try {
+        loss.compute({nan_value}, {0.0});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    threw = false;
+    try {
+        loss.gradient({0.0}, {inf_value});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    DenseLayer layer(2, 1);
+    threw = false;
+    try {
+        layer.forward({nan_value, 0.0});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
+
+    layer.forward({0.0, 0.0});
+    layer.zeroGradients();
+    threw = false;
+    try {
+        layer.backward({inf_value});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    assert(threw);
 }
 
 void testSGDUpdateReducesLoss() {
@@ -284,6 +470,82 @@ void testPrioritizedMemory() {
     assert(found_updated_priority);
 }
 
+void testPrioritizedMemoryBiasCorrection() {
+    // beta = 0 desactive completement la correction : tous les poids
+    // restent a 1.0, quelles que soient les priorites.
+    {
+        PrioritizedMemory memory(3, 0.6, 1234u, 0.0);
+        memory.add({{1.0}, {1.0}, 0.1});
+        memory.add({{2.0}, {2.0}, 5.0});
+        memory.add({{3.0}, {3.0}, 20.0});
+        assertClose(memory.beta(), 0.0);
+        const std::vector<MemoryEntry> entries = memory.sampleIndexed(3);
+        assert(entries.size() == 3);
+        for (const MemoryEntry& entry : entries) {
+            assertClose(entry.importance_weight, 1.0);
+        }
+    }
+
+    // beta > 0 sous-pondere l'echantillon a haute priorite (sur-represente
+    // par le tirage) et donne a l'echantillon a faible priorite (rare) le
+    // poids maximal 1.0, apres normalisation par le maximum du batch.
+    {
+        PrioritizedMemory memory(2, 1.0, 1234u, 1.0);
+        memory.add({{1.0}, {1.0}, 1.0});
+        memory.add({{2.0}, {2.0}, 9.0});
+        assertClose(memory.beta(), 1.0);
+        const std::vector<MemoryEntry> entries = memory.sampleIndexed(2);
+        assert(entries.size() == 2);
+
+        double low_priority_weight = -1.0;
+        double high_priority_weight = -1.0;
+        for (const MemoryEntry& entry : entries) {
+            assert(entry.importance_weight > 0.0 && entry.importance_weight <= 1.0 + 1e-12);
+            if (entry.sample.input[0] == 1.0) {
+                low_priority_weight = entry.importance_weight;
+            } else {
+                high_priority_weight = entry.importance_weight;
+            }
+        }
+        assert(low_priority_weight > 0.0 && high_priority_weight > 0.0);
+        assertClose(low_priority_weight, 1.0);
+        assert(std::abs(high_priority_weight - 1.0 / 9.0) < 1e-9);
+        assert(low_priority_weight > high_priority_weight);
+    }
+}
+
+void testLearningEngineTrainBatchWeighting() {
+    const auto run = [](double beta) {
+        NeuralNetwork network;
+        network.algorithm = "none";
+        network.addLayer(1, 1);
+        network.layers()[0].weights()[0][0] = 0.0;
+        network.layers()[0].bias()[0] = 0.0;
+        MSELoss loss;
+        SGDOptimizer optimizer(0.1);
+        LearningEngine engine(network, loss, optimizer);
+
+        // Deux echantillons aux gradients opposes (target=10 vs target=-10)
+        // et aux priorites opposees (0.1 vs 0.9) ; capacite == batch_size
+        // == 2 donc les deux sont toujours selectionnes, quel que soit le
+        // tirage aleatoire.
+        PrioritizedMemory memory(2, 1.0, 1234u, beta);
+        memory.add({{1.0}, {10.0}, 0.1});
+        memory.add({{1.0}, {-10.0}, 0.9});
+        engine.trainFromMemory(memory, 2);
+        return network.layers()[0].weights()[0][0];
+    };
+
+    // Sans correction (beta=0), les deux echantillons pesent pareil et
+    // leurs gradients opposes s'annulent (quasiment exactement).
+    assert(std::abs(run(0.0)) < 1e-9);
+
+    // Avec correction (beta=1), l'echantillon rare et sous-pondere par le
+    // tirage (target=10, faible priorite) domine desormais la mise a jour :
+    // le poids doit nettement bouger vers le positif.
+    assert(run(1.0) > 0.5);
+}
+
 void testNoveltyMemory() {
     NoveltyMemory memory(2, 0.25);
     memory.add({{0.0, 0.0}, {0.0}});
@@ -326,6 +588,41 @@ void testHybridMemory() {
 
     const std::vector<TrainingSample> batch = memory.sample(3);
     assert(batch.size() == 3);
+}
+
+void testHybridMemoryTrueRecency() {
+    // recent_capacity=2, historical_capacity=2, error/novelty desactives.
+    HybridMemoryRatios ratios{0.5, 0.0, 0.0, 0.5};
+    HybridMemory memory(4, ratios, 0.0, 1234u);
+
+    // Aucune alternance a l'admission : les deux premieres observations
+    // generiques remplissent toutes les deux Recent (l'ancienne logique par
+    // parite `seen_samples % 2` en aurait envoye une sur deux ailleurs).
+    memory.add({{1.0}, {1.0}, 0.0});
+    memory.advanceAges();  // seul {1.0} vieillit d'un cran ici.
+    memory.add({{2.0}, {2.0}, 0.0});
+
+    std::vector<size_t> sizes = memory.partitionSizes();
+    assert(sizes[0] == 2);  // Recent plein
+    assert(sizes[3] == 0);  // Historical encore vide
+
+    // Recent est plein : la 3e observation generique evince le membre le
+    // plus ancien par age reel ({1.0}, age=1), pas {2.0} (age=0) ni un
+    // choix arbitraire de position dans le vecteur.
+    memory.add({{3.0}, {3.0}, 0.0});
+
+    sizes = memory.partitionSizes();
+    assert(sizes[0] == 2);  // Recent toujours plein (une entree, une sortie)
+    assert(sizes[3] == 1);  // Historical a recu le membre evince, pas perdu
+
+    bool found_oldest_still_stored = false;
+    for (const TrainingSample& sample : memory.sample(4)) {
+        if (sample.input[0] == 1.0) {
+            found_oldest_still_stored = true;
+        }
+    }
+    assert(found_oldest_still_stored);
+    assert(memory.size() == 3);
 }
 
 void testImportanceScorer() {
@@ -649,6 +946,473 @@ void testAdamOptimizer() {
     assert(optimizer.stateBytes() == sizeof(double) * 4);
 }
 
+void testOptimizerSerialization() {
+    const std::string path = "/tmp/gloomy_optimizer.bin";
+
+    {
+        SGDOptimizer original(0.05);
+        OptimizerSerialization::save(path, original);
+        std::vector<DenseLayer> layers;
+        std::unique_ptr<Optimizer> restored = OptimizerSerialization::load(path, layers);
+        auto* sgd = dynamic_cast<SGDOptimizer*>(restored.get());
+        assert(sgd != nullptr);
+        assertClose(sgd->learningRate(), 0.05);
+    }
+
+    {
+        DenseLayer layer(1, 1);
+        layer.set_algorithm("none");
+        layer.weights()[0][0] = 0.0;
+        layer.bias()[0] = 0.0;
+        MSELoss loss;
+        const std::vector<double> input = {1.0};
+        const std::vector<double> target = {2.0};
+
+        std::vector<DenseLayer> layers;
+        layers.push_back(layer);
+        MomentumOptimizer original(0.1, 0.9);
+        layers[0].forward(input);
+        layers[0].zeroGradients();
+        layers[0].backward(loss.gradient(layers[0].forward(input), target));
+        original.update(layers);
+
+        OptimizerSerialization::save(path, original);
+        std::unique_ptr<Optimizer> restored = OptimizerSerialization::load(path, layers);
+        auto* momentum = dynamic_cast<MomentumOptimizer*>(restored.get());
+        assert(momentum != nullptr);
+        assertClose(momentum->learningRate(), 0.1);
+        assertClose(momentum->momentum(), 0.9);
+        assert(momentum->stateBytes() == original.stateBytes());
+
+        layers[0].forward(input);
+        layers[0].zeroGradients();
+        layers[0].backward(loss.gradient(layers[0].forward(input), target));
+        std::vector<DenseLayer> layers_copy = layers;
+        original.update(layers);
+        momentum->update(layers_copy);
+        assertClose(layers[0].weights()[0][0], layers_copy[0].weights()[0][0]);
+
+        std::vector<DenseLayer> mismatched;
+        mismatched.push_back(DenseLayer(2, 1));
+        bool shape_rejected = false;
+        try {
+            OptimizerSerialization::load(path, mismatched);
+        } catch (const std::runtime_error&) {
+            shape_rejected = true;
+        }
+        assert(shape_rejected);
+    }
+
+    {
+        DenseLayer layer(1, 1);
+        layer.set_algorithm("none");
+        layer.weights()[0][0] = 0.0;
+        layer.bias()[0] = 0.0;
+        MSELoss loss;
+        const std::vector<double> input = {1.0};
+        const std::vector<double> target = {2.0};
+
+        std::vector<DenseLayer> layers;
+        layers.push_back(layer);
+        AdamOptimizer original(0.05);
+        layers[0].forward(input);
+        layers[0].zeroGradients();
+        layers[0].backward(loss.gradient(layers[0].forward(input), target));
+        original.update(layers);
+
+        OptimizerSerialization::save(path, original);
+        std::unique_ptr<Optimizer> restored = OptimizerSerialization::load(path, layers);
+        auto* adam = dynamic_cast<AdamOptimizer*>(restored.get());
+        assert(adam != nullptr);
+        assertClose(adam->learningRate(), 0.05);
+        assert(adam->stateBytes() == original.stateBytes());
+
+        layers[0].forward(input);
+        layers[0].zeroGradients();
+        layers[0].backward(loss.gradient(layers[0].forward(input), target));
+        std::vector<DenseLayer> layers_copy = layers;
+        original.update(layers);
+        adam->update(layers_copy);
+        assertClose(layers[0].weights()[0][0], layers_copy[0].weights()[0][0]);
+    }
+
+    {
+        SGDOptimizer original(0.2);
+        OptimizerSerialization::save(path, original);
+        std::fstream corrupt(path, std::ios::in | std::ios::out | std::ios::binary);
+        corrupt.seekp(16);
+        char byte = 0;
+        corrupt.read(&byte, sizeof(byte));
+        corrupt.seekp(16);
+        byte ^= 1;
+        corrupt.write(&byte, sizeof(byte));
+        corrupt.close();
+        std::vector<DenseLayer> layers;
+        bool checksum_failed = false;
+        try {
+            OptimizerSerialization::load(path, layers);
+        } catch (const std::runtime_error&) {
+            checksum_failed = true;
+        }
+        assert(checksum_failed);
+    }
+
+    std::remove(path.c_str());
+}
+
+void testLearningMemorySerialization() {
+    const std::string path = "/tmp/gloomy_memory.bin";
+
+    // FIFO round-trip: capacity, samples and metadata survive.
+    {
+        FIFOMemory original(3);
+        original.add({{1.0}, {2.0}, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 7, 2});
+        original.add({{2.0}, {3.0}, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 1, 5});
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        assert(dynamic_cast<FIFOMemory*>(restored.get()) != nullptr);
+        assert(restored->capacity() == 3);
+        assert(restored->size() == 2);
+        const std::vector<MemoryEntry> entries = restored->sampleIndexed(2);
+        assert(entries.size() == 2);
+        assertClose(entries[0].sample.input[0], 1.0);
+        assert(entries[0].sample.age == 7);
+        assert(entries[1].sample.usage_count == 6);
+    }
+
+    // Reservoir round-trip: capacity, samples and RNG state (future draws
+    // must stay reproducible, not just the seed).
+    {
+        ReservoirMemory original(3, 42u);
+        for (int index = 0; index < 5; ++index) {
+            original.add({{static_cast<double>(index)}, {static_cast<double>(index)}});
+        }
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        assert(dynamic_cast<ReservoirMemory*>(restored.get()) != nullptr);
+        assert(restored->capacity() == 3);
+        assert(restored->size() == original.size());
+
+        const std::vector<TrainingSample> expected = original.sample(3);
+        const std::vector<TrainingSample> actual = restored->sample(3);
+        assert(expected.size() == actual.size());
+        for (size_t index = 0; index < expected.size(); ++index) {
+            assertClose(expected[index].input[0], actual[index].input[0]);
+            assert(expected[index].usage_count == actual[index].usage_count);
+        }
+    }
+
+    // Prioritized round-trip: alpha and RNG state must keep draws reproducible.
+    {
+        PrioritizedMemory original(3, 0.7, 11u);
+        original.add({{0.0}, {0.0}, 0.2});
+        original.add({{1.0}, {1.0}, 0.9});
+        original.add({{2.0}, {2.0}, 0.5});
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        auto* prioritized = dynamic_cast<PrioritizedMemory*>(restored.get());
+        assert(prioritized != nullptr);
+        assertClose(prioritized->alpha(), 0.7);
+
+        const std::vector<TrainingSample> expected = original.sample(3);
+        const std::vector<TrainingSample> actual = restored->sample(3);
+        assert(expected.size() == actual.size());
+        for (size_t index = 0; index < expected.size(); ++index) {
+            assertClose(expected[index].input[0], actual[index].input[0]);
+        }
+    }
+
+    // Novelty round-trip.
+    {
+        NoveltyMemory original(3, 0.5);
+        original.add({{0.0, 0.0}, {0.0}});
+        original.add({{5.0, 5.0}, {1.0}});
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        auto* novelty = dynamic_cast<NoveltyMemory*>(restored.get());
+        assert(novelty != nullptr);
+        assertClose(novelty->noveltyThreshold(), 0.5);
+        assert(restored->size() == 2);
+    }
+
+    // Hybrid round-trip: ratios, threshold, partitions, seen_samples and RNG state.
+    {
+        HybridMemory original(8);
+        for (int index = 0; index < 6; ++index) {
+            TrainingSample sample;
+            sample.input = {static_cast<double>(index)};
+            sample.target = {static_cast<double>(index)};
+            sample.priority = (index % 2 == 0) ? 0.9 : 0.1;
+            original.add(sample);
+        }
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        auto* hybrid = dynamic_cast<HybridMemory*>(restored.get());
+        assert(hybrid != nullptr);
+        assert(hybrid->partitionSizes() == original.partitionSizes());
+
+        const std::vector<TrainingSample> expected = original.sample(6);
+        const std::vector<TrainingSample> actual = hybrid->sample(6);
+        assert(expected.size() == actual.size());
+        for (size_t index = 0; index < expected.size(); ++index) {
+            assertClose(expected[index].input[0], actual[index].input[0]);
+        }
+    }
+
+    // Corruption must be rejected.
+    {
+        FIFOMemory original(2);
+        original.add({{1.0}, {1.0}});
+        LearningMemorySerialization::save(path, original);
+        std::fstream corrupt(path, std::ios::in | std::ios::out | std::ios::binary);
+        corrupt.seekp(16);
+        char byte = 0;
+        corrupt.read(&byte, sizeof(byte));
+        corrupt.seekp(16);
+        byte ^= 1;
+        corrupt.write(&byte, sizeof(byte));
+        corrupt.close();
+        bool checksum_failed = false;
+        try {
+            LearningMemorySerialization::load(path);
+        } catch (const std::runtime_error&) {
+            checksum_failed = true;
+        }
+        assert(checksum_failed);
+    }
+
+    std::remove(path.c_str());
+}
+
+void testGloomyConfigDefaults() {
+    const GloomyConfig& config = GloomyConfig::defaults();
+
+    // Architecture: must match the CLI defaults documented in the README
+    // and previously hardcoded in src/main.cpp.
+    assert(config.runtime == "inference");
+    assert(config.activation == "none");
+    assert(config.post_activation == "none");
+    assert(config.hidden_layers == 2);
+    assert(config.neurons == 2);
+    assert(config.predictions == 1);
+
+    // Loss: matches HuberLoss's own constructor default.
+    assert(config.loss == "mse");
+    assertClose(config.huber_delta, 1.0);
+
+    // Optimizer: momentum, beta1, beta2 and epsilon match the concrete
+    // optimizers' own constructor defaults.
+    assert(config.optimizer == "sgd");
+    assertClose(config.momentum, 0.9);
+    assertClose(config.beta1, 0.9);
+    assertClose(config.beta2, 0.999);
+    assertClose(config.epsilon, 1e-8);
+
+    // Learning memory: ratios match HybridMemoryRatios's own defaults,
+    // prioritized_alpha matches PrioritizedMemory's own default, and seed
+    // matches the shared default used by Reservoir, Prioritized and Hybrid
+    // memories (itself std::mt19937's own default seed).
+    assert(config.memory_strategy == "fifo");
+    assertClose(config.recent_ratio, 0.25);
+    assertClose(config.error_ratio, 0.25);
+    assertClose(config.novelty_ratio, 0.25);
+    assertClose(config.historical_ratio, 0.25);
+    assertClose(config.novelty_threshold, 0.0);
+    assertClose(config.prioritized_alpha, 0.6);
+    assertClose(config.prioritized_beta, 0.4);
+    assert(config.seed == 5489u);
+
+    assert(config.precision == "float64");
+    assert(config.train_every == 1);
+
+    assert(config.metrics_path == "benchmark_results.csv");
+
+    // Calling defaults() twice must return the exact same values.
+    assert(&GloomyConfig::defaults() == &config);
+}
+
+void testGloomyConfigFile() {
+    const std::string path = "/tmp/gloomy_test.config";
+
+    // Recognized keys override the defaults; comments and blank lines are
+    // ignored; whitespace around keys and values is trimmed.
+    {
+        std::ofstream file(path, std::ios::trunc);
+        file << "# comment\n";
+        file << "\n";
+        file << "  activation = tanh  \n";
+        file << "hidden_layers=3\n";
+        file << "learning_rate=0.001\n";
+        file << "memory_strategy=hybrid\n";
+        file << "memory_capacity=64\n";
+        file << "seed=99\n";
+        file.close();
+
+        const GloomyConfig config = GloomyConfigFile::load(path);
+        assert(config.activation == "tanh");
+        assert(config.hidden_layers == 3);
+        assertClose(config.learning_rate, 0.001);
+        assert(config.memory_strategy == "hybrid");
+        assert(config.memory_capacity == 64);
+        assert(config.seed == 99u);
+        // Untouched keys keep the base value (defaults here).
+        assert(config.neurons == GloomyConfig::defaults().neurons);
+        assert(config.post_activation == GloomyConfig::defaults().post_activation);
+    }
+
+    // A base other than the defaults can be layered on top of.
+    {
+        GloomyConfig base = GloomyConfig::defaults();
+        base.neurons = 42;
+        const GloomyConfig config = GloomyConfigFile::load(path, base);
+        assert(config.neurons == 42);
+        assert(config.activation == "tanh");
+    }
+
+    // Unknown key is rejected.
+    {
+        std::ofstream file(path, std::ios::trunc);
+        file << "not_a_real_key=1\n";
+        file.close();
+        bool threw = false;
+        try {
+            GloomyConfigFile::load(path);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Malformed line (no '=') is rejected.
+    {
+        std::ofstream file(path, std::ios::trunc);
+        file << "this line has no separator\n";
+        file.close();
+        bool threw = false;
+        try {
+            GloomyConfigFile::load(path);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Invalid numeric value is rejected.
+    {
+        std::ofstream file(path, std::ios::trunc);
+        file << "hidden_layers=not_a_number\n";
+        file.close();
+        bool threw = false;
+        try {
+            GloomyConfigFile::load(path);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Missing file is rejected.
+    {
+        bool threw = false;
+        try {
+            GloomyConfigFile::load("/tmp/gloomy_missing_config_file_for_test.config");
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    std::remove(path.c_str());
+}
+
+void testOnlineLearningRuntime() {
+    const std::vector<double> sequence = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+
+    // Basic success with the defaults: one step per consecutive pair, a
+    // finite average loss, and a non-empty memory afterwards.
+    {
+        const OnlineLearningResult result = runOnlineLearning(GloomyConfig::defaults(), sequence);
+        assert(result.steps.size() == sequence.size() - 1);
+        for (size_t index = 0; index < result.steps.size(); ++index) {
+            assertClose(result.steps[index].observation, sequence[index]);
+            assertClose(result.steps[index].target, sequence[index + 1]);
+            assert(std::isfinite(result.steps[index].prediction_before_update));
+            assert(std::isfinite(result.steps[index].loss_before_update));
+        }
+        assert(std::isfinite(result.average_loss));
+        assert(result.memory_size > 0);
+        assert(result.memory_size <= GloomyConfig::defaults().memory_capacity);
+    }
+
+    // Each loss/optimizer/memory strategy combination must run without
+    // throwing and produce a finite average loss.
+    {
+        const std::vector<std::string> losses = {"mse", "mae", "huber"};
+        const std::vector<std::string> optimizers = {"sgd", "momentum", "adam"};
+        const std::vector<std::string> strategies = {"fifo", "reservoir", "prioritized", "novelty", "hybrid"};
+        for (const std::string& loss_name : losses) {
+            for (const std::string& optimizer_name : optimizers) {
+                for (const std::string& strategy : strategies) {
+                    GloomyConfig config = GloomyConfig::defaults();
+                    config.loss = loss_name;
+                    config.optimizer = optimizer_name;
+                    config.memory_strategy = strategy;
+                    config.memory_capacity = 8;
+                    const OnlineLearningResult result = runOnlineLearning(config, sequence);
+                    assert(result.steps.size() == sequence.size() - 1);
+                    assert(std::isfinite(result.average_loss));
+                }
+            }
+        }
+    }
+
+    // A sequence with fewer than two values is rejected.
+    {
+        bool threw = false;
+        try {
+            runOnlineLearning(GloomyConfig::defaults(), {1.0});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Unknown loss, optimizer and memory strategy are each rejected.
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.loss = "bogus";
+        bool threw = false;
+        try {
+            runOnlineLearning(config, sequence);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.optimizer = "bogus";
+        bool threw = false;
+        try {
+            runOnlineLearning(config, sequence);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.memory_strategy = "bogus";
+        bool threw = false;
+        try {
+            runOnlineLearning(config, sequence);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
 }
 
 int main() {
@@ -658,6 +1422,11 @@ int main() {
     testInvalidSizes();
     testEmptyInputs();
     testDenseLayerGradient();
+    testDenseLayerSeededInitialization();
+    testGradientCheckingAllActivations();
+    testSoftmaxGradientCheck();
+    testActivationStabilityWithLargeValues();
+    testNonFiniteValuesRejected();
     testSGDUpdateReducesLoss();
     testLearningEngineBatchTraining();
     testFIFOMemoryCapacity();
@@ -665,8 +1434,11 @@ int main() {
     testLearningEngineMemoryReplay();
     testReservoirMemory();
     testPrioritizedMemory();
+    testPrioritizedMemoryBiasCorrection();
+    testLearningEngineTrainBatchWeighting();
     testNoveltyMemory();
     testHybridMemory();
+    testHybridMemoryTrueRecency();
     testImportanceScorer();
     testTrainingSchedulers();
     testStreamingNormalization();
@@ -682,5 +1454,10 @@ int main() {
     testBenchmarkCsv();
     testMomentumOptimizer();
     testAdamOptimizer();
+    testOptimizerSerialization();
+    testLearningMemorySerialization();
+    testGloomyConfigDefaults();
+    testGloomyConfigFile();
+    testOnlineLearningRuntime();
     return 0;
 }

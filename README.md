@@ -67,6 +67,7 @@ Exemple d'utilisation :
 - **`-n N`** : Nombre de neurones par couche cachée (par défaut 2).
 - **`-a [none|sigmoid|sigmoid_derivative|relu|leaky_relu|tanh|tanh_derivative]`** : Fonction d'activation (par défaut `none`).
 - **`-A [none|softmax]`** : Fonction de post-activation (par défaut `none`).
+- **`-f, --config PATH`** : Charge un fichier de configuration `clé=valeur` (voir [docs/configurations.md](docs/configurations.md) et [docs/roadmap.md](docs/roadmap.md)). Priorité `CLI > fichier > défauts` : un flag `-c`/`-l`/`-n`/`-a`/`-A` explicite l'emporte toujours sur la valeur du fichier.
 - **`-h`** : Affiche l'aide.
 
 #### Exemple de sortie
@@ -83,7 +84,7 @@ Ce sont les prédictions générées en fonction de la séquence d'entrée donn�
 
 ## Documentation détaillée
 
-La documentation complète se trouve dans [`docs/README.md`](docs/README.md). Le suivi détaillé des fonctionnalités réalisées et des prochaines étapes se trouve dans [`docs/roadmap.md`](docs/roadmap.md).
+La documentation complète se trouve dans [`docs/README.md`](docs/README.md). Pour des exemples concrets de ce qu'on peut faire apprendre à Gloomy, voir [`docs/examples.md`](docs/examples.md). Le suivi détaillé des fonctionnalités réalisées et des prochaines étapes se trouve dans [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Aperçu du Code
 
