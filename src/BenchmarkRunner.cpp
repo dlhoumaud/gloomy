@@ -14,8 +14,10 @@
 #include "headers/QuantizedInt8FIFOMemory.h"
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -104,7 +106,8 @@ BenchmarkResult evaluate(
     double training_time_ms,
     size_t samples_stored,
     size_t memory_used_bytes,
-    size_t updates
+    size_t updates,
+    size_t memory_capacity = 0
 ) {
     double validation_loss = 0.0;
     double mae = 0.0;
@@ -135,6 +138,7 @@ BenchmarkResult evaluate(
     result.memory_used_bytes = memory_used_bytes + parameterBytes(network) + optimizerStateBytes(optimizer);
     result.samples_stored = samples_stored;
     result.parameter_updates = updates;
+    result.memory_capacity = memory_capacity;
     return result;
 }
 
@@ -158,6 +162,9 @@ int main() {
     const std::vector<std::string> optimizers = {"sgd", "momentum", "adam"};
     std::vector<BenchmarkResult> results;
 
+    // MAE du dataset complet par optimiseur, pour calculer plus bas le
+    // ratio mae_memoire_bornee / mae_dataset_complet de chaque scenario.
+    std::map<std::string, double> full_dataset_mae;
     for (const std::string& optimizer_name : optimizers) {
         NeuralNetwork network = makeNetwork();
         MSELoss loss;
@@ -168,40 +175,58 @@ int main() {
         const double training_loss = engine.train(training, 100, 8);
         const auto end = std::chrono::steady_clock::now();
 
-        results.push_back(evaluate(
+        BenchmarkResult result = evaluate(
             network, *optimizer, loss, validation, "full_dataset", optimizer_name,
             training_loss, std::chrono::duration<double, std::milli>(end - start).count(),
             training.size(), training.empty() ? 0 : training.size() * sampleBytes(training.front()),
-            100 * ((training.size() + 7) / 8)
-        ));
+            100 * ((training.size() + 7) / 8), training.size()
+        );
+        full_dataset_mae[optimizer_name] = result.mae;
+        results.push_back(result);
     }
 
-    const size_t memory_capacity = 16;
-    for (const std::string memory_name : {"fifo", "reservoir", "prioritized", "novelty", "hybrid"}) {
-        for (const std::string& optimizer_name : optimizers) {
-            NeuralNetwork network = makeNetwork();
-            MSELoss loss;
-            std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
-            std::unique_ptr<LearningMemory> memory = makeMemory(memory_name, memory_capacity);
-            LearningEngine engine(network, loss, *optimizer);
+    const auto applyFullDatasetRatio = [&](BenchmarkResult& result, const std::string& optimizer_name) {
+        const auto full_dataset_it = full_dataset_mae.find(optimizer_name);
+        if (full_dataset_it != full_dataset_mae.end() && full_dataset_it->second > 0.0) {
+            result.mae_ratio_to_full_dataset = result.mae / full_dataset_it->second;
+        }
+    };
 
-            double training_loss = 0.0;
-            const auto start = std::chrono::steady_clock::now();
-            for (const TrainingSample& sample : training) {
-                training_loss += engine.learn(*memory, sample, 8);
+    // Capacites de memoire bornee comparees au dataset complet (voir
+    // docs/benchmark.md, section « Baseline obligatoire »).
+    for (const size_t memory_capacity : {32u, 64u, 128u, 256u}) {
+        for (const std::string memory_name : {"fifo", "reservoir", "prioritized", "novelty", "hybrid"}) {
+            for (const std::string& optimizer_name : optimizers) {
+                NeuralNetwork network = makeNetwork();
+                MSELoss loss;
+                std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
+                std::unique_ptr<LearningMemory> memory = makeMemory(memory_name, memory_capacity);
+                LearningEngine engine(network, loss, *optimizer);
+
+                double training_loss = 0.0;
+                const auto start = std::chrono::steady_clock::now();
+                for (const TrainingSample& sample : training) {
+                    training_loss += engine.learn(*memory, sample, 8);
+                }
+                const auto end = std::chrono::steady_clock::now();
+
+                BenchmarkResult result = evaluate(
+                    network, *optimizer, loss, validation, memory_name, optimizer_name,
+                    training_loss / static_cast<double>(training.size()),
+                    std::chrono::duration<double, std::milli>(end - start).count(),
+                    memory->size(), memory->size() * sampleBytes(training.front()),
+                    training.size(), memory_capacity
+                );
+                applyFullDatasetRatio(result, optimizer_name);
+                results.push_back(result);
             }
-            const auto end = std::chrono::steady_clock::now();
-
-            results.push_back(evaluate(
-                network, *optimizer, loss, validation, memory_name, optimizer_name,
-                training_loss / static_cast<double>(training.size()),
-                std::chrono::duration<double, std::milli>(end - start).count(),
-                memory->size(), memory->size() * sampleBytes(training.front()),
-                training.size()
-            ));
         }
     }
 
+    // Reste a une capacite unique pour cette section (voir docs/roadmap.md,
+    // « Priorité moyenne : benchmark scientifique » : etendre le balayage
+    // de capacites aux precisions int16/int8 reste a faire).
+    const size_t quantized_memory_capacity = 16;
     const TrainingSampleQuantizer int16_quantizer =
         TrainingSampleQuantizer::calibrate(training);
     const Int8TrainingSampleQuantizer int8_quantizer =
@@ -210,7 +235,7 @@ int main() {
         NeuralNetwork network = makeNetwork();
         MSELoss loss;
         std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
-        QuantizedFIFOMemory memory(memory_capacity, int16_quantizer);
+        QuantizedFIFOMemory memory(quantized_memory_capacity, int16_quantizer);
         LearningEngine engine(network, loss, *optimizer);
 
         double training_loss = 0.0;
@@ -219,19 +244,21 @@ int main() {
             training_loss += engine.learn(memory, sample, 8);
         }
         const auto end = std::chrono::steady_clock::now();
-        results.push_back(evaluate(
+        BenchmarkResult result = evaluate(
             network, *optimizer, loss, validation, "quantized_fifo_int16", optimizer_name,
             training_loss / static_cast<double>(training.size()),
             std::chrono::duration<double, std::milli>(end - start).count(),
-            memory.size(), memory.memoryUsedBytes(), training.size()
-        ));
+            memory.size(), memory.memoryUsedBytes(), training.size(), quantized_memory_capacity
+        );
+        applyFullDatasetRatio(result, optimizer_name);
+        results.push_back(result);
     }
 
     for (const std::string& optimizer_name : optimizers) {
         NeuralNetwork network = makeNetwork();
         MSELoss loss;
         std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
-        QuantizedInt8FIFOMemory memory(memory_capacity, int8_quantizer);
+        QuantizedInt8FIFOMemory memory(quantized_memory_capacity, int8_quantizer);
         LearningEngine engine(network, loss, *optimizer);
 
         double training_loss = 0.0;
@@ -240,12 +267,14 @@ int main() {
             training_loss += engine.learn(memory, sample, 8);
         }
         const auto end = std::chrono::steady_clock::now();
-        results.push_back(evaluate(
+        BenchmarkResult result = evaluate(
             network, *optimizer, loss, validation, "quantized_fifo_int8", optimizer_name,
             training_loss / static_cast<double>(training.size()),
             std::chrono::duration<double, std::milli>(end - start).count(),
-            memory.size(), memory.memoryUsedBytes(), training.size()
-        ));
+            memory.size(), memory.memoryUsedBytes(), training.size(), quantized_memory_capacity
+        );
+        applyFullDatasetRatio(result, optimizer_name);
+        results.push_back(result);
     }
 
     const std::vector<TrainingSample> regime_a = makeDataset(40, 0);

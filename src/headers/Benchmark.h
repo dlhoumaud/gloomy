@@ -19,6 +19,13 @@ struct BenchmarkResult {
     size_t samples_stored = 0;
     size_t parameter_updates = 0;
     double forgetting = 0.0;
+    // Capacite de la memoire d'apprentissage utilisee pour ce scenario (0
+    // si la notion ne s'applique pas, ex. les lignes de forgetting).
+    size_t memory_capacity = 0;
+    // mae / mae_du_scenario_full_dataset (meme optimiseur), pour comparer
+    // directement le cout d'une memoire bornee au dataset complet. Laisse a
+    // 0 quand aucune reference full_dataset n'est disponible.
+    double mae_ratio_to_full_dataset = 0.0;
 };
 
 class BenchmarkCsv {

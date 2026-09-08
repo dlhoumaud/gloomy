@@ -5,13 +5,16 @@
 #include "headers/LearningMemorySerialization.h"
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -70,12 +73,22 @@ std::string readString(std::istream& stream) {
     return value;
 }
 
+// tmpnam() genere un nom sans creer le fichier : une autre execution peut
+// s'y glisser entre-temps (TOCTOU), et glibc le signale explicitement comme
+// dangereux a la liaison. mkstemp() (POSIX) cree et ouvre le fichier de
+// facon atomique ; on referme aussitot le descripteur puisque les appelants
+// ne manipulent que le chemin (via les serializers existants, bases sur des
+// chemins de fichiers).
 std::string temporaryPath() {
-    char name[L_tmpnam];
-    if (std::tmpnam(name) == nullptr) {
-        throw std::runtime_error("Unable to create a temporary file path");
+    std::string pattern = (std::filesystem::temp_directory_path() / "gloomy_model_XXXXXX").string();
+    std::vector<char> buffer(pattern.begin(), pattern.end());
+    buffer.push_back('\0');
+    const int descriptor = mkstemp(buffer.data());
+    if (descriptor == -1) {
+        throw std::runtime_error("Unable to create a temporary file");
     }
-    return std::string(name);
+    ::close(descriptor);
+    return std::string(buffer.data());
 }
 
 std::string readFile(const std::string& path) {

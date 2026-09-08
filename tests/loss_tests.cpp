@@ -966,6 +966,8 @@ void testBenchmarkCsv() {
     result.mae = 0.25;
     result.memory_used_bytes = 8192;
     result.samples_stored = 32;
+    result.memory_capacity = 64;
+    result.mae_ratio_to_full_dataset = 2.5;
     BenchmarkCsv::write(path, {result});
 
     std::ifstream stream(path);
@@ -974,7 +976,9 @@ void testBenchmarkCsv() {
         std::istreambuf_iterator<char>()
     );
     assert(content.find("memory_strategy,precision,optimizer") == 0);
+    assert(content.find("memory_capacity,mae_ratio_to_full_dataset") != std::string::npos);
     assert(content.find("\"hybrid,8kb\",int16,sgd") != std::string::npos);
+    assert(content.find(",64,2.5") != std::string::npos);
     std::remove(path.c_str());
 }
 
@@ -1303,7 +1307,13 @@ void testGloomyConfigDefaults() {
     assert(config.precision == "float64");
     assert(config.train_every == 1);
 
-    assert(config.metrics_path == "benchmark_results.csv");
+    // Persistence paths are opt-in: empty by default so that a CLI run
+    // never silently writes files (or overwrites make benchmark's own
+    // benchmark_results.csv) unless the user explicitly asks for it.
+    assert(config.model_path.empty());
+    assert(config.optimizer_path.empty());
+    assert(config.memory_path.empty());
+    assert(config.metrics_path.empty());
 
     // Calling defaults() twice must return the exact same values.
     assert(&GloomyConfig::defaults() == &config);

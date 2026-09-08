@@ -78,15 +78,19 @@ struct GloomyConfig {
     std::size_t batch_size = 8;
     std::size_t epochs = 1;
 
-    // Chemins de persistance. model_path reprend la convention déjà en
-    // usage dans la documentation (docs/serialization.md) ; optimizer_path
-    // et memory_path suivent la même convention ; metrics_path reprend le
-    // nom de fichier déjà produit par `make benchmark`
-    // (src/BenchmarkRunner.cpp).
-    std::string model_path = "model.gloomy";
-    std::string optimizer_path = "optimizer.gloomy";
-    std::string memory_path = "memory.gloomy";
-    std::string metrics_path = "benchmark_results.csv";
+    // Chemins de persistance, vides par défaut : la sauvegarde du modèle,
+    // de l'optimiseur, de la mémoire et des métriques par les runtimes CLI
+    // (`saveTrainingArtifacts`/`saveOnlineArtifacts`) est opt-in, seulement
+    // quand le champ correspondant est explicitement renseigné (voir
+    // docs/roadmap.md). Un défaut non vide écrirait silencieusement des
+    // fichiers dans le répertoire courant à chaque exécution ; pour
+    // `metrics_path`, un défaut à "benchmark_results.csv" écraserait en
+    // plus le fichier produit par `make benchmark` (qui n'utilise pas
+    // GloomyConfig et n'est donc pas affecté par ce champ).
+    std::string model_path;
+    std::string optimizer_path;
+    std::string memory_path;
+    std::string metrics_path;
 
     static const GloomyConfig& defaults();
 };

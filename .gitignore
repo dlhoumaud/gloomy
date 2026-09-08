@@ -3,3 +3,4 @@ bin/
 src/*.o
 src/*.d
 benchmark_results.csv
+*.gloomy

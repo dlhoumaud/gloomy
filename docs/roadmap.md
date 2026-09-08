@@ -27,6 +27,16 @@ Corrigé en ajoutant `-MMD -MP` à `CXXFLAGS` et un `-include $(OBJ:.o=.d)` en b
 
 **Leçon retenue pour la suite** : après avoir modifié un header partagé, préférer `make clean && make && make test && make benchmark` à un `make` incrémental tant qu'un doute subsiste, même si le correctif ci-dessus élimine la cause en principe.
 
+### Bug corrigé : persistance non sollicitée à des chemins par défaut non vides
+
+`GloomyConfig::model_path`/`optimizer_path`/`memory_path`/`metrics_path` avaient des défauts non vides (`"model.gloomy"`, `"optimizer.gloomy"`, `"memory.gloomy"`, `"benchmark_results.csv"`), alors que `runOnline()`/`runTrainingRuntime()` (`src/main.cpp`) appellent inconditionnellement `saveOnlineArtifacts`/`saveTrainingArtifacts` en fin d'exécution, qui n'écrivent chaque artefact que si son chemin n'est pas vide. Résultat : **toute** exécution `runtime=online_learning` ou `runtime=training`, même avec une configuration minimale ne mentionnant aucun chemin, écrivait silencieusement 4 fichiers dans le répertoire courant — y compris en écrasant `benchmark_results.csv`, le fichier produit par `make benchmark` (un outil indépendant, qui n'utilise pas `GloomyConfig`). C'est exactement ce qui s'est produit en testant les exemples de [docs/examples.md](examples.md) : trois fichiers `model.gloomy`/`optimizer.gloomy`/`memory.gloomy` sont apparus à la racine du dépôt sans avoir été demandés.
+
+Corrigé en vidant les quatre défauts : la persistance est maintenant réellement opt-in, comme la documentation ([Configurations et limites](configurations.md)) le décrivait déjà (« lorsqu'un `model_path` est renseigné ») sans que le code ne le respecte. `testGloomyConfigDefaults` caractérise désormais les quatre chemins comme vides par défaut. Vérifié manuellement : une exécution `online_learning` minimale n'écrit plus aucun fichier, et `model_path` explicite fonctionne toujours (le fichier attendu est créé). `*.gloomy` ajouté à `.gitignore`.
+
+### Bug corrigé : `tmpnam()` dans `ModelSerialization`
+
+`ModelSerialization::temporaryPath()` utilisait `std::tmpnam()` pour générer les chemins des fichiers temporaires servant à faire transiter chaque section (réseau, optimiseur, mémoire) par les sérialiseurs existants, basés sur des chemins de fichiers. `tmpnam()` ne fait que proposer un nom sans créer le fichier : une autre exécution peut s'y glisser entre la génération du nom et l'ouverture (TOCTOU) — glibc le signale explicitement comme dangereux à la liaison (`the use of 'tmpnam' is dangerous, better use 'mkstemp'`). Remplacé par `mkstemp()` (POSIX), qui crée et ouvre le fichier de façon atomique ; le chemin est construit sous `std::filesystem::temp_directory_path()`. Vérifié : plus aucun warning à la compilation ni à la liaison, et la sauvegarde/chargement du modèle unifié fonctionne toujours (`model_path` testé manuellement).
+
 ## 2. Fonctionnalités implémentées
 
 ### Réseau neuronal
@@ -138,18 +148,16 @@ Métriques disponibles :
 
 Le runner benchmark compare actuellement :
 
-- dataset complet ;
-- FIFO ;
-- Reservoir ;
-- Prioritized ;
-- FIFO int16 ;
-- FIFO int8 ;
+- dataset complet (référence 100 epochs) ;
+- FIFO, Reservoir, Prioritized, Novelty, Hybrid, chacune à 4 capacités (`32`, `64`, `128`, `256`) ;
+- FIFO int16 et FIFO int8 (capacité `16`) ;
 - SGD, Momentum et Adam ;
 - temps d'entraînement ;
 - latence d'inférence ;
 - mémoire des paramètres et de l'état optimiseur ;
 - mémoire d'apprentissage ;
-- MAE, RMSE et pertes.
+- MAE, RMSE et pertes ;
+- ratio MAE au dataset complet, par optimiseur.
 
 Il contient aussi une expérience synthétique de catastrophic forgetting avec et sans replay FIFO.
 
@@ -290,17 +298,19 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 
 Étendre le runner à :
 
-- capacités `32`, `64`, `128`, `256` ;
-- Novelty et Hybrid ;
-- float64, int16 et int8 sur les mêmes données ;
-- pertes MSE, MAE et Huber ;
-- plusieurs seeds ;
-- moyenne, écart-type et intervalles de confiance ;
-- baseline dernière valeur connue ;
-- ratio `performance_memory_limited / performance_full_dataset` ;
-- coût CPU et nombre d'opérations approximatif ;
-- samples/sec et updates/sec ;
-- fichiers CSV séparés par expérience.
+- ~~capacités `32`, `64`, `128`, `256`~~ fait pour les 5 stratégies float64 (FIFO, Reservoir, Prioritized, Novelty, Hybrid) : `BenchmarkRunner` boucle maintenant sur ces 4 capacités × 5 stratégies × 3 optimiseurs (60 scénarios). Les scénarios quantifiés (int16/int8) restent à une capacité unique (`16`) ;
+- ~~Novelty et Hybrid~~ fait, dans le même changement que les capacités ;
+- float64, int16 et int8 sur les mêmes données — partiel : int16/int8 comparés au même dataset mais pas encore sur le même balayage de capacités que float64 ;
+- pertes MSE, MAE et Huber — non fait : tout le runner utilise encore `MSELoss` uniquement ;
+- plusieurs seeds — non fait : seed fixe `1234` (`DenseLayer::seedWeightInitialization`) et seeds fixes pour les mémoires (`1234u`) ;
+- moyenne, écart-type et intervalles de confiance — non fait (nécessite plusieurs seeds d'abord) ;
+- baseline dernière valeur connue — non fait ;
+- ~~ratio `performance_memory_limited / performance_full_dataset`~~ fait : nouvelle colonne `mae_ratio_to_full_dataset` (`BenchmarkResult`/`BenchmarkCsv`), calculée pour chaque scénario borné par rapport au MAE `full_dataset` du même optimiseur. **Limite importante** : `full_dataset` entraîne 100 epochs en batch (MAE proche de zéro sur cette régression synthétique) alors que les scénarios bornés font un seul passage online ; le ratio observé mélange donc l'effet du nombre de passages et celui de la capacité mémoire (valeurs parfois de l'ordre du million). Isoler l'effet de la seule capacité, à nombre de passages égal, reste à faire — voir [Benchmark](benchmark.md) ;
+- coût CPU et nombre d'opérations approximatif — non fait ;
+- samples/sec et updates/sec — non fait ;
+- fichiers CSV séparés par expérience — non fait : tout reste dans `benchmark_results.csv`.
+
+Au passage : le format de `benchmark_results.csv` (colonnes `memory_capacity`, `mae_ratio_to_full_dataset`) est un changement rétrocompatible en ajout de colonnes ; `testBenchmarkCsv` couvre les deux nouveaux champs. La commande de vérification numérique du CSV dans [Benchmark](benchmark.md) a aussi été corrigée : elle utilisait une comparaison arithmétique (`$i != $i + 0`) qui déclenche un faux positif sous `mawk` (implémentation par défaut d'`awk` sur beaucoup de systèmes Debian/Ubuntu) pour des flottants en notation scientifique à forte précision — remplacée par une validation par motif, indépendante de l'implémentation d'`awk`.
 
 ### Priorité moyenne : compression et embarqué
 
@@ -334,7 +344,7 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 6. ~~Exposer un mode online fonctionnel dans le CLI.~~ Fait pour `ONLINE_LEARNING_RUNTIME` (`OnlineLearningRuntime`, voir section 2 et 3).
 7. ~~Brancher la persistance du modèle entraîné dans le runtime online.~~ Fait via `ModelSerialization` et `model_path` dans le CLI.
 8. ~~Ajouter `TRAINING_RUNTIME` dans le CLI.~~ Fait via `runtime=training`, avec `epochs` et sauvegarde de `model_path`.
-9. Étendre les benchmarks aux capacités et stratégies restantes.
+9. Étendre les benchmarks aux capacités et stratégies restantes. Partiel : capacités `32`/`64`/`128`/`256` et stratégies Novelty/Hybrid ajoutées pour float64, ainsi qu'un ratio au dataset complet (voir section 3, « Priorité moyenne : benchmark scientifique »). Restent : pertes MSE/MAE/Huber, plusieurs seeds avec statistiques, baseline naïve, coûts CPU/débit, CSV séparés par expérience.
 10. Ajouter les tests de concept drift et catastrophic forgetting.
 11. Optimiser les allocations et la représentation mémoire.
 12. Préparer le runtime embarqué et la quantification des poids.
