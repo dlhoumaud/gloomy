@@ -55,6 +55,12 @@ std::uint32_t parseUint32(const std::string& key, const std::string& value) {
     }
     return static_cast<std::uint32_t>(parsed);
 }
+
+bool parseBool(const std::string& key, const std::string& value) {
+    if (value == "true" || value == "1") return true;
+    if (value == "false" || value == "0") return false;
+    throw std::invalid_argument("Invalid boolean value for '" + key + "': " + value);
+}
 }
 
 GloomyConfig GloomyConfigFile::load(const std::string& path, const GloomyConfig& base) {
@@ -107,6 +113,13 @@ GloomyConfig GloomyConfigFile::load(const std::string& path, const GloomyConfig&
         else if (key == "novelty_threshold") config.novelty_threshold = parseDouble(key, value);
         else if (key == "prioritized_alpha") config.prioritized_alpha = parseDouble(key, value);
         else if (key == "prioritized_beta") config.prioritized_beta = parseDouble(key, value);
+        else if (key == "prioritized_beta_annealing_rate") config.prioritized_beta_annealing_rate = parseDouble(key, value);
+        else if (key == "prioritized_exploration_epsilon") config.prioritized_exploration_epsilon = parseDouble(key, value);
+        else if (key == "importance_weight_error") config.importance_weight_error = parseDouble(key, value);
+        else if (key == "importance_weight_novelty") config.importance_weight_novelty = parseDouble(key, value);
+        else if (key == "importance_weight_rarity") config.importance_weight_rarity = parseDouble(key, value);
+        else if (key == "importance_weight_recency") config.importance_weight_recency = parseDouble(key, value);
+        else if (key == "importance_weight_diversity") config.importance_weight_diversity = parseDouble(key, value);
         else if (key == "seed") config.seed = parseUint32(key, value);
         else if (key == "precision") config.precision = value;
         else if (key == "train_every") config.train_every = parseSize(key, value);
@@ -116,6 +129,10 @@ GloomyConfig GloomyConfigFile::load(const std::string& path, const GloomyConfig&
         else if (key == "optimizer_path") config.optimizer_path = value;
         else if (key == "memory_path") config.memory_path = value;
         else if (key == "metrics_path") config.metrics_path = value;
+        else if (key == "concept_drift_detection") config.concept_drift_detection = parseBool(key, value);
+        else if (key == "concept_drift_recent_window") config.concept_drift_recent_window = parseSize(key, value);
+        else if (key == "concept_drift_minimum_history") config.concept_drift_minimum_history = parseSize(key, value);
+        else if (key == "concept_drift_std_devs") config.concept_drift_std_devs = parseDouble(key, value);
         else {
             throw std::invalid_argument(
                 "Unknown configuration key '" + key + "' on line " +

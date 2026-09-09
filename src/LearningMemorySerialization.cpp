@@ -19,6 +19,9 @@
 
 namespace {
 constexpr char magic[] = "GLOOMYLM";
+// Version 4 : ajout de beta_annealing_rate et exploration_epsilon pour
+// PrioritizedMemory (annealing de la correction de biais et exploration
+// controlee des echantillons de faible priorite, voir docs/memory.md).
 // Version 3 : ajout des memoires quantifiees QuantizedFIFOMemory (int16) et
 // QuantizedInt8FIFOMemory (int8), avec leurs parametres de calibration
 // (scale/zero_point) partages par tous les echantillons stockes (voir
@@ -26,7 +29,7 @@ constexpr char magic[] = "GLOOMYLM";
 // correction_exponent (beta) pour PrioritizedMemory (correction du biais
 // d'echantillonnage). Un fichier d'une version anterieure est refuse plutot
 // que mal interprete.
-constexpr std::uint32_t format_version = 3;
+constexpr std::uint32_t format_version = 4;
 constexpr std::uint32_t strategy_fifo = 0;
 constexpr std::uint32_t strategy_reservoir = 1;
 constexpr std::uint32_t strategy_prioritized = 2;
@@ -274,6 +277,8 @@ void LearningMemorySerialization::save(const std::string& path, const LearningMe
         writeUint64(payload, prioritized->memory_capacity);
         writeDouble(payload, prioritized->priority_exponent);
         writeDouble(payload, prioritized->correction_exponent);
+        writeDouble(payload, prioritized->beta_annealing_rate);
+        writeDouble(payload, prioritized->exploration_epsilon);
         writeString(payload, captureRngState(prioritized->generator));
         writeUint64(payload, prioritized->samples.size());
         for (const TrainingSample& sample : prioritized->samples) writeSample(payload, sample);
@@ -409,10 +414,14 @@ std::unique_ptr<LearningMemory> LearningMemorySerialization::load(const std::str
     if (strategy == strategy_prioritized) {
         const double alpha = readDouble(stream);
         const double beta = readDouble(stream);
+        const double beta_annealing_rate = readDouble(stream);
+        const double exploration_epsilon = readDouble(stream);
         const std::string rng_state = readString(stream);
         const std::uint64_t sample_count = readUint64(stream);
         if (sample_count > capacity) throw std::runtime_error("Learning memory sample count exceeds capacity");
-        auto memory = std::make_unique<PrioritizedMemory>(static_cast<size_t>(capacity), alpha, 5489u, beta);
+        auto memory = std::make_unique<PrioritizedMemory>(
+            static_cast<size_t>(capacity), alpha, 5489u, beta, beta_annealing_rate, exploration_epsilon
+        );
         restoreRngState(memory->generator, rng_state);
         std::vector<TrainingSample> samples;
         samples.reserve(static_cast<size_t>(sample_count));

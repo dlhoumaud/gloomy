@@ -76,13 +76,40 @@ w_i  = (N * P(i))^(-beta)
 w_i  = w_i / max_du_batch(w_i)                          (le plus grand poids du batch vaut 1)
 ```
 
-`beta` (nouveau paramètre du constructeur, défaut `0.4`) contrôle l'intensité de la correction : `beta = 0` la désactive complètement (tous les poids valent `1.0`, comportement identique à avant ce changement) ; `beta = 1` corrige entièrement le biais. `LearningEngine::trainFromMemory` applique ce poids à la contribution de chaque échantillon au gradient avant la mise à jour des poids (`MemoryEntry::importance_weight`, `1.0` par défaut et donc neutre pour les autres stratégies).
+`beta` (paramètre du constructeur, défaut `0.4`) contrôle l'intensité de la correction : `beta = 0` la désactive complètement (tous les poids valent `1.0`) ; `beta = 1` corrige entièrement le biais. `LearningEngine::trainFromMemory` applique ce poids à la contribution de chaque échantillon au gradient avant la mise à jour des poids (`MemoryEntry::importance_weight`, `1.0` par défaut et donc neutre pour les autres stratégies).
 
 ```cpp
 PrioritizedMemory memory(256, /*alpha=*/0.6, /*seed=*/5489u, /*beta=*/0.4);
 ```
 
-Cette version calcule `P(i)` sur l'ensemble de la mémoire au moment du tirage (avant tout retrait pour l'échantillonnage sans remise), une approximation standard qui ignore la légère dépendance entre tirages successifs d'un même batch. L'annealing de `beta` au fil de l'entraînement (souvent de `0.4` vers `1.0` dans la littérature) n'est pas implémenté : `beta` reste une valeur fixe configurée à la construction.
+Cette version calcule `P(i)` sur l'ensemble de la mémoire au moment du tirage (avant tout retrait pour l'échantillonnage sans remise), une approximation standard qui ignore la légère dépendance entre tirages successifs d'un même batch.
+
+### Annealing de beta
+
+`beta` peut désormais évoluer au fil de l'entraînement plutôt que de rester une valeur fixe : le paramètre optionnel `beta_annealing_rate` (défaut `0.0`, comportement inchangé) est ajouté à `beta` après chaque `sampleIndexed()` (donc à chaque replay effectif, pas à chaque `add()`), plafonné à `1.0` :
+
+```cpp
+// beta part a 0.4 et augmente de 0.05 apres chaque replay, jusqu'a 1.0.
+PrioritizedMemory memory(256, 0.6, 5489u, /*beta=*/0.4, /*beta_annealing_rate=*/0.05);
+```
+
+C'est la pratique courante mentionnée dans la littérature (partir de `0.4`, tendre vers `1.0`), rendue réellement configurable. `beta_annealing_rate = 0.0` (défaut) désactive l'annealing, exactement comme avant l'ajout de ce paramètre. `beta()` reflète toujours la valeur courante (annealée ou non) ; `betaAnnealingRate()` expose le taux configuré. La valeur courante de `beta` est incluse dans la persistance (`LearningMemorySerialization`, format version 4) : un modèle rechargé reprend l'annealing exactement là où il s'était arrêté.
+
+### Exploration contrôlée des échantillons de faible priorité
+
+Le tirage priorisé pur (`priority^alpha`) peut laisser certains échantillons à très faible priorité pratiquement inatteignables (leur poids de tirage devient négligeable, pas nul mais écrasé numériquement par les autres). Le paramètre optionnel `exploration_epsilon` (défaut `0.0`, comportement inchangé) mélange la distribution priorisée avec une distribution uniforme :
+
+```text
+P(i) = (1 - epsilon) * priority_i^alpha / S  +  epsilon / n
+```
+
+où `S` est la somme des poids priorisés du groupe de tirage courant et `n` sa taille. `epsilon = 0` (défaut) reproduit exactement la distribution priorisée pure — y compris le tirage RNG lui-même, puisque `discrete_distribution` est invariant à un facteur d'échelle uniforme appliqué à tous les poids. `epsilon = 1` donne un tirage uniforme, indépendant de la priorité. Une valeur intermédiaire garantit qu'aucun échantillon n'a une probabilité de tirage strictement nulle, quelle que soit sa priorité :
+
+```cpp
+PrioritizedMemory memory(256, 0.6, 5489u, 0.4, /*beta_annealing_rate=*/0.0, /*exploration_epsilon=*/0.1);
+```
+
+Ce mélange s'applique à la fois au tirage lui-même (`sample()`/`sampleIndexed()`) et au calcul de `P(i)` utilisé pour la correction de biais d'échantillonnage (la probabilité de référence doit refléter la distribution réellement utilisée pour tirer, pas seulement la partie priorisée). `explorationEpsilon()` expose la valeur configurée ; elle est également persistée (format version 4, comme `beta_annealing_rate`).
 
 ## Novelty Memory
 
@@ -136,9 +163,25 @@ Reste ouvert : `age` est incrémenté par cycle de replay (`advanceAges()`), pas
 
 Le score est une moyenne pondérée. Un poids égal à zéro désactive une composante, ce qui permet de comparer `error-only`, `novelty-only` ou des combinaisons sans changer la mémoire.
 
-`TrainingSample` conserve maintenant `priority`, `error`, `novelty`, `rarity`, `recency`, `diversity`, `age` et `usage_count`. Pour l'instant, `LearningEngine::learn()` renseigne automatiquement l'erreur et calcule une priorité `error-only` normalisée. À chaque appel de replay, `advanceAges()` augmente l'âge de tous les échantillons et la mémoire incrémente `usage_count` pour les éléments sélectionnés.
+`TrainingSample` conserve `priority`, `error`, `novelty`, `rarity`, `recency`, `diversity`, `age` et `usage_count`. `LearningEngine` calcule désormais réellement les cinq composantes (auparavant, seule `error` était calculée ; les quatre autres restaient toujours à `0.0`) :
 
-Le replay indexé fournit maintenant l'indice mémoire avec chaque copie. `LearningEngine::trainFromMemory()` recalcule donc l'erreur après la mise à jour des poids et réécrit précisément l'échantillon concerné avec sa nouvelle priorité. Cela fonctionne même si deux observations ont des valeurs identiques, car leurs indices sont distincts.
+- `error` : erreur absolue maximale entre prédiction et cible (inchangé) ;
+- `recency` = `1 / (1 + age)` : proche de `1` pour un échantillon tout juste ajouté, décroît avec l'âge ;
+- `rarity` = `1 / (1 + usage_count)` : proche de `1` pour un échantillon jamais rejoué, décroît à chaque replay ;
+- `novelty`/`diversity` : calculées par `trainFromMemory()` par rapport aux **autres échantillons du même batch de replay** (distance euclidienne au carré, ramenée dans `[0, 1)` par `d / (1 + d)`) — `novelty` est la distance au plus proche voisin du batch, `diversity` la distance moyenne aux autres membres. `learn()` (au moment de l'ajout, avant tout batch) ne les calcule pas : interroger toute la mémoire depuis `learn()` exigerait d'élargir l'interface `LearningMemory` au-delà de `add()`/`sample()`. Un batch d'un seul échantillon reçoit `novelty = 1.0` et `diversity = 0.0` par convention (rien à comparer).
+
+Sous les poids par défaut (`error = 1.0`, le reste à `0.0`), la priorité reste exactement l'erreur seule — comportement historique inchangé. Rendre `novelty`/`rarity`/`recency`/`diversity` réellement influents nécessite de construire `LearningEngine` avec des `ImportanceWeights` non par défaut :
+
+```cpp
+ImportanceWeights weights;
+weights.error = 0.5;
+weights.recency = 0.5;
+LearningEngine engine(network, loss, optimizer, weights);
+```
+
+À chaque appel de replay, `advanceAges()` augmente l'âge de tous les échantillons et la mémoire incrémente `usage_count` pour les éléments sélectionnés.
+
+Le replay indexé fournit l'indice mémoire avec chaque copie. `LearningEngine::trainFromMemory()` recalcule donc les cinq composantes après la mise à jour des poids et réécrit précisément l'échantillon concerné avec sa nouvelle priorité. Cela fonctionne même si deux observations ont des valeurs identiques, car leurs indices sont distincts.
 
 ## Persistance
 
@@ -168,6 +211,35 @@ Cette persistance reste utile comme export séparé du réseau, de la normalisat
 ## Validation des échantillons à l'ajout
 
 Toutes les stratégies (y compris les mémoires quantifiées) rejettent désormais, via `add()`, un `TrainingSample` dont `input` ou `target` est vide ou contient une valeur non finie (`NaN`/infini), sur le même principe que `LossFunction::validateInputs` et `DenseLayer::forward`/`backward` (voir [Robustesse](roadmap.md)). Avant ce changement, seule `NoveltyMemory` validait la non-vacuité et la cohérence dimensionnelle de `input` ; `PrioritizedMemory` ne validait que `priority` ; FIFO, Reservoir et Hybrid n'effectuaient aucune validation.
+
+## Détection de concept drift
+
+`ConceptDriftDetector` (`src/headers/ConceptDriftDetector.h`) surveille un flux d'erreurs (`loss_before_update`, un par pas d'apprentissage online) et signale une dérive **activement** — pas seulement une métrique qu'on observerait après coup — en comparant :
+
+- une **moyenne récente** : la moyenne des `recent_window` dernières erreurs (fenêtre glissante circulaire) ;
+- une **ligne de base historique** : moyenne et écart-type calculés (Welford) sur toutes les erreurs vues depuis la construction (ou le dernier `reset()`).
+
+Une dérive est signalée quand la moyenne récente dépasse la ligne de base de plus de `num_std_devs` écarts-types (règle à 3 sigma par défaut), une fois que la fenêtre récente est pleine et que la ligne de base a vu au moins `minimum_history` valeurs (pour éviter les faux positifs au démarrage) :
+
+```cpp
+ConceptDriftDetector detector(/*recent_window=*/10, /*minimum_history=*/20, /*num_std_devs=*/3.0);
+const bool drift = detector.update(step_loss);
+```
+
+La ligne de base continue d'intégrer toutes les valeurs, y compris celles d'un nouveau régime : elle finit donc par « rattraper » une dérive durable, et le signal peut naturellement redevenir faux une fois que le modèle s'est réellement adapté (l'erreur récente redescend), sans mécanisme de réinitialisation explicite.
+
+### Intégration dans le runtime online
+
+`GloomyConfig::concept_drift_detection` (défaut `false`, opt-in) active ce mécanisme dans `runOnlineLearning()`. Quand une dérive est signalée à un pas, le runtime déclenche **immédiatement une action** — un replay supplémentaire depuis la mémoire (`LearningEngine::trainFromMemory`), en plus de la mise à jour normalement planifiée par le scheduler — et l'expose dans `OnlineLearningStep::drift_detected` (imprimé comme 6e colonne par le CLI, `0`/`1` — voir [Configurations et limites](configurations.md)) :
+
+```ini
+concept_drift_detection=true
+concept_drift_recent_window=10
+concept_drift_minimum_history=20
+concept_drift_std_devs=3.0
+```
+
+Vérifié sur un changement de régime synthétique net (pente `2` puis pente `-3`, avec un long régime stable au préalable) : la dérive est signalée quelques pas après la transition (le temps que la fenêtre récente se remplisse de valeurs du nouveau régime) et s'éteint à nouveau une fois le réseau réadapté — voir `testOnlineLearningRuntimeConceptDriftDetection` (`tests/loss_tests.cpp`).
 
 ## Training Scheduler
 

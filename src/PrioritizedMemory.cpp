@@ -7,9 +7,16 @@ PrioritizedMemory::PrioritizedMemory(
     size_t capacity,
     double alpha,
     std::uint32_t seed,
-    double beta
+    double beta,
+    double beta_annealing_rate,
+    double exploration_epsilon
 )
-    : memory_capacity(capacity), priority_exponent(alpha), correction_exponent(beta), generator(seed) {
+    : memory_capacity(capacity),
+      priority_exponent(alpha),
+      correction_exponent(beta),
+      beta_annealing_rate(beta_annealing_rate),
+      exploration_epsilon(exploration_epsilon),
+      generator(seed) {
     if (capacity == 0) {
         throw std::invalid_argument("Memory capacity must be positive");
     }
@@ -19,7 +26,30 @@ PrioritizedMemory::PrioritizedMemory(
     if (beta < 0.0 || !std::isfinite(beta)) {
         throw std::invalid_argument("Correction exponent (beta) must be finite and non-negative");
     }
+    if (beta_annealing_rate < 0.0 || !std::isfinite(beta_annealing_rate)) {
+        throw std::invalid_argument("Beta annealing rate must be finite and non-negative");
+    }
+    if (exploration_epsilon < 0.0 || exploration_epsilon > 1.0 || !std::isfinite(exploration_epsilon)) {
+        throw std::invalid_argument("Exploration epsilon must be finite and in [0, 1]");
+    }
     samples.reserve(capacity);
+}
+
+std::vector<double> PrioritizedMemory::mixedWeights(const std::vector<size_t>& pool) const {
+    std::vector<double> weights(pool.size());
+    double total = 0.0;
+    for (size_t position = 0; position < pool.size(); ++position) {
+        weights[position] = std::pow(std::max(samples[pool[position]].priority, minimum_priority), priority_exponent);
+        total += weights[position];
+    }
+    if (exploration_epsilon <= 0.0 || pool.empty() || total <= 0.0) {
+        return weights;
+    }
+    const double uniform_share = exploration_epsilon / static_cast<double>(pool.size());
+    for (double& weight : weights) {
+        weight = (1.0 - exploration_epsilon) * (weight / total) + uniform_share;
+    }
+    return weights;
 }
 
 void PrioritizedMemory::add(const TrainingSample& sample) {
@@ -66,13 +96,7 @@ std::vector<TrainingSample> PrioritizedMemory::sample(size_t batch_size) {
     std::vector<TrainingSample> result;
     result.reserve(count);
     for (size_t selection = 0; selection < count; ++selection) {
-        std::vector<double> weights;
-        weights.reserve(indices.size());
-        for (size_t index : indices) {
-            const double priority = std::max(samples[index].priority, minimum_priority);
-            weights.push_back(std::pow(priority, priority_exponent));
-        }
-
+        const std::vector<double> weights = mixedWeights(indices);
         std::discrete_distribution<size_t> distribution(weights.begin(), weights.end());
         const size_t selected_position = distribution(generator);
         const size_t selected_index = indices[selected_position];
@@ -111,18 +135,19 @@ std::vector<MemoryEntry> PrioritizedMemory::sampleIndexed(size_t batch_size) {
     double max_raw_weight = 0.0;
 
     for (size_t selection = 0; selection < count; ++selection) {
-        std::vector<double> weights;
-        weights.reserve(indices.size());
-        for (size_t index : indices) {
-            weights.push_back(std::pow(std::max(samples[index].priority, minimum_priority), priority_exponent));
-        }
+        const std::vector<double> weights = mixedWeights(indices);
         std::discrete_distribution<size_t> distribution(weights.begin(), weights.end());
         const size_t position = distribution(generator);
         const size_t selected = indices[position];
         ++samples[selected].usage_count;
 
         // Poids d'importance-sampling non normalise : (N * P(i))^(-beta).
-        const double probability = pool_weights[selected] / total_weight;
+        // P(i) melange priorite et exploration uniforme, comme les poids de
+        // tirage ci-dessus (voir mixedWeights et docs/memory.md).
+        const double raw_probability = pool_weights[selected] / total_weight;
+        const double probability = exploration_epsilon > 0.0
+            ? (1.0 - exploration_epsilon) * raw_probability + exploration_epsilon / static_cast<double>(samples.size())
+            : raw_probability;
         const double raw_weight = std::pow(static_cast<double>(samples.size()) * probability, -correction_exponent);
         max_raw_weight = std::max(max_raw_weight, raw_weight);
 
@@ -136,6 +161,13 @@ std::vector<MemoryEntry> PrioritizedMemory::sampleIndexed(size_t batch_size) {
         for (MemoryEntry& entry : result) {
             entry.importance_weight /= max_raw_weight;
         }
+    }
+
+    // Annealing : beta se rapproche de 1.0 au fil des replays si
+    // beta_annealing_rate > 0 (defaut 0.0 = beta fixe, comportement
+    // inchange). N'affecte que les tirages suivants, pas celui-ci.
+    if (beta_annealing_rate > 0.0) {
+        correction_exponent = std::min(1.0, correction_exponent + beta_annealing_rate);
     }
 
     return result;
@@ -172,4 +204,12 @@ double PrioritizedMemory::alpha() const {
 
 double PrioritizedMemory::beta() const {
     return correction_exponent;
+}
+
+double PrioritizedMemory::betaAnnealingRate() const {
+    return beta_annealing_rate;
+}
+
+double PrioritizedMemory::explorationEpsilon() const {
+    return exploration_epsilon;
 }

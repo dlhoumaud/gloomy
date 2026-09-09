@@ -75,7 +75,31 @@ struct GloomyConfig {
     // (importance-sampling exponent) ; reprend le defaut de
     // PrioritizedMemory. 0 desactive la correction (poids toujours 1.0).
     double prioritized_beta = 0.4;
+    // Annealing de prioritized_beta au fil des replays (incremente jusqu'a
+    // 1.0 apres chaque sampleIndexed()) ; 0.0 (defaut) desactive l'annealing,
+    // beta reste fixe comme avant ce champ.
+    double prioritized_beta_annealing_rate = 0.0;
+    // Exploration controlee des echantillons de faible priorite du
+    // prioritized replay : melange la distribution priorisee avec une
+    // distribution uniforme dans une proportion epsilon (0 = distribution
+    // priorisee pure, 1 = uniforme pure). 0.0 (defaut) ne change rien au
+    // comportement precedent.
+    double prioritized_exploration_epsilon = 0.0;
     std::uint32_t seed = 5489u;
+
+    // Poids des cinq composantes du score d'importance (ImportanceScorer),
+    // qui determine TrainingSample::priority calcule par
+    // LearningEngine::learn()/trainFromMemory(). Le defaut (error=1.0, le
+    // reste a 0.0) reproduit exactement le comportement historique
+    // (priorite = erreur seule) ; novelty/rarity/recency/diversity sont
+    // desormais reellement calculees (voir docs/memory.md, « Score
+    // d'importance ») mais n'influencent la priorite que si leur poids est
+    // rendu positif ici.
+    double importance_weight_error = 1.0;
+    double importance_weight_novelty = 0.0;
+    double importance_weight_rarity = 0.0;
+    double importance_weight_recency = 0.0;
+    double importance_weight_diversity = 0.0;
 
     // Précision de stockage des échantillons en mémoire : "float64" est la
     // représentation native actuelle, sans quantification.
@@ -101,6 +125,19 @@ struct GloomyConfig {
     std::string optimizer_path;
     std::string memory_path;
     std::string metrics_path;
+
+    // Detection active de concept drift dans le runtime online (voir
+    // ConceptDriftDetector.h) : compare la moyenne d'erreur recente a une
+    // ligne de base historique et, si elle la depasse de plus de
+    // concept_drift_std_devs ecarts-types, declenche immediatement un
+    // replay supplementaire depuis la memoire (en plus de la mise a jour
+    // normalement planifiee). Desactivee par defaut (false) : ne change
+    // rien au comportement existant tant qu'elle n'est pas activee
+    // explicitement.
+    bool concept_drift_detection = false;
+    std::size_t concept_drift_recent_window = 10;
+    std::size_t concept_drift_minimum_history = 20;
+    double concept_drift_std_devs = 3.0;
 
     static const GloomyConfig& defaults();
 };

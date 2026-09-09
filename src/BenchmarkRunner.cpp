@@ -190,6 +190,49 @@ double datasetLoss(
     }
     return total / static_cast<double>(dataset.size());
 }
+
+// Valeur critique de Student (bilaterale, 95%) pour df = 2, soit
+// exactement le cas a 3 seeds traite ci-dessous. Voir le commentaire sur
+// mae_ci95_margin dans BenchmarkResult.
+constexpr double t_critical_95_df2 = 4.302652729911275;
+
+// Calcule mae_mean/mae_stddev/mae_ci95_margin sur un groupe de resultats
+// partageant le meme scenario (capacite x strategie x optimiseur x perte x
+// precision) et ne differant que par la seed, puis les reporte sur chaque
+// resultat du groupe. Factorise entre le balayage float64 et les balayages
+// quantifies (int16/int8) ci-dessous, qui partagent exactement cette
+// logique (voir docs/roadmap.md, « Priorité moyenne : benchmark
+// scientifique »).
+void applyMeanStddevAndCi95(std::vector<BenchmarkResult>& seed_results) {
+    double mae_sum = 0.0;
+    for (const BenchmarkResult& seed_result : seed_results) {
+        mae_sum += seed_result.mae;
+    }
+    const double mae_mean = mae_sum / static_cast<double>(seed_results.size());
+
+    double squared_deviation_sum = 0.0;
+    for (const BenchmarkResult& seed_result : seed_results) {
+        const double difference = seed_result.mae - mae_mean;
+        squared_deviation_sum += difference * difference;
+    }
+    // Ecart-type population (diviseur N) pour la statistique descriptive
+    // mae_stddev ; ecart-type d'echantillon (diviseur N-1) pour
+    // l'intervalle de confiance, comme l'exige la formule de Student.
+    const double mae_stddev_population = std::sqrt(
+        squared_deviation_sum / static_cast<double>(seed_results.size())
+    );
+    double mae_ci95_margin = 0.0;
+    if (seed_results.size() == 3) {
+        const double mae_stddev_sample = std::sqrt(squared_deviation_sum / 2.0);
+        mae_ci95_margin = t_critical_95_df2 * mae_stddev_sample / std::sqrt(3.0);
+    }
+
+    for (BenchmarkResult& seed_result : seed_results) {
+        seed_result.mae_mean = mae_mean;
+        seed_result.mae_stddev = mae_stddev_population;
+        seed_result.mae_ci95_margin = mae_ci95_margin;
+    }
+}
 }
 
 int main() {
@@ -277,10 +320,6 @@ int main() {
     // Hybrid), pour caracteriser la variance reelle du scenario plutot
     // qu'un unique tirage.
     const std::vector<std::uint32_t> seeds = {1234u, 2345u, 3456u};
-    // Valeur critique de Student (bilaterale, 95%) pour df = seeds.size() - 1.
-    // Seul le cas a 3 seeds (df = 2) est couvert ici ; toute autre taille
-    // laisse mae_ci95_margin a 0 plutot que d'utiliser une valeur fausse.
-    constexpr double t_critical_95_df2 = 4.302652729911275;
 
     // Capacites de memoire bornee comparees au dataset complet (voir
     // docs/benchmark.md, section « Baseline obligatoire »).
@@ -318,34 +357,8 @@ int main() {
                         seed_results.push_back(result);
                     }
 
-                    double mae_sum = 0.0;
+                    applyMeanStddevAndCi95(seed_results);
                     for (const BenchmarkResult& seed_result : seed_results) {
-                        mae_sum += seed_result.mae;
-                    }
-                    const double mae_mean = mae_sum / static_cast<double>(seed_results.size());
-
-                    double squared_deviation_sum = 0.0;
-                    for (const BenchmarkResult& seed_result : seed_results) {
-                        const double difference = seed_result.mae - mae_mean;
-                        squared_deviation_sum += difference * difference;
-                    }
-                    // Ecart-type population (diviseur N) pour la statistique
-                    // descriptive mae_stddev ; ecart-type d'echantillon
-                    // (diviseur N-1) pour l'intervalle de confiance, comme
-                    // l'exige la formule de Student (voir BenchmarkResult).
-                    const double mae_stddev_population = std::sqrt(
-                        squared_deviation_sum / static_cast<double>(seed_results.size())
-                    );
-                    double mae_ci95_margin = 0.0;
-                    if (seed_results.size() == 3) {
-                        const double mae_stddev_sample = std::sqrt(squared_deviation_sum / 2.0);
-                        mae_ci95_margin = t_critical_95_df2 * mae_stddev_sample / std::sqrt(3.0);
-                    }
-
-                    for (BenchmarkResult& seed_result : seed_results) {
-                        seed_result.mae_mean = mae_mean;
-                        seed_result.mae_stddev = mae_stddev_population;
-                        seed_result.mae_ci95_margin = mae_ci95_margin;
                         memory_capacity_results.push_back(seed_result);
                     }
                 }
@@ -353,71 +366,98 @@ int main() {
         }
     }
 
-    // Les scenarios full_dataset ci-dessus, et quantifies/forgetting
-    // plus bas, restent a une seule seed (1234) : leur perte est deja
-    // proche de zero (full_dataset) ou hors du perimetre de cette
-    // extension (forgetting) — voir docs/roadmap.md.
-    DenseLayer::seedWeightInitialization(1234);
-
-    // Reste a une capacite unique pour cette section (voir docs/roadmap.md,
-    // « Priorité moyenne : benchmark scientifique » : etendre le balayage
-    // de capacites aux precisions int16/int8 reste a faire).
-    const size_t quantized_memory_capacity = 16;
+    // Balayage de capacites ET de seeds pour les precisions quantifiees
+    // (int16, int8), au meme titre que le balayage float64 ci-dessus — fait
+    // pour combler l'angle mort documente dans docs/roadmap.md, « Priorité
+    // moyenne : benchmark scientifique ». Les memoires quantifiees sont
+    // deterministes (pas de tirage aleatoire interne, comme FIFO) : la seed
+    // ne fait donc varier ici que l'initialisation des poids du reseau,
+    // exactement comme "fifo" dans le balayage float64 ci-dessus.
     const TrainingSampleQuantizer int16_quantizer =
         TrainingSampleQuantizer::calibrate(training);
     const Int8TrainingSampleQuantizer int8_quantizer =
         Int8TrainingSampleQuantizer::calibrate(training);
-    for (const std::string& optimizer_name : optimizers) {
-        for (const std::string& loss_name : losses) {
-            NeuralNetwork network = makeNetwork();
-            const std::unique_ptr<LossFunction> loss = makeLoss(loss_name);
-            std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
-            QuantizedFIFOMemory memory(quantized_memory_capacity, int16_quantizer);
-            LearningEngine engine(network, *loss, *optimizer);
+    for (const size_t memory_capacity : {32u, 64u, 128u, 256u}) {
+        for (const std::string& optimizer_name : optimizers) {
+            for (const std::string& loss_name : losses) {
+                std::vector<BenchmarkResult> int16_seed_results;
+                std::vector<BenchmarkResult> int8_seed_results;
+                int16_seed_results.reserve(seeds.size());
+                int8_seed_results.reserve(seeds.size());
 
-            double training_loss = 0.0;
-            const auto start = std::chrono::steady_clock::now();
-            for (const TrainingSample& sample : training) {
-                training_loss += engine.learn(memory, sample, 8);
+                for (const std::uint32_t seed : seeds) {
+                    DenseLayer::seedWeightInitialization(seed);
+                    NeuralNetwork int16_network = makeNetwork();
+                    const std::unique_ptr<LossFunction> int16_loss = makeLoss(loss_name);
+                    std::unique_ptr<Optimizer> int16_optimizer = makeOptimizer(optimizer_name);
+                    QuantizedFIFOMemory int16_memory(memory_capacity, int16_quantizer);
+                    LearningEngine int16_engine(int16_network, *int16_loss, *int16_optimizer);
+
+                    double int16_training_loss = 0.0;
+                    const auto int16_start = std::chrono::steady_clock::now();
+                    for (const TrainingSample& sample : training) {
+                        int16_training_loss += int16_engine.learn(int16_memory, sample, 8);
+                    }
+                    const auto int16_end = std::chrono::steady_clock::now();
+                    BenchmarkResult int16_result = evaluate(
+                        int16_network, *int16_optimizer, *int16_loss, validation,
+                        "quantized_fifo_int16", optimizer_name, loss_name,
+                        int16_training_loss / static_cast<double>(training.size()),
+                        std::chrono::duration<double, std::milli>(int16_end - int16_start).count(),
+                        int16_memory.size(), int16_memory.memoryUsedBytes(), training.size(),
+                        memory_capacity, training.size()
+                    );
+                    int16_result.seed = seed;
+                    applyFullDatasetRatio(int16_result, optimizer_name, loss_name);
+                    int16_seed_results.push_back(int16_result);
+
+                    // Meme seed reutilisee pour int8, comme le balayage
+                    // float64 reutilise chaque seed pour toutes les
+                    // strategies de memoire a capacite egale.
+                    DenseLayer::seedWeightInitialization(seed);
+                    NeuralNetwork int8_network = makeNetwork();
+                    const std::unique_ptr<LossFunction> int8_loss = makeLoss(loss_name);
+                    std::unique_ptr<Optimizer> int8_optimizer = makeOptimizer(optimizer_name);
+                    QuantizedInt8FIFOMemory int8_memory(memory_capacity, int8_quantizer);
+                    LearningEngine int8_engine(int8_network, *int8_loss, *int8_optimizer);
+
+                    double int8_training_loss = 0.0;
+                    const auto int8_start = std::chrono::steady_clock::now();
+                    for (const TrainingSample& sample : training) {
+                        int8_training_loss += int8_engine.learn(int8_memory, sample, 8);
+                    }
+                    const auto int8_end = std::chrono::steady_clock::now();
+                    BenchmarkResult int8_result = evaluate(
+                        int8_network, *int8_optimizer, *int8_loss, validation,
+                        "quantized_fifo_int8", optimizer_name, loss_name,
+                        int8_training_loss / static_cast<double>(training.size()),
+                        std::chrono::duration<double, std::milli>(int8_end - int8_start).count(),
+                        int8_memory.size(), int8_memory.memoryUsedBytes(), training.size(),
+                        memory_capacity, training.size()
+                    );
+                    int8_result.seed = seed;
+                    applyFullDatasetRatio(int8_result, optimizer_name, loss_name);
+                    int8_seed_results.push_back(int8_result);
+                }
+
+                applyMeanStddevAndCi95(int16_seed_results);
+                applyMeanStddevAndCi95(int8_seed_results);
+                for (const BenchmarkResult& seed_result : int16_seed_results) {
+                    quantization_results.push_back(seed_result);
+                }
+                for (const BenchmarkResult& seed_result : int8_seed_results) {
+                    quantization_results.push_back(seed_result);
+                }
             }
-            const auto end = std::chrono::steady_clock::now();
-            BenchmarkResult result = evaluate(
-                network, *optimizer, *loss, validation, "quantized_fifo_int16", optimizer_name, loss_name,
-                training_loss / static_cast<double>(training.size()),
-                std::chrono::duration<double, std::milli>(end - start).count(),
-                memory.size(), memory.memoryUsedBytes(), training.size(),
-                quantized_memory_capacity, training.size()
-            );
-            applyFullDatasetRatio(result, optimizer_name, loss_name);
-            quantization_results.push_back(result);
         }
     }
 
-    for (const std::string& optimizer_name : optimizers) {
-        for (const std::string& loss_name : losses) {
-            NeuralNetwork network = makeNetwork();
-            const std::unique_ptr<LossFunction> loss = makeLoss(loss_name);
-            std::unique_ptr<Optimizer> optimizer = makeOptimizer(optimizer_name);
-            QuantizedInt8FIFOMemory memory(quantized_memory_capacity, int8_quantizer);
-            LearningEngine engine(network, *loss, *optimizer);
-
-            double training_loss = 0.0;
-            const auto start = std::chrono::steady_clock::now();
-            for (const TrainingSample& sample : training) {
-                training_loss += engine.learn(memory, sample, 8);
-            }
-            const auto end = std::chrono::steady_clock::now();
-            BenchmarkResult result = evaluate(
-                network, *optimizer, *loss, validation, "quantized_fifo_int8", optimizer_name, loss_name,
-                training_loss / static_cast<double>(training.size()),
-                std::chrono::duration<double, std::milli>(end - start).count(),
-                memory.size(), memory.memoryUsedBytes(), training.size(),
-                quantized_memory_capacity, training.size()
-            );
-            applyFullDatasetRatio(result, optimizer_name, loss_name);
-            quantization_results.push_back(result);
-        }
-    }
+    // Point de controle explicite avant l'experience de forgetting
+    // ci-dessous : stabilise l'etat du generateur partage
+    // (DenseLayer::seedWeightInitialization) independamment de tout ce qui
+    // a pu changer au-dessus (voir docs/roadmap.md, « RNG partage » /
+    // docs/examples.md pour l'impact sur les valeurs documentees).
+    DenseLayer::seedWeightInitialization(1234);
 
     const std::vector<TrainingSample> regime_a = makeDataset(40, 0);
     std::vector<TrainingSample> regime_b;

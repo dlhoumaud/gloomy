@@ -11,6 +11,7 @@
 #include "TrainingScheduler.h"
 #include "Normalization.h"
 #include "Quantization.h"
+#include "DeltaQuantization.h"
 #include "TrainingSampleQuantization.h"
 #include "QuantizedFIFOMemory.h"
 #include "TrainingSampleSerialization.h"
@@ -31,6 +32,7 @@
 #include "GloomyConfig.h"
 #include "GloomyConfigFile.h"
 #include "OnlineLearningRuntime.h"
+#include "ConceptDriftDetector.h"
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -517,6 +519,102 @@ void testPrioritizedMemoryBiasCorrection() {
     }
 }
 
+void testPrioritizedMemoryBetaAnnealing() {
+    // beta_annealing_rate = 0.0 (defaut) : beta reste strictement fixe,
+    // meme apres de nombreux replays — comportement inchange par rapport
+    // a avant ce champ.
+    {
+        PrioritizedMemory memory(3, 0.6, 1234u, 0.4);
+        memory.add({{1.0}, {1.0}, 0.5});
+        memory.add({{2.0}, {2.0}, 0.5});
+        memory.add({{3.0}, {3.0}, 0.5});
+        assertClose(memory.betaAnnealingRate(), 0.0);
+        for (int index = 0; index < 10; ++index) {
+            memory.sampleIndexed(2);
+        }
+        assertClose(memory.beta(), 0.4);
+    }
+
+    // beta_annealing_rate > 0 : beta augmente de ce montant apres chaque
+    // sampleIndexed(), jusqu'a plafonner a 1.0 (pratique courante :
+    // 0.4 -> 1.0, voir docs/memory.md).
+    {
+        PrioritizedMemory memory(3, 0.6, 1234u, 0.4, 0.1);
+        memory.add({{1.0}, {1.0}, 0.5});
+        memory.add({{2.0}, {2.0}, 0.5});
+        memory.add({{3.0}, {3.0}, 0.5});
+        assertClose(memory.beta(), 0.4);
+
+        memory.sampleIndexed(2);
+        assertClose(memory.beta(), 0.5);
+        memory.sampleIndexed(2);
+        assertClose(memory.beta(), 0.6);
+
+        for (int index = 0; index < 20; ++index) {
+            memory.sampleIndexed(2);
+        }
+        assertClose(memory.beta(), 1.0);
+    }
+
+    // Une valeur negative est rejetee.
+    {
+        bool threw = false;
+        try {
+            PrioritizedMemory memory(2, 0.6, 1234u, 0.4, -0.1);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
+void testPrioritizedMemoryExplorationEpsilon() {
+    // exploration_epsilon = 0.0 (defaut) ne change rien : un echantillon a
+    // priorite quasi nulle n'est (quasiment) jamais choisi si un autre a
+    // une forte priorite.
+    {
+        PrioritizedMemory memory(2, 1.0, 1234u, 0.4, 0.0, 0.0);
+        assertClose(memory.explorationEpsilon(), 0.0);
+        memory.add({{1.0}, {1.0}, 1e-9});
+        memory.add({{2.0}, {2.0}, 1000.0});
+
+        int low_priority_selected = 0;
+        for (int trial = 0; trial < 200; ++trial) {
+            const std::vector<TrainingSample> drawn = memory.sample(1);
+            if (drawn[0].input[0] == 1.0) ++low_priority_selected;
+        }
+        assert(low_priority_selected < 5);
+    }
+
+    // exploration_epsilon proche de 1 rend le tirage quasi uniforme : le
+    // meme echantillon a priorite quasi nulle est desormais choisi une
+    // fraction significative du temps.
+    {
+        PrioritizedMemory memory(2, 1.0, 1234u, 0.4, 0.0, 0.9);
+        assertClose(memory.explorationEpsilon(), 0.9);
+        memory.add({{1.0}, {1.0}, 1e-9});
+        memory.add({{2.0}, {2.0}, 1000.0});
+
+        int low_priority_selected = 0;
+        for (int trial = 0; trial < 200; ++trial) {
+            const std::vector<TrainingSample> drawn = memory.sample(1);
+            if (drawn[0].input[0] == 1.0) ++low_priority_selected;
+        }
+        assert(low_priority_selected > 50);
+    }
+
+    // Une valeur hors de [0, 1] est rejetee.
+    {
+        bool threw = false;
+        try {
+            PrioritizedMemory memory(2, 0.6, 1234u, 0.4, 0.0, 1.5);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
 void testLearningEngineTrainBatchWeighting() {
     const auto run = [](double beta) {
         NeuralNetwork network;
@@ -547,6 +645,114 @@ void testLearningEngineTrainBatchWeighting() {
     // tirage (target=10, faible priorite) domine desormais la mise a jour :
     // le poids doit nettement bouger vers le positif.
     assert(run(1.0) > 0.5);
+}
+
+void testImportanceScoreComponents() {
+    // learn() (sans replay immediat, via un scheduler qui ne se declenche
+    // jamais dans ce test) : recency et rarity sont desormais reellement
+    // calculees pour l'echantillon tout juste ajoute (age=0, usage_count=0)
+    // au lieu de rester a 0.0 comme avant ce changement ; novelty/diversity
+    // ne le sont pas a ce stade (pas de contexte de batch disponible — voir
+    // docs/memory.md, « Score d'importance »). Sous les poids par defaut
+    // (error=1.0, le reste a 0.0), la priorite reste exactement l'erreur
+    // seule : comportement historique inchange.
+    {
+        NeuralNetwork network;
+        network.algorithm = "none";
+        network.addLayer(1, 1);
+        network.layers()[0].weights()[0][0] = 0.0;
+        network.layers()[0].bias()[0] = 0.0;
+        MSELoss loss;
+        SGDOptimizer optimizer(0.1);
+        LearningEngine engine(network, loss, optimizer);
+        FIFOMemory memory(4);
+        EveryNScheduler never(1000);
+
+        engine.learn(memory, {{1.0}, {1.0}}, 1, never);
+        const std::vector<TrainingSample> stored = memory.sample(1);
+        assertClose(stored[0].recency, 1.0);
+        assertClose(stored[0].rarity, 1.0);
+        assertClose(stored[0].novelty, 0.0);
+        assertClose(stored[0].diversity, 0.0);
+        assertClose(stored[0].priority, 1.0);
+    }
+
+    // trainFromMemory() : novelty/diversity sont calculees par rapport aux
+    // AUTRES echantillons du meme batch de replay. Avec un batch de deux
+    // echantillons distincts, chacun n'a qu'un seul "autre" a comparer :
+    // novelty et diversity coincident alors exactement.
+    {
+        NeuralNetwork network;
+        network.algorithm = "none";
+        network.addLayer(1, 1);
+        network.layers()[0].weights()[0][0] = 0.0;
+        network.layers()[0].bias()[0] = 0.0;
+        MSELoss loss;
+        SGDOptimizer optimizer(0.1);
+        LearningEngine engine(network, loss, optimizer);
+        FIFOMemory memory(2);
+        memory.add({{1.0}, {2.0}});
+        memory.add({{10.0}, {20.0}});
+
+        engine.trainFromMemory(memory, 2);
+        const std::vector<TrainingSample> stored = memory.sample(2);
+        for (const TrainingSample& sample : stored) {
+            assert(sample.novelty > 0.0);
+            assertClose(sample.novelty, sample.diversity);
+        }
+    }
+
+    // Un batch d'un seul echantillon (memoire a un seul element) : novelty
+    // maximale (1.0) et diversite nulle par convention, faute d'un autre
+    // echantillon auquel se comparer.
+    {
+        NeuralNetwork network;
+        network.algorithm = "none";
+        network.addLayer(1, 1);
+        network.layers()[0].weights()[0][0] = 0.0;
+        network.layers()[0].bias()[0] = 0.0;
+        MSELoss loss;
+        SGDOptimizer optimizer(0.1);
+        LearningEngine engine(network, loss, optimizer);
+        FIFOMemory memory(2);
+        memory.add({{1.0}, {2.0}});
+
+        engine.trainFromMemory(memory, 1);
+        const std::vector<TrainingSample> stored = memory.sample(1);
+        assertClose(stored[0].novelty, 1.0);
+        assertClose(stored[0].diversity, 0.0);
+    }
+
+    // Poids non par defaut : donner tout le poids a recency (aucun a
+    // error) fait dependre la priorite de l'age plutot que de l'erreur.
+    {
+        NeuralNetwork network;
+        network.algorithm = "none";
+        network.addLayer(1, 1);
+        network.layers()[0].weights()[0][0] = 0.0;
+        network.layers()[0].bias()[0] = 0.0;
+        MSELoss loss;
+        SGDOptimizer optimizer(0.1);
+        ImportanceWeights weights;
+        weights.error = 0.0;
+        weights.recency = 1.0;
+        LearningEngine engine(network, loss, optimizer, weights);
+        FIFOMemory memory(3);
+        memory.add({{1.0}, {1.0}});
+        memory.add({{2.0}, {2.0}});
+        memory.advanceAges();
+        memory.advanceAges();
+        memory.advanceAges();
+
+        // trainFromMemory() avance l'age une fois de plus en interne :
+        // age=4 au moment du calcul, recency = 1/(1+4) = 0.2.
+        engine.trainFromMemory(memory, 2);
+        const std::vector<TrainingSample> stored = memory.sample(2);
+        for (const TrainingSample& sample : stored) {
+            assertClose(sample.priority, sample.recency);
+            assertClose(sample.priority, 0.2);
+        }
+    }
 }
 
 void testNoveltyMemory() {
@@ -731,6 +937,28 @@ void testInt16Quantization() {
         threw = true;
     }
     assert(threw);
+
+    // Bug corrige : une plage de valeurs qui ne contient pas 0 (ex. un
+    // capteur toujours positif, loin de 0) ecrasait auparavant toutes les
+    // valeurs vers le meme code quantifie (zero_point sature silencieusement
+    // hors de [int16_min, int16_max]), une perte totale d'information sans
+    // aucune exception. Desormais la plage de calibration est etendue pour
+    // toujours inclure 0, ce qui elimine la saturation (voir
+    // Quantization.cpp). Verifie ici avec des valeurs realistes de type
+    // capteur, loin de zero et de faible amplitude relative.
+    {
+        const std::vector<double> offset_values = {17.0, 20.0, 23.0, 26.0};
+        const QuantizationParameters offset_parameters = Int16Quantizer::calibrate(offset_values);
+        const QuantizedVector offset_quantized = Int16Quantizer::quantize(offset_values, offset_parameters);
+        const std::vector<double> offset_restored = Int16Quantizer::dequantize(offset_quantized);
+
+        // Les 4 valeurs distinctes doivent rester distinguables apres
+        // dequantification (pas toutes ecrasees vers la meme valeur).
+        assert(offset_restored[0] != offset_restored[3]);
+        for (size_t index = 0; index < offset_values.size(); ++index) {
+            assert(std::abs(offset_restored[index] - offset_values[index]) <= offset_parameters.scale);
+        }
+    }
 }
 
 void testInt8Quantization() {
@@ -743,6 +971,133 @@ void testInt8Quantization() {
     assert(parameters.scale > 0.0);
     for (size_t index = 0; index < values.size(); ++index) {
         assert(std::abs(restored[index] - values[index]) <= parameters.scale);
+    }
+
+    // Meme regression que testInt16Quantization ci-dessus, pour le codec
+    // int8 (voir Int8Quantization.cpp).
+    {
+        const std::vector<double> offset_values = {17.0, 20.0, 23.0, 26.0};
+        const QuantizationParameters offset_parameters = Int8Quantizer::calibrate(offset_values);
+        const Int8QuantizedVector offset_quantized = Int8Quantizer::quantize(offset_values, offset_parameters);
+        const std::vector<double> offset_restored = Int8Quantizer::dequantize(offset_quantized);
+
+        assert(offset_restored[0] != offset_restored[3]);
+        for (size_t index = 0; index < offset_values.size(); ++index) {
+            assert(std::abs(offset_restored[index] - offset_values[index]) <= offset_parameters.scale);
+        }
+    }
+}
+
+namespace {
+double maxAbsError(const std::vector<double>& expected, const std::vector<double>& actual) {
+    double worst = 0.0;
+    for (size_t index = 0; index < expected.size(); ++index) {
+        worst = std::max(worst, std::abs(expected[index] - actual[index]));
+    }
+    return worst;
+}
+}
+
+void testDeltaQuantization() {
+    // Serie lisse (derive lente, offset de type capteur) : les deltas
+    // consecutifs ont une plage bien plus etroite que les valeurs brutes,
+    // donc un pas de quantification (scale) plus fin pour le meme nombre de
+    // bits — la compression differentielle doit donc reduire nettement
+    // l'erreur de reconstruction par rapport a une quantification directe
+    // des valeurs brutes. Valeurs mesurees reellement (voir
+    // docs/quantization.md, « Compression differentielle »).
+    {
+        std::vector<double> values;
+        for (int index = 0; index < 100; ++index) {
+            values.push_back(20.0 + std::sin(index / 15.0) * 3.0 + index * 0.01);
+        }
+        const DeltaQuantizedSeries encoded = DeltaQuantizer::encode(values);
+        const std::vector<double> delta_restored = DeltaQuantizer::decode(encoded);
+        assert(delta_restored.size() == values.size());
+
+        const QuantizationParameters direct_parameters = Int16Quantizer::calibrate(values);
+        const QuantizedVector direct_quantized = Int16Quantizer::quantize(values, direct_parameters);
+        const std::vector<double> direct_restored = Int16Quantizer::dequantize(direct_quantized);
+
+        const double delta_error = maxAbsError(values, delta_restored);
+        const double direct_error = maxAbsError(values, direct_restored);
+        assert(delta_error < direct_error);
+        assert(delta_error < 0.001);
+    }
+
+    // Rampe parfaitement lineaire (deltas exactement constants) : cas ideal
+    // pour la compression differentielle, l'erreur de reconstruction doit
+    // rester quasiment nulle alors que la quantification directe, sur une
+    // plage de valeurs bien plus large (offset 1000), perd nettement plus
+    // de precision.
+    {
+        std::vector<double> values;
+        for (int index = 0; index < 100; ++index) {
+            values.push_back(1000.0 + index * 0.5);
+        }
+        const DeltaQuantizedSeries encoded = DeltaQuantizer::encode(values);
+        const std::vector<double> delta_restored = DeltaQuantizer::decode(encoded);
+
+        const QuantizationParameters direct_parameters = Int16Quantizer::calibrate(values);
+        const QuantizedVector direct_quantized = Int16Quantizer::quantize(values, direct_parameters);
+        const std::vector<double> direct_restored = Int16Quantizer::dequantize(direct_quantized);
+
+        const double delta_error = maxAbsError(values, delta_restored);
+        const double direct_error = maxAbsError(values, direct_restored);
+        assert(delta_error < 1e-6);
+        assert(delta_error < direct_error);
+    }
+
+    // Serie bruitee/erratique : les deltas n'ont pas une plage plus etroite
+    // que les valeurs elles-memes (les sauts sont aussi grands que la
+    // serie), donc la compression differentielle n'apporte ici aucun
+    // avantage et peut meme faire legerement moins bien qu'une
+    // quantification directe (erreur cumulative le long de la
+    // reconstruction) — un compromis reel, pas systematiquement gagnant,
+    // documente explicitement (voir docs/quantization.md).
+    {
+        const std::vector<double> values = {10.0, 15.0, 8.0, 20.0, 3.0, 18.0, 6.0, 22.0, 1.0, 25.0};
+        const DeltaQuantizedSeries encoded = DeltaQuantizer::encode(values);
+        const std::vector<double> delta_restored = DeltaQuantizer::decode(encoded);
+
+        const QuantizationParameters direct_parameters = Int16Quantizer::calibrate(values);
+        const QuantizedVector direct_quantized = Int16Quantizer::quantize(values, direct_parameters);
+        const std::vector<double> direct_restored = Int16Quantizer::dequantize(direct_quantized);
+
+        const double delta_error = maxAbsError(values, delta_restored);
+        const double direct_error = maxAbsError(values, direct_restored);
+        assert(delta_error > direct_error);
+    }
+
+    // Serie a une seule valeur : aucun delta a encoder, decode() retrouve
+    // exactement la valeur d'origine.
+    {
+        const DeltaQuantizedSeries encoded = DeltaQuantizer::encode({42.0});
+        assert(encoded.deltas.values.empty());
+        const std::vector<double> restored = DeltaQuantizer::decode(encoded);
+        assert(restored.size() == 1);
+        assertClose(restored[0], 42.0);
+    }
+
+    // Serie vide rejetee.
+    {
+        bool threw = false;
+        try {
+            DeltaQuantizer::encode({});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // quantizedBytes() : first_value (double) + un int16 par delta + les
+    // parametres de calibration.
+    {
+        const DeltaQuantizedSeries encoded = DeltaQuantizer::encode({1.0, 2.0, 3.0});
+        assert(encoded.deltas.values.size() == 2);
+        const size_t expected_bytes =
+            sizeof(double) + 2 * sizeof(std::int16_t) + sizeof(QuantizationParameters);
+        assert(DeltaQuantizer::quantizedBytes(encoded) == expected_bytes);
     }
 }
 
@@ -1517,6 +1872,8 @@ void testLearningMemorySerialization() {
         auto* prioritized = dynamic_cast<PrioritizedMemory*>(restored.get());
         assert(prioritized != nullptr);
         assertClose(prioritized->alpha(), 0.7);
+        assertClose(prioritized->betaAnnealingRate(), 0.0);
+        assertClose(prioritized->explorationEpsilon(), 0.0);
 
         const std::vector<TrainingSample> expected = original.sample(3);
         const std::vector<TrainingSample> actual = restored->sample(3);
@@ -1524,6 +1881,25 @@ void testLearningMemorySerialization() {
         for (size_t index = 0; index < expected.size(); ++index) {
             assertClose(expected[index].input[0], actual[index].input[0]);
         }
+    }
+
+    // Prioritized round-trip with beta annealing and exploration epsilon
+    // set: both must survive the round-trip, and annealing already applied
+    // before saving (a non-default beta) must be preserved exactly.
+    {
+        PrioritizedMemory original(3, 0.6, 22u, 0.4, 0.1, 0.2);
+        original.add({{0.0}, {0.0}, 0.2});
+        original.add({{1.0}, {1.0}, 0.9});
+        original.sampleIndexed(2);
+        assertClose(original.beta(), 0.5);
+
+        LearningMemorySerialization::save(path, original);
+        std::unique_ptr<LearningMemory> restored = LearningMemorySerialization::load(path);
+        auto* prioritized = dynamic_cast<PrioritizedMemory*>(restored.get());
+        assert(prioritized != nullptr);
+        assertClose(prioritized->beta(), 0.5);
+        assertClose(prioritized->betaAnnealingRate(), 0.1);
+        assertClose(prioritized->explorationEpsilon(), 0.2);
     }
 
     // Novelty round-trip.
@@ -1677,7 +2053,19 @@ void testGloomyConfigDefaults() {
     assertClose(config.novelty_threshold, 0.0);
     assertClose(config.prioritized_alpha, 0.6);
     assertClose(config.prioritized_beta, 0.4);
+    // 0.0 desactive l'annealing et l'exploration : comportement inchange
+    // par rapport a avant ces deux champs (voir docs/memory.md).
+    assertClose(config.prioritized_beta_annealing_rate, 0.0);
+    assertClose(config.prioritized_exploration_epsilon, 0.0);
     assert(config.seed == 5489u);
+
+    // Score d'importance : le defaut (error seule) reproduit exactement le
+    // comportement historique de LearningEngine.
+    assertClose(config.importance_weight_error, 1.0);
+    assertClose(config.importance_weight_novelty, 0.0);
+    assertClose(config.importance_weight_rarity, 0.0);
+    assertClose(config.importance_weight_recency, 0.0);
+    assertClose(config.importance_weight_diversity, 0.0);
 
     assert(config.precision == "float64");
     assert(config.train_every == 1);
@@ -1689,6 +2077,13 @@ void testGloomyConfigDefaults() {
     assert(config.optimizer_path.empty());
     assert(config.memory_path.empty());
     assert(config.metrics_path.empty());
+
+    // Concept drift detection is opt-in: disabled by default, no behavior
+    // change for the online runtime unless explicitly enabled.
+    assert(config.concept_drift_detection == false);
+    assert(config.concept_drift_recent_window == 10);
+    assert(config.concept_drift_minimum_history == 20);
+    assertClose(config.concept_drift_std_devs, 3.0);
 
     // Calling defaults() twice must return the exact same values.
     assert(&GloomyConfig::defaults() == &config);
@@ -1710,6 +2105,14 @@ void testGloomyConfigFile() {
         file << "memory_capacity=64\n";
         file << "seed=99\n";
         file << "window_size=5\n";
+        file << "prioritized_beta_annealing_rate=0.05\n";
+        file << "prioritized_exploration_epsilon=0.1\n";
+        file << "concept_drift_detection=true\n";
+        file << "concept_drift_recent_window=7\n";
+        file << "concept_drift_minimum_history=15\n";
+        file << "concept_drift_std_devs=2.5\n";
+        file << "importance_weight_novelty=0.2\n";
+        file << "importance_weight_recency=0.3\n";
         file.close();
 
         const GloomyConfig config = GloomyConfigFile::load(path);
@@ -1720,6 +2123,14 @@ void testGloomyConfigFile() {
         assert(config.memory_capacity == 64);
         assert(config.seed == 99u);
         assert(config.window_size == 5);
+        assertClose(config.prioritized_beta_annealing_rate, 0.05);
+        assertClose(config.prioritized_exploration_epsilon, 0.1);
+        assert(config.concept_drift_detection == true);
+        assert(config.concept_drift_recent_window == 7);
+        assert(config.concept_drift_minimum_history == 15);
+        assertClose(config.concept_drift_std_devs, 2.5);
+        assertClose(config.importance_weight_novelty, 0.2);
+        assertClose(config.importance_weight_recency, 0.3);
         // Untouched keys keep the base value (defaults here).
         assert(config.neurons == GloomyConfig::defaults().neurons);
         assert(config.post_activation == GloomyConfig::defaults().post_activation);
@@ -1738,6 +2149,20 @@ void testGloomyConfigFile() {
     {
         std::ofstream file(path, std::ios::trunc);
         file << "not_a_real_key=1\n";
+        file.close();
+        bool threw = false;
+        try {
+            GloomyConfigFile::load(path);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Invalid boolean value is rejected (only true/false/1/0 accepted).
+    {
+        std::ofstream file(path, std::ios::trunc);
+        file << "concept_drift_detection=maybe\n";
         file.close();
         bool threw = false;
         try {
@@ -2174,6 +2599,62 @@ void testOnlineLearningRuntimeWindowSize() {
     }
 }
 
+void testOnlineLearningRuntimeConceptDriftDetection() {
+    std::vector<double> sequence;
+    const int n_a = 60;
+    for (int i = 0; i < n_a; ++i) sequence.push_back(2.0 * i + 1.0);
+    const int n_b = 30;
+    for (int j = 0; j < n_b; ++j) sequence.push_back(-3.0 * j + 1000.0);
+
+    // Desactivee par defaut : ne signale jamais de derive, quelle que soit
+    // la sequence (mecanisme opt-in, aucun changement de comportement tant
+    // qu'il n'est pas active explicitement).
+    {
+        const OnlineLearningResult result = runOnlineLearning(GloomyConfig::defaults(), sequence);
+        for (const OnlineLearningStep& step : result.steps) {
+            assert(!step.drift_detected);
+        }
+    }
+
+    // Activee : un changement de regime net (pente 2 -> pente -3, ordonnee
+    // 1 -> 1000) apres un regime A assez long pour converger doit etre
+    // signale peu apres la transition, et le signal doit s'eteindre a
+    // nouveau une fois le reseau readapte — calibre sur une execution reelle
+    // (voir docs/memory.md, « Detection de concept drift »).
+    {
+        GloomyConfig config = GloomyConfig::defaults();
+        config.concept_drift_detection = true;
+        config.concept_drift_recent_window = 5;
+        config.concept_drift_minimum_history = 20;
+        config.concept_drift_std_devs = 3.0;
+        config.memory_capacity = 16;
+
+        const OnlineLearningResult result = runOnlineLearning(config, sequence);
+        assert(result.steps.size() == sequence.size() - 1);
+
+        int first_drift_step = -1;
+        int drift_count = 0;
+        for (size_t index = 0; index < result.steps.size(); ++index) {
+            assert(std::isfinite(result.steps[index].loss_before_update));
+            if (result.steps[index].drift_detected) {
+                if (first_drift_step == -1) first_drift_step = static_cast<int>(index);
+                ++drift_count;
+            }
+        }
+
+        assert(drift_count > 0);
+        // Le pas n_a - 1 est le premier dont la cible appartient au regime
+        // B ; une marge est laissee pour le temps necessaire a la fenetre
+        // recente de se remplir de valeurs du nouveau regime.
+        assert(first_drift_step >= n_a - 1);
+        assert(first_drift_step < n_a + 20);
+
+        // Le reseau finit par se readapter : la derive n'est pas signalee
+        // indefiniment (auto-correction naturelle, voir ConceptDriftDetector.h).
+        assert(!result.steps.back().drift_detected);
+    }
+}
+
 void testOnlineLearningRuntimeLongSequenceStability() {
     // Sequence plus longue que les autres tests du runtime online : exerce
     // sur davantage d'iterations la reutilisation des buffers
@@ -2203,6 +2684,100 @@ void testOnlineLearningRuntimeLongSequenceStability() {
     assert(std::isfinite(result.average_loss));
     assert(result.memory_size > 0);
     assert(result.memory_size <= config.memory_capacity);
+}
+
+void testConceptDriftDetector() {
+    // Regime stable : une fois la ligne de base et la fenetre recente
+    // suffisamment remplies, une erreur parfaitement constante ne doit
+    // jamais etre signalee comme une derive (recent_mean == baseline_mean,
+    // jamais strictement superieur).
+    {
+        ConceptDriftDetector detector(/*recent_window=*/5, /*minimum_history=*/10, /*num_std_devs=*/3.0);
+        bool any_drift = false;
+        for (int index = 0; index < 50; ++index) {
+            any_drift = any_drift || detector.update(0.01);
+        }
+        assert(!any_drift);
+        assertClose(detector.recentMean(), 0.01);
+        assert(detector.baselineCount() == 50);
+    }
+
+    // Saut net : apres un long regime stable a faible erreur, une serie de
+    // valeurs nettement plus elevees doit etre signalee comme une derive
+    // une fois que la fenetre recente en est dominee, alors que la ligne de
+    // base (qui integre l'historique complet) n'a pas encore rattrape ce
+    // niveau.
+    {
+        ConceptDriftDetector detector(/*recent_window=*/5, /*minimum_history=*/10, /*num_std_devs=*/3.0);
+        for (int index = 0; index < 50; ++index) {
+            detector.update(0.01);
+        }
+        assert(!detector.driftDetected());
+
+        bool drift_seen = false;
+        for (int index = 0; index < 10; ++index) {
+            if (detector.update(5.0)) drift_seen = true;
+        }
+        assert(drift_seen);
+        assert(detector.recentMean() > 4.0);
+        // La ligne de base integre 50 valeurs basses et au plus 10 hautes :
+        // elle reste tres en-dessous de la moyenne recente.
+        assert(detector.baselineMean() < 2.0);
+    }
+
+    // Avant que la fenetre recente ou l'historique minimal ne soient
+    // atteints, aucune derive n'est jamais signalee, meme avec des valeurs
+    // tres dispersees (pas de faux positif au demarrage).
+    {
+        ConceptDriftDetector detector(/*recent_window=*/5, /*minimum_history=*/10, /*num_std_devs=*/3.0);
+        assert(!detector.update(0.0));
+        assert(!detector.update(100.0));
+        assert(!detector.update(0.0));
+    }
+
+    // reset() efface completement l'etat.
+    {
+        ConceptDriftDetector detector(3, 3, 3.0);
+        detector.update(1.0);
+        detector.update(1.0);
+        detector.update(1.0);
+        assert(detector.baselineCount() == 3);
+        detector.reset();
+        assert(detector.baselineCount() == 0);
+        assertClose(detector.baselineMean(), 0.0);
+        assert(!detector.driftDetected());
+    }
+
+    // Constructeur : fenetre nulle ou seuil non fini/negatif rejetes.
+    {
+        bool threw = false;
+        try {
+            ConceptDriftDetector detector(0, 10, 3.0);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+
+        threw = false;
+        try {
+            ConceptDriftDetector detector(5, 10, -1.0);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Une erreur non finie est rejetee.
+    {
+        ConceptDriftDetector detector(3, 3, 3.0);
+        bool threw = false;
+        try {
+            detector.update(std::numeric_limits<double>::quiet_NaN());
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
 }
 
 // Regimes synthetiques pour les tests de catastrophic forgetting et de
@@ -2360,7 +2935,10 @@ int main() {
     testReservoirMemory();
     testPrioritizedMemory();
     testPrioritizedMemoryBiasCorrection();
+    testPrioritizedMemoryBetaAnnealing();
+    testPrioritizedMemoryExplorationEpsilon();
     testLearningEngineTrainBatchWeighting();
+    testImportanceScoreComponents();
     testNoveltyMemory();
     testHybridMemory();
     testHybridMemoryTrueRecency();
@@ -2370,6 +2948,7 @@ int main() {
     testNormalizationSerialization();
     testInt16Quantization();
     testInt8Quantization();
+    testDeltaQuantization();
     testQuantizedInt8FIFOMemory();
     testTrainingSampleQuantization();
     testQuantizedFIFOMemory();
@@ -2394,7 +2973,9 @@ int main() {
     testOnlineLearningRuntimePersistencePaths();
     testOnlineLearningRuntime();
     testOnlineLearningRuntimeWindowSize();
+    testOnlineLearningRuntimeConceptDriftDetection();
     testOnlineLearningRuntimeLongSequenceStability();
+    testConceptDriftDetector();
     testCatastrophicForgettingWithoutReplay();
     testCatastrophicForgettingMitigatedByReplay();
     testConceptDriftReturnToPreviousRegime();

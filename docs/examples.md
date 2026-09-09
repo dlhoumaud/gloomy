@@ -8,6 +8,7 @@ Gloomy n'est pas un système à qui l'on « enseigne » des connaissances géné
 
 - `ONLINE_LEARNING_RUNTIME` apprend, en continu et sans réentraînement complet, à **prédire la valeur suivante d'une série scalaire** : par défaut, chaque valeur consécutive de la séquence d'entrée devient une observation (`x[i]`) et sa cible (`x[i+1]`) ; avec `window_size > 1`, l'observation devient une fenêtre des `window_size` dernières valeurs (`x[i..i+window_size-1]`) et la cible reste la valeur suivante (`x[i+window_size]`).
 - `TRAINING_RUNTIME` entraîne le réseau sur l'ensemble complet de la séquence avec `LearningEngine::train()` puis peut sauvegarder l'état complet si `model_path` est renseigné.
+- `concept_drift_detection=true` surveille en continu si l'erreur récente s'écarte significativement de son historique et, si c'est le cas, déclenche immédiatement un replay supplémentaire depuis la mémoire — voir [Mémoire d'apprentissage](memory.md), « Détection de concept drift ».
 
 Concrètement, on peut lui apprendre à anticiper la suite d'un flux de mesures : un compteur, une température, une charge, un cours simplifié, un capteur — tant que c'est une seule valeur numérique par instant. Les exemples ci-dessous sont réels : chaque commande a été exécutée telle quelle avec le CLI actuel, les sorties sont copiées telles quelles.
 
@@ -18,7 +19,7 @@ make
 ./bin/gloomy "<sequence>" -f mon_exemple.config
 ```
 
-Chaque ligne de sortie est `index observation cible prédiction perte` (avant la mise à jour des poids de cette étape) ; la dernière ligne résume `average_loss` et `memory_size`.
+Chaque ligne de sortie est `index observation cible prédiction perte derive` (avant la mise à jour des poids de cette étape ; `derive` vaut `1` si `concept_drift_detection` est actif et qu'une dérive est détectée à ce pas, `0` sinon — voir [Mémoire d'apprentissage](memory.md), « Détection de concept drift ») ; la dernière ligne résume `average_loss` et `memory_size`.
 
 ## Exemple 1 — Apprendre une tendance (compteur, mesure qui progresse)
 
@@ -42,19 +43,19 @@ memory_capacity=16
 ```
 
 ```text
-0	10	12	0	0
-1	12	14	-0.130407	4.89972
-2	14	16	0.447675	3.56908
-3	16	18	0.770445	2.6024
-4	18	20	0.861226	2.39249
-5	20	22	0.901147	2.30411
-6	22	24	0.923542	2.25507
-7	24	26	0.937797	2.22378
-8	26	28	0.947621	2.202
-average_loss=2.4943 memory_size=9
+0	10	12	0	0	0
+1	12	14	-0.130407	4.89972	0
+2	14	16	0.447675	3.56908	0
+3	16	18	0.770445	2.6024	0
+4	18	20	0.861226	2.23156	0
+5	20	22	0.901415	2.00461	0
+6	22	24	0.923736	1.84206	0
+7	24	26	0.937822	1.71707	0
+8	26	28	0.947476	1.69676	0
+average_loss=2.28481 memory_size=9
 ```
 
-À regarder : la colonne perte descend de `4.9` à `2.2` au fil des observations — le réseau apprend réellement la tendance, en continu, sans qu'on lui repasse jamais les mêmes données depuis le début.
+À regarder : la colonne perte descend de `4.9` à `1.7` au fil des observations — le réseau apprend réellement la tendance, en continu, sans qu'on lui repasse jamais les mêmes données depuis le début.
 
 ## Exemple 2 — Apprendre en présence d'une valeur aberrante (choix de la perte)
 
@@ -74,13 +75,13 @@ memory_capacity=16
 ```
 
 ```text
-0	20	20.5	0	0
-1	20.5	21	-0.130407	4.89972
-2	21	45	0.447675	1184.89
-3	45	21.5	0.999996	872.418
-4	21.5	22	0.982747	698.301
-5	22	22.5	0.992079	582.187
-6	22.5	23	0.99593	499.22
+0	20	20.5	0	0	0
+1	20.5	21	-0.130407	4.89972	0
+2	21	45	0.447675	1184.89	0
+3	45	21.5	0.999996	872.418	0
+4	21.5	22	0.982747	698.301	0
+5	22	22.5	0.992079	582.187	0
+6	22.5	23	0.99593	499.22	0
 average_loss=548.845 memory_size=7
 ```
 
@@ -89,13 +90,13 @@ average_loss=548.845 memory_size=7
 ```
 
 ```text
-0	20	20.5	0	0
-1	20.5	21	-0.130407	1.3152
-2	21	45	-0.0517869	20.7006
-3	45	21.5	0.0807379	15.4986
-4	21.5	22	0.148519	12.4097
-5	22	22.5	0.154687	10.3496
-6	22.5	23	0.154403	8.87508
+0	20	20.5	0	0	0
+1	20.5	21	-0.130407	1.3152	0
+2	21	45	-0.0517869	20.7006	0
+3	45	21.5	0.0807379	15.4986	0
+4	21.5	22	0.148519	12.4097	0
+5	22	22.5	0.154687	10.3496	0
+6	22.5	23	0.154403	8.87508	0
 average_loss=9.8784 memory_size=7
 ```
 
@@ -113,13 +114,13 @@ cat benchmark_forgetting.csv
 ```
 
 ```text
-forgetting_no_replay,float64,sgd,mse,...,-19.086601582214925,...
-forgetting_fifo_replay,float64,sgd,mse,...,-4.9040042958480408,...
+forgetting_no_replay,float64,sgd,mse,...,-19.26244500298063,...
+forgetting_fifo_replay,float64,sgd,mse,...,-4.8868810963178513,...
 ```
 
-La colonne `forgetting` est `Metrics::forgetting` (perte sur `régime A` avant moins après ; plus proche de `0` est mieux). **Sans mémoire, l'oubli est environ 4 fois plus important** (`-19.09` contre `-4.90`) : rejouer même un sous-ensemble d'anciennes observations pendant l'apprentissage du nouveau régime préserve nettement mieux ce qui avait été appris. C'est le problème central que les stratégies de mémoire (FIFO, Reservoir, Prioritized, Novelty, Hybrid — voir [Mémoire d'apprentissage](memory.md)) essaient chacune d'atténuer différemment.
+La colonne `forgetting` est `Metrics::forgetting` (perte sur `régime A` avant moins après ; plus proche de `0` est mieux). **Sans mémoire, l'oubli est environ 4 fois plus important** (`-19.26` contre `-4.89`) : rejouer même un sous-ensemble d'anciennes observations pendant l'apprentissage du nouveau régime préserve nettement mieux ce qui avait été appris. C'est le problème central que les stratégies de mémoire (FIFO, Reservoir, Prioritized, Novelty, Hybrid — voir [Mémoire d'apprentissage](memory.md)) essaient chacune d'atténuer différemment.
 
-Ces valeurs précises dépendent de l'état du générateur de poids partagé (`DenseLayer::seedWeightInitialization`, voir [Couches et neurones](architecture.md)) au moment où ce scénario s'exécute dans `main()`. `BenchmarkRunner.cpp` réinitialise explicitement ce générateur à la seed `1234` juste avant les scénarios quantifiés qui précèdent celui-ci, ce qui stabilise ces valeurs tant que le code exécuté entre ce point de réinitialisation et ce scénario ne change pas, sans remettre en cause le rapport d'environ `4x` entre les deux. `make benchmark` produit aussi désormais un fichier séparé par expérience (`benchmark_baseline.csv`, `benchmark_full_dataset.csv`, `benchmark_memory_capacity.csv`, `benchmark_quantization.csv`, `benchmark_forgetting.csv`) en plus du `benchmark_results.csv` combiné — voir [Benchmark](benchmark.md).
+Ces valeurs précises dépendent de l'état du générateur de poids partagé (`DenseLayer::seedWeightInitialization`, voir [Couches et neurones](architecture.md)) au moment où ce scénario s'exécute dans `main()`. `BenchmarkRunner.cpp` réinitialise explicitement ce générateur à la seed `1234` juste avant cette expérience, après le balayage capacités × seeds des scénarios quantifiés qui la précèdent, ce qui stabilise ces valeurs tant que le code exécuté entre ce point de réinitialisation et ce scénario ne change pas, sans remettre en cause le rapport d'environ `4x` entre les deux. `make benchmark` produit aussi désormais un fichier séparé par expérience (`benchmark_baseline.csv`, `benchmark_full_dataset.csv`, `benchmark_memory_capacity.csv`, `benchmark_quantization.csv`, `benchmark_forgetting.csv`) en plus du `benchmark_results.csv` combiné — voir [Benchmark](benchmark.md).
 
 ## Ce que Gloomy ne sait pas (encore) apprendre
 

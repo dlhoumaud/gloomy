@@ -169,7 +169,8 @@ int runOnline(const GloomyConfig &config, const std::vector<double> &sequence) {
             const OnlineLearningStep &step = result.steps[index];
             std::cout << index << '\t' << step.observation << '\t' << step.target
                        << '\t' << step.prediction_before_update << '\t'
-                       << step.loss_before_update << std::endl;
+                       << step.loss_before_update << '\t'
+                       << (step.drift_detected ? 1 : 0) << std::endl;
         }
         std::cerr << "average_loss=" << result.average_loss
                    << " memory_size=" << result.memory_size << std::endl;

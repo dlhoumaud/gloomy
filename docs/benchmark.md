@@ -38,10 +38,10 @@ Elle calcule d'abord une **baseline naïve** `baseline_last_value` — prédire 
 
 - **dataset complet** (100 epochs, seed unique) : 3 optimiseurs × 3 pertes = 9 scénarios ;
 - **FIFO, Reservoir, Prioritized, Novelty, Hybrid** à quatre capacités (`32`, `64`, `128`, `256`), chacune répétée sur **3 seeds** (`1234`, `2345`, `3456`, pilotant à la fois l'initialisation des poids et le générateur de la mémoire d'apprentissage) : 4 × 5 × 3 optimiseurs × 3 pertes × 3 seeds = 540 scénarios ;
-- **FIFO int16 et FIFO int8** à capacité `16` (seed unique) : 2 × 3 optimiseurs × 3 pertes = 18 scénarios ;
+- **FIFO int16 et FIFO int8**, désormais balayées sur les **mêmes quatre capacités et les mêmes 3 seeds** que le balayage float64 (les mémoires quantifiées sont déterministes — pas de tirage aléatoire interne — donc la seed ne fait varier ici que l'initialisation des poids, comme pour FIFO dans le balayage float64) : 4 × 2 précisions × 3 optimiseurs × 3 pertes × 3 seeds = 216 scénarios ;
 - deux scénarios de **catastrophic forgetting** (voir plus bas), seed unique, perte MSE uniquement.
 
-Les scénarios bornés utilisent le mode online (un seul passage sur les données) et un replay de taille `8`. L'ensemble tourne en moins d'une seconde sur une machine de développement courante.
+Les scénarios bornés utilisent le mode online (un seul passage sur les données) et un replay de taille `8`. L'ensemble tourne en quelques secondes sur une machine de développement courante (avec le balayage complet des précisions quantifiées, principalement du fait de l'encodage/décodage supplémentaire à chaque pas).
 
 ### Fichiers produits
 
@@ -52,7 +52,7 @@ Un fichier CSV séparé par expérience, plus un fichier combiné pour la compat
 | `benchmark_baseline.csv` | `baseline_last_value`, 3 lignes (une par perte) |
 | `benchmark_full_dataset.csv` | dataset complet, 9 lignes |
 | `benchmark_memory_capacity.csv` | balayage capacités × stratégies × optimiseurs × pertes × seeds, 540 lignes |
-| `benchmark_quantization.csv` | FIFO int16/int8, 18 lignes |
+| `benchmark_quantization.csv` | FIFO int16/int8, balayage capacités × optimiseurs × pertes × seeds, 216 lignes |
 | `benchmark_forgetting.csv` | les deux scénarios de forgetting |
 | `benchmark_results.csv` | tout ce qui précède, concaténé, dans cet ordre |
 
@@ -66,7 +66,7 @@ Le runner ajoute aussi deux lignes d'expérience de catastrophic forgetting : `f
 
 **À propos de `approximate_macs`** : nombre de MAC pour un forward pass (`entrées × sorties` par couche dense), multiplié par `3` (règle empirique forward + backward-par-rapport-aux-entrées + backward-par-rapport-aux-poids) et par le nombre d'échantillons traités. Ignore le coût de l'optimiseur (différent entre SGD, Momentum et Adam) et celui des fonctions d'activation. À utiliser pour comparer des ordres de grandeur entre scénarios, pas comme un compte cycle-exact.
 
-Ce runner est une première baseline contrôlée. Un même seed unique pour le dataset complet et les scénarios quantifiés (au lieu des 3 seeds du balayage de capacités), une baseline `float32`, et des campagnes plus larges (jeux de données réels, réseaux plus profonds) restent à ajouter. Les poids du réseau restent en float64 ; les scénarios quantifiés mesurent uniquement la mémoire d'apprentissage. Les temps restent dépendants de la machine et ne doivent être comparés qu'à environnement constant.
+Ce runner est une première baseline contrôlée. Restent non faits : un seed unique pour le dataset complet (sa perte est déjà proche de zéro, moins sensible à la variance d'initialisation) ; une baseline `float32` distincte de int16/int8 ; des campagnes plus larges sur des jeux de données réels (aucun n'est disponible dans cet environnement sans accès réseau) et des réseaux plus profonds. Les poids du réseau restent en float64 ; les scénarios quantifiés mesurent uniquement la mémoire d'apprentissage. Les temps restent dépendants de la machine et ne doivent être comparés qu'à environnement constant.
 
 Pour contrôler les valeurs numériques sans faux positif sur l'en-tête `inference_time_us`, vérifier les colonnes de données par motif plutôt que rechercher `inf` dans tout le fichier ou comparer une conversion arithmétique (`mawk`, l'implémentation par défaut d'`awk` sur beaucoup de systèmes Debian/Ubuntu, tronque silencieusement certains flottants en notation scientifique à forte précision, ex. `8.13...e-17` → `8` : une comparaison `$i != $i + 0` y déclenche alors un faux positif). La colonne 4 (`loss_function`) est textuelle, la vérification numérique démarre donc à la colonne 5 :
 

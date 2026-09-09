@@ -9,7 +9,7 @@ q = round(real / scale + zero_point)
 real_approx = (q - zero_point) * scale
 ```
 
-La valeur quantifiée est saturée dans `[-32768, 32767]`. La calibration calcule `scale` à partir du minimum et du maximum du vecteur fourni. Le `zero_point` est ensuite ajusté pour couvrir cette plage autant que possible.
+La valeur quantifiée est saturée dans `[-32768, 32767]`. La calibration calcule `scale` à partir du minimum et du maximum du vecteur fourni, **étendus pour toujours inclure 0** (voir « Bug corrigé : calibration hors zéro » ci-dessous). Le `zero_point` est ensuite ajusté pour couvrir cette plage autant que possible.
 
 ```cpp
 const QuantizationParameters parameters =
@@ -24,7 +24,15 @@ const std::vector<double> restored =
 
 Les valeurs de calibration doivent représenter le flux d'entraînement. Il ne faut pas utiliser les données de test pour choisir `scale` ou `zero_point`, sinon la mesure de précision serait optimiste.
 
-Les vecteurs vides et les valeurs non finies sont refusés. Un vecteur constant reçoit une échelle minimale adaptée à sa magnitude afin de rester représentable.
+Les vecteurs vides et les valeurs non finies sont refusés. Un vecteur constant reçoit une échelle adaptée à sa magnitude afin de rester représentable.
+
+## Bug corrigé : calibration hors zéro
+
+`Int16Quantizer::calibrate`/`Int8Quantizer::calibrate` calculaient `zero_point = qmin - min(values)/scale`, puis saturaient le résultat dans `[qmin, qmax]` s'il en sortait. Pour des valeurs qui ne contiennent pas `0` dans leur plage (un capteur toujours positif, par exemple `17.0 20.0 23.0 26.0`, loin de `0`), ce calcul produisait systématiquement un `zero_point` hors plage, silencieusement saturé — et la saturation qui suit dans `quantize()` écrasait alors **toutes** les valeurs vers le même code quantifié (`qmax`), une perte totale d'information sans qu'aucune exception ne soit levée. Mesuré avant correction sur `{17.0, 20.0, 23.0, 26.0}` : erreur de reconstruction ≈ `17.7` (la moitié de la plage), contre une plage de valeurs de seulement `9.0`.
+
+Ce bug touchait uniquement les données dont la plage ne contient pas `0` et n'est pas symétrique autour de `0` — c'est pourquoi il n'avait jamais été détecté : toutes les données de test existantes (poids de réseaux entraînés, à peu près centrés sur `0` par construction ; échantillons de test `{-10.0, -1.5, 0.0, 2.5, 10.0}` ou `{0.0, 1.0, 10.0, 11.0}`, qui contiennent déjà `0` ou sont symétriques) évitaient par coïncidence ce cas. Découvert en mesurant `DeltaQuantizer` (voir « Compression différentielle » ci-dessous) contre une quantification directe sur une série de type capteur, avec un offset réaliste.
+
+Corrigé en étendant systématiquement la plage de calibration pour qu'elle contienne toujours `0` (`effective_min = min(min(values), 0)`, `effective_max = max(max(values), 0)`) avant de calculer `scale`/`zero_point` : cela garantit mathématiquement que `zero_point` reste dans `[qmin, qmax]` sans jamais avoir besoin d'être saturé, quelle que soit la plage réelle des données. Le prix est un `scale` parfois plus grossier que l'idéal (la plage effective peut être plus large que la plage réelle des données, si celle-ci ne contient pas `0`), mais la perte d'information totale disparaît. Vérifié : les tests existants passent sans modification (les cas déjà corrects restent corrects, souvent avec une précision légèrement meilleure) et deux nouveaux cas de régression (`{17.0, 20.0, 23.0, 26.0}`, int16 et int8) confirment que les valeurs restent désormais distinguables après un aller-retour.
 
 ## Coût et limites
 
@@ -68,6 +76,33 @@ Les paramètres `scale` et `zero_point` ne sont pas dupliqués par échantillon.
 `QuantizedInt8FIFOMemory` applique le même principe avec 1 octet par valeur quantifiée. Elle expose également `bytesPerSample()` et `memoryUsedBytes()`, ce qui permet de comparer directement les budgets int16 et int8 pour une même capacité.
 
 Le gain mémoire concerne uniquement les vecteurs `input` et `target` ; les métadonnées restent en précision native. La perte de précision doit être mesurée après déquantification avant de choisir int8 pour un entraînement online.
+
+## Compression différentielle
+
+`DeltaQuantizer` (`src/headers/DeltaQuantization.h`) compresse une série temporelle en quantifiant, non pas les valeurs brutes, mais la différence entre valeurs consécutives (« delta ») :
+
+```cpp
+const DeltaQuantizedSeries encoded = DeltaQuantizer::encode(values);
+const std::vector<double> restored = DeltaQuantizer::decode(encoded);
+```
+
+`encode()` conserve la première valeur exactement (`first_value`, un `double`, l'ancre de la reconstruction) et quantifie en int16 (`Int16Quantizer`) le reste comme une suite de deltas. `decode()` reconstruit par sommes cumulées : `valeur[i] = valeur[i-1] + delta_dequantifié[i-1]`.
+
+L'intérêt : pour une série qui varie lentement (forte corrélation temporelle), les deltas ont une plage bien plus étroite que les valeurs elles-mêmes, donc un `scale` plus fin pour le même nombre de bits — une meilleure précision de reconstruction, à budget mémoire égal.
+
+### Coût et limites — un compromis réel, pas un gain systématique
+
+Mesuré sur trois scénarios (100 points sauf indication contraire) :
+
+| Scénario | Erreur max delta | Erreur max quantification directe |
+| --- | --- | --- |
+| Dérive lente type capteur (offset 20, amplitude 3, dérive +0.01/pas) | `0.0000114` | `0.000177` (~15×) |
+| Rampe parfaitement linéaire (offset 1000, pente 0.5, deltas constants) | `~0` | `0.00745` |
+| Série bruitée/erratique (10 points, sauts irréguliers) | `0.000458` | `0.000153` |
+
+Les deux premiers scénarios montrent le gain attendu : quand les deltas sont réellement plus « serrés » que les valeurs brutes, la compression différentielle réduit nettement l'erreur de reconstruction (cas extrême de la rampe : deltas exactement constants, erreur quasi nulle). Le troisième scénario montre l'inverse : sur une série bruitée où les sauts d'un pas à l'autre sont aussi grands que la série elle-même, les deltas n'ont **pas** une plage plus étroite, et la quantification directe fait légèrement mieux — sans compter que la reconstruction par sommes cumulées **accumule** l'erreur de chaque delta le long de la série (contrairement à la quantification directe, où l'erreur de chaque valeur reste indépendante des autres). La compression différentielle doit donc être mesurée sur les données réellement visées avant d'être choisie : ce n'est pas un gain automatique, seulement pour les séries à forte corrélation temporelle.
+
+`quantizedBytes()` calcule la taille réelle d'une série encodée (`sizeof(double)` pour `first_value`, un `int16_t` par delta, plus les paramètres de calibration). Une série à une seule valeur (aucun delta à encoder) et une série vide (rejetée) sont gérées explicitement.
 
 ## Quantification des poids d'un réseau entraîné
 
@@ -135,5 +170,6 @@ Ce runtime minimal réduit la taille du binaire et le nombre de dépendances, ma
 
 - la compilation et l'exécution sur une cible embarquée réelle (aucune chaîne de compilation croisée — `arm-none-eabi-gcc`, `arm-linux-gnueabihf-gcc`, `avr-gcc`, `riscv64-unknown-elf-gcc` — n'est installée ici) ;
 - la mesure de RAM, Flash, CPU et énergie sur un tel matériel ;
-- le remplacement des allocations dynamiques du chemin d'inférence (`std::vector` dans `NeuralNetwork`/`DenseLayer`) par des buffers contigus ou un arena allocator à capacité statique — un changement plus invasif, qui toucherait aussi `Optimizer`, les sérialiseurs et `BenchmarkRunner`, et qui n'a pas été fait ici pour rester une modification ciblée et à faible risque ;
-- la compression différentielle des séries temporelles, qui est une piste de compression distincte de la quantification des poids.
+- le remplacement des allocations dynamiques du chemin d'inférence (`std::vector` dans `NeuralNetwork`/`DenseLayer`) par des buffers contigus ou un arena allocator à capacité statique — un changement plus invasif, qui toucherait aussi `Optimizer`, les sérialiseurs et `BenchmarkRunner`, et qui n'a pas été fait ici pour rester une modification ciblée et à faible risque.
+
+La compression différentielle des séries temporelles (`DeltaQuantizer`), une piste distincte de la quantification des poids, est désormais faite — voir « Compression différentielle » ci-dessus.

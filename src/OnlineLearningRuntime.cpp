@@ -16,6 +16,7 @@
 #include "headers/ModelSerialization.h"
 #include "headers/OptimizerSerialization.h"
 #include "headers/LearningMemorySerialization.h"
+#include "headers/ConceptDriftDetector.h"
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -48,7 +49,8 @@ std::unique_ptr<LearningMemory> makeMemory(const GloomyConfig& config) {
     }
     if (config.memory_strategy == "prioritized") {
         return std::make_unique<PrioritizedMemory>(
-            config.memory_capacity, config.prioritized_alpha, config.seed, config.prioritized_beta
+            config.memory_capacity, config.prioritized_alpha, config.seed, config.prioritized_beta,
+            config.prioritized_beta_annealing_rate, config.prioritized_exploration_epsilon
         );
     }
     if (config.memory_strategy == "novelty") {
@@ -68,6 +70,16 @@ std::unique_ptr<LearningMemory> makeMemory(const GloomyConfig& config) {
 std::unique_ptr<TrainingScheduler> makeScheduler(const GloomyConfig& config) {
     if (config.train_every <= 1) return std::make_unique<EverySampleScheduler>();
     return std::make_unique<EveryNScheduler>(config.train_every);
+}
+
+ImportanceWeights makeImportanceWeights(const GloomyConfig& config) {
+    return ImportanceWeights{
+        config.importance_weight_error,
+        config.importance_weight_novelty,
+        config.importance_weight_rarity,
+        config.importance_weight_recency,
+        config.importance_weight_diversity
+    };
 }
 }
 
@@ -258,7 +270,7 @@ TrainingResult runTraining(
         samples.push_back({observation, target});
     }
 
-    LearningEngine engine(*network, *loss, *optimizer);
+    LearningEngine engine(*network, *loss, *optimizer, makeImportanceWeights(config));
     const double average_loss = engine.train(samples, config.epochs, config.batch_size);
 
     TrainingResult result;
@@ -326,7 +338,7 @@ OnlineLearningResult runOnlineLearning(
     }
     validateNetworkWindowSize(*network, config);
 
-    LearningEngine engine(*network, *loss, *optimizer);
+    LearningEngine engine(*network, *loss, *optimizer, makeImportanceWeights(config));
 
     OnlineLearningResult result;
     result.steps.reserve(sequence.size() - config.window_size);
@@ -345,6 +357,19 @@ OnlineLearningResult runOnlineLearning(
     std::vector<double> scratch(1);
     std::vector<double> normalized_scratch(1);
     TrainingSample sample;
+
+    // Detection active de concept drift, opt-in (voir GloomyConfig et
+    // docs/roadmap.md, « Priorité moyenne : mémoire et continual learning »).
+    // Desactivee par defaut : drift_detector reste nul et le comportement
+    // est identique a avant ce mecanisme.
+    std::unique_ptr<ConceptDriftDetector> drift_detector;
+    if (config.concept_drift_detection) {
+        drift_detector = std::make_unique<ConceptDriftDetector>(
+            config.concept_drift_recent_window,
+            config.concept_drift_minimum_history,
+            config.concept_drift_std_devs
+        );
+    }
 
     // Bootstrap : voir le commentaire equivalent dans runTraining ci-dessus.
     for (std::size_t index = 0; index + 1 < config.window_size; ++index) {
@@ -376,6 +401,17 @@ OnlineLearningResult runOnlineLearning(
         online_step.target = sequence[step + config.window_size];
         online_step.prediction_before_update = prediction[0];
         online_step.loss_before_update = step_loss;
+
+        if (drift_detector) {
+            online_step.drift_detected = drift_detector->update(step_loss);
+            if (online_step.drift_detected && memory->size() > 0) {
+                // Action declenchee par le signal : un replay immediat,
+                // en plus de la mise a jour normalement planifiee par le
+                // scheduler ci-dessus (voir docs/roadmap.md).
+                engine.trainFromMemory(*memory, config.batch_size);
+            }
+        }
+
         result.steps.push_back(online_step);
         total_loss += step_loss;
     }

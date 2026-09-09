@@ -26,16 +26,27 @@ QuantizationParameters Int16Quantizer::calibrate(const std::vector<double>& valu
         throw std::invalid_argument("Quantization values must be finite");
     }
 
-    const double range = *bounds.second - *bounds.first;
-    if (range == 0.0) {
-        const double scale = std::max(
-            std::abs(*bounds.first) / int16_max,
-            minimum_scale
-        );
-        return {scale, 0};
-    }
+    // La plage de calibration est etendue pour toujours inclure 0
+    // (effective_min <= 0 <= effective_max) : c'est ce qui garantit
+    // mathematiquement que le zero_point calcule ci-dessous reste dans
+    // [int16_min, int16_max] sans jamais avoir besoin d'etre sature.
+    //
+    // Bug corrige : sans cette extension, une plage de valeurs qui ne
+    // contient pas 0 (ex. un capteur dont les valeurs restent toujours
+    // positives et loin de 0, comme 17..26) produit un zero_point hors
+    // plage. Le `clamp` ci-dessous le ramenait alors silencieusement a
+    // int16_min pour TOUTES les valeurs de la plage, qui finissaient donc
+    // toutes saturees au meme code quantifie (int16_max) apres addition
+    // d'un zero_point identique et desormais faux — perte totale
+    // d'information, sans qu'aucune exception ne soit levee. Decouvert en
+    // mesurant DeltaQuantizer (voir DeltaQuantization.h) contre une
+    // quantification directe sur une serie de type capteur.
+    const double effective_min = std::min(*bounds.first, 0.0);
+    const double effective_max = std::max(*bounds.second, 0.0);
+
+    const double range = effective_max - effective_min;
     const double scale = std::max(range / (int16_max - int16_min), minimum_scale);
-    const double zero_point_value = int16_min - (*bounds.first / scale);
+    const double zero_point_value = int16_min - (effective_min / scale);
     const double clamped_zero_point = std::clamp(
         std::round(zero_point_value),
         int16_min,

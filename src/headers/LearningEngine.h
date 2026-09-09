@@ -1,6 +1,7 @@
 #ifndef LEARNING_ENGINE_H
 #define LEARNING_ENGINE_H
 
+#include "ImportanceScorer.h"
 #include "LossFunction.h"
 #include "LearningMemory.h"
 #include "NeuralNetwork.h"
@@ -11,10 +12,15 @@
 
 class LearningEngine {
 public:
+    // importance_weights (defaut : error=1.0, tout le reste a 0.0, soit
+    // exactement le comportement historique) pondere les cinq composantes
+    // du score d'importance calculees par learn()/trainFromMemory() — voir
+    // docs/memory.md, « Score d'importance ».
     LearningEngine(
         NeuralNetwork& network,
         const LossFunction& loss,
-        Optimizer& optimizer
+        Optimizer& optimizer,
+        ImportanceWeights importance_weights = {}
     );
 
     double trainBatch(const std::vector<TrainingSample>& batch);
@@ -50,6 +56,7 @@ private:
     NeuralNetwork& network;
     const LossFunction& loss;
     Optimizer& optimizer;
+    ImportanceScorer scorer;
 };
 
 #endif // LEARNING_ENGINE_H

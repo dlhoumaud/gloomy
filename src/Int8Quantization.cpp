@@ -23,13 +23,20 @@ QuantizationParameters Int8Quantizer::calibrate(const std::vector<double>& value
     if (!std::isfinite(*bounds.first) || !std::isfinite(*bounds.second)) {
         throw std::invalid_argument("Quantization values must be finite");
     }
-    const double range = *bounds.second - *bounds.first;
-    if (range == 0.0) {
-        return {std::max(std::abs(*bounds.first) / int8_max, minimum_scale), 0};
-    }
+
+    // Meme correction que Int16Quantizer::calibrate (voir Quantization.cpp
+    // pour l'explication complete du bug corrige) : la plage de calibration
+    // est etendue pour toujours inclure 0, ce qui garantit que le
+    // zero_point calcule ci-dessous reste dans [int8_min, int8_max] sans
+    // jamais avoir besoin d'etre sature (sans quoi une plage ne contenant
+    // pas 0 ecrasait toutes les valeurs vers le meme code quantifie).
+    const double effective_min = std::min(*bounds.first, 0.0);
+    const double effective_max = std::max(*bounds.second, 0.0);
+
+    const double range = effective_max - effective_min;
     const double scale = std::max(range / (int8_max - int8_min), minimum_scale);
     const double zero_point = std::clamp(
-        std::round(int8_min - *bounds.first / scale), int8_min, int8_max
+        std::round(int8_min - effective_min / scale), int8_min, int8_max
     );
     return {scale, static_cast<std::int16_t>(zero_point)};
 }

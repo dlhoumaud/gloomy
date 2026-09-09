@@ -18,6 +18,12 @@ struct OnlineLearningStep {
     double target = 0.0;
     double prediction_before_update = 0.0;
     double loss_before_update = 0.0;
+    // Vrai si config.concept_drift_detection est actif et qu'une derive a
+    // ete signalee a ce pas (voir ConceptDriftDetector.h) ; toujours faux
+    // sinon. Une derive detectee declenche immediatement un replay
+    // supplementaire depuis la memoire, en plus de la mise a jour
+    // normalement planifiee par le scheduler.
+    bool drift_detected = false;
 };
 
 struct OnlineLearningResult {
