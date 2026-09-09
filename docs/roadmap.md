@@ -63,6 +63,7 @@ Corrigé en étendant systématiquement la plage de calibration pour qu'elle con
 - `MSELoss` ;
 - `MAELoss` ;
 - `HuberLoss` avec `delta` configurable ;
+- `CrossEntropyLoss` (classification, suppose une entrée post-softmax), vérifiée par différence finie sur un réseau complet — voir [Fonctions de perte](losses.md) ;
 - gradients analytiques ;
 - tests de valeurs et de gradients.
 
@@ -71,9 +72,10 @@ Corrigé en étendant systématiquement la plage de calibration pour qu'elle con
 - SGD ;
 - SGD avec momentum ;
 - Adam ;
+- `CompressedAdamOptimizer` : mêmes mises à jour qu'Adam, moments conservés quantifiés en int16 entre deux pas (recalibrés à chaque update, ~1.75× moins d'octets d'état sur un petit réseau) — voir [Optimiseurs](optimizers.md), « Adam à état compressé » ;
 - learning rate configurable ;
 - validation des hyperparamètres ;
-- mesure de la mémoire d'état avec `stateBytes()` pour Momentum et Adam.
+- mesure de la mémoire d'état avec `stateBytes()` pour Momentum, Adam et `CompressedAdamOptimizer`.
 
 ### Moteur d'apprentissage
 
@@ -111,7 +113,8 @@ Toutes ces stratégies implémentent `LearningMemory` et sont remplaçables sans
 - `EveryNScheduler` ;
 - `OnHighErrorScheduler` ;
 - entraînement différable sans perdre l'observation dans la mémoire ;
-- `ConceptDriftDetector` : détection active de dérive de concept (moyenne récente vs ligne de base historique, écart-type), branchée en option (`concept_drift_detection`) dans `runOnlineLearning()`, qui déclenche un replay supplémentaire dès qu'une dérive est signalée — voir [Mémoire d'apprentissage](memory.md), « Détection de concept drift ».
+- `ConceptDriftDetector` : détection active de dérive de concept (moyenne récente vs ligne de base historique, écart-type), branchée en option (`concept_drift_detection`) dans `runOnlineLearning()`, qui déclenche un replay supplémentaire dès qu'une dérive est signalée — voir [Mémoire d'apprentissage](memory.md), « Détection de concept drift » ;
+- `PageHinkleyDetector` : seconde méthode de détection de dérive, un test séquentiel de détection de rupture classique de la littérature (Page-Hinkley), plus réactif sur le même changement de régime synthétique testé mais pas encore branché dans le runtime online — voir [Mémoire d'apprentissage](memory.md), « Détection de dérive plus avancée ».
 
 ### Normalisation
 
@@ -348,13 +351,13 @@ Au passage : le format CSV (colonnes `loss_function`, `mae_ci95_margin`, `approx
 
 ### Priorité basse : extensions
 
-- optimisations SIMD ;
-- multithreading PC ;
-- Adam quantifié ou optimiseur à état compressé ;
-- classification multi-classe avec sortie `K` neurones ;
-- pertes classification et cross-entropy ;
-- détection de dérive plus avancée ;
-- adaptation dynamique apprise.
+- optimisations SIMD — **investigué, pas appliqué** : passer `-O3` (au lieu de `-O2`) sur l'ensemble du projet donne une sortie de benchmark bit-identique (colonnes non temporelles, vérifié sur l'ensemble de `benchmark_results.csv`) et un gain de vitesse mesuré modeste (~6%, 0.421s contre 0.447s pour `make benchmark`, un run déjà sous la demi-seconde). En contrepartie, `-O3` fait grossir sensiblement les binaires (`bin/gloomy` stripped : 420 152 octets contre 317 752 ; `bin/gloomy_infer` stripped : 88 376 contre 80 184), ce qui contredirait directement l'objectif « le plus petit possible » du binaire d'inférence embarqué (point 12, voir [Quantification](quantization.md)). Non appliqué : le gain ne justifie pas le compromis de taille pour ce projet, et le vrai levier SIMD (vecteurs de poids non contigus) est le même que celui déjà différé au point « arena allocator / buffers contigus » ;
+- multithreading PC — **investigué, pas appliqué** : les scénarios du benchmark sont indépendants, mais `DenseLayer::seedWeightInitialization` repose sur **un générateur statique partagé** entre tous — le paralléliser tel quel introduirait une course (data race) sur cet état partagé et casserait la reproductibilité (l'ordre des tirages ne serait plus déterministe), la propriété la plus soigneusement préservée dans tout ce projet. Le paralléliser correctement demanderait d'abord de découpler l'initialisation des poids de ce générateur global partagé — un changement d'architecture de la même nature (et du même risque) que « arena allocator / buffers contigus », pas fait ici. Le volume de travail actuel (~0.45s au total) ne justifie de toute façon pas le risque pour l'instant ;
+- ~~Adam quantifié ou optimiseur à état compressé~~ fait : `CompressedAdamOptimizer` conserve les moments Adam quantifiés en int16 entre deux appels à `update()` (recalibrés à chaque pas, le calcul lui-même reste en double). Mesuré sur un réseau 1-8-1 : convergence quasi identique à Adam natif (perte finale `~0.000001` pour les deux), mais un gain mémoire de seulement **1.75×** (228 contre 400 octets), pas le 4× théorique — même constat de coût fixe de calibration que `NetworkQuantization`. Voir [Optimiseurs](optimizers.md), « Adam à état compressé » ;
+- classification multi-classe avec sortie `K` neurones — **reste non fait** : le réseau supporte déjà une sortie à `K` neurones avec `softmax`, et dispose désormais d'une perte adaptée (`CrossEntropyLoss`, voir ci-dessous), mais aucun runtime CLI ne les combine — les runtimes `online_learning`/`training` sont structurellement des runtimes de régression scalaire (`window_size` valeurs en entrée, un seul scalaire en sortie). Une vraie pipeline de classification (encodage/décodage des classes, métrique d'exactitude) resterait un chantier distinct ;
+- ~~pertes classification et cross-entropy~~ fait : `CrossEntropyLoss`, vérifiée par différence finie sur un réseau à sortie softmax (même principe que `testSoftmaxGradientCheck`). Non branchée dans le CLI, pour la raison ci-dessus. Voir [Fonctions de perte](losses.md), « Cross-entropy » ;
+- ~~détection de dérive plus avancée~~ fait : `PageHinkleyDetector`, un test séquentiel de détection de rupture classique de la littérature (Page-Hinkley), distinct de `ConceptDriftDetector` dans son principe. Détecte le même changement de régime synthétique en 0 à 4 pas (contre plusieurs dizaines pour `ConceptDriftDetector`, qui doit d'abord remplir sa fenêtre récente), sans faux positif sur un bruit stable. Pas encore branché dans `runOnlineLearning()` (existe comme primitive testée indépendante). Voir [Mémoire d'apprentissage](memory.md), « Détection de dérive plus avancée » ;
+- adaptation dynamique apprise — **reste non fait** : un contrôleur qui apprendrait (plutôt que suivrait des règles fixes) comment réagir à une dérive détectée est un chantier de recherche distinct, non commencé.
 
 ## 4. Ordre recommandé pour la suite
 
@@ -395,13 +398,13 @@ Cette liste remplace l'ancienne numérotation 1-12 ci-dessus (désormais entièr
 11. ~~Compression différentielle des séries temporelles~~ Fait : `DeltaQuantizer`, un gain réel mais pas systématique (mesuré sur trois scénarios) — voir [Quantification](quantization.md).
 12. Compilation/tests sur une cible embarquée réelle et mesure RAM/Flash/CPU/énergie — **reste bloqué** dans cet environnement (aucune chaîne de compilation croisée ni matériel disponible) ; à reprendre dès qu'un environnement adapté existe.
 
-**Priorité basse**
+**Priorité basse — 15, 16 (perte) et 17 (détection) faits ; 13, 14 investigués et volontairement pas appliqués ; 16 (pipeline classification) et 17 (adaptation apprise) restent ouverts**
 
-13. Optimisations SIMD.
-14. Multithreading PC.
-15. Adam quantifié ou optimiseur à état compressé.
-16. Classification multi-classe (sortie `K` neurones) et pertes classification/cross-entropy.
-17. Détection de dérive plus avancée et adaptation dynamique apprise.
+13. Optimisations SIMD — **investigué, pas appliqué** : `-O3` donne une sortie bit-identique mais des binaires ~30% plus gros, contradictoire avec l'objectif de taille de `bin/gloomy_infer` (point 12). Voir section 3, « Priorité basse : extensions ».
+14. Multithreading PC — **investigué, pas appliqué** : paralléliser les scénarios indépendants du benchmark demanderait d'abord de découpler `DenseLayer::seedWeightInitialization` de son générateur statique partagé (actuellement une source de course de données et de non-déterminisme si parallélisé tel quel) — un changement de la même nature que l'arena allocator, pas fait ici. Voir section 3, « Priorité basse : extensions ».
+15. ~~Adam quantifié ou optimiseur à état compressé~~ Fait : `CompressedAdamOptimizer`. Voir [Optimiseurs](optimizers.md).
+16. Classification multi-classe (sortie `K` neurones) — **reste non fait** (pipeline CLI complète) ; ~~pertes classification/cross-entropy~~ Fait : `CrossEntropyLoss`, vérifiée par différence finie. Voir [Fonctions de perte](losses.md).
+17. ~~Détection de dérive plus avancée~~ Fait : `PageHinkleyDetector` (Page-Hinkley), voir [Mémoire d'apprentissage](memory.md). Adaptation dynamique apprise — **reste non fait**, chantier de recherche distinct.
 
 ## 5. Limites connues à ne pas oublier
 
@@ -414,7 +417,10 @@ Cette liste remplace l'ancienne numérotation 1-12 ci-dessus (désormais entièr
 - `bin/gloomy_infer` ne couvre que le chemin `forward()` ; les couches y utilisent toujours des vecteurs imbriqués non contigus, et aucune cible embarquée réelle n'a pu être testée (pas de chaîne de compilation croisée ni de matériel disponible) ;
 - le format `GLOOMY_MODEL` unifié (`ModelSerialization`) couvre réseau, normalisation, optimiseur et mémoire d'apprentissage (natives et quantifiées) ; il ne couvre pas les poids quantifiés d'un réseau, qui ont leur propre artefact minimal et distinct (`QuantizedNetworkSerialization`, magic `GLOOMYQN`), volontairement dépourvu de métadonnées d'entraînement et donc non destiné à reprendre un entraînement — voir [Quantification](quantization.md) ;
 - `DeltaQuantizer` (compression différentielle) n'est pas un gain systématique : sur une série bruitée/erratique dont les deltas n'ont pas une plage plus étroite que les valeurs elles-mêmes, il fait légèrement pire qu'une quantification directe, et sa reconstruction par sommes cumulées accumule l'erreur le long de la série — voir [Quantification](quantization.md) ;
-- la détection de concept drift (`ConceptDriftDetector`) réagit par un seul mécanisme simple (un replay supplémentaire immédiat) ; ni mémoire par régimes, ni prototypes/coreset, ni règles adaptatives plus riches ne sont implémentés ;
+- la détection de concept drift (`ConceptDriftDetector`) réagit par un seul mécanisme simple (un replay supplémentaire immédiat) ; ni mémoire par régimes, ni prototypes/coreset, ni règles adaptatives plus riches ne sont implémentés ; `PageHinkleyDetector`, une seconde méthode de détection plus réactive, existe comme primitive testée mais n'est pas encore branchée dans `runOnlineLearning()` ; aucune « adaptation dynamique apprise » (un contrôleur appris, pas seulement des règles fixes) n'est implémentée ;
+- `CompressedAdamOptimizer` n'est pas encore reconnu par `OptimizerSerialization`/`ModelSerialization` : l'utiliser avec `model_path` échoue avec une erreur explicite plutôt que de sauvegarder un état incomplet — voir [Optimiseurs](optimizers.md) ;
+- `CrossEntropyLoss` existe et son gradient est vérifié, mais aucun runtime CLI ne l'exploite (les runtimes `online_learning`/`training` sont structurellement des runtimes de régression scalaire, pas de classification multi-classe) — voir [Fonctions de perte](losses.md) ;
+- `-O3` a été mesuré comme sûr (sortie bit-identique) mais volontairement pas adopté : le gain de vitesse (~6%, sur un run déjà sous la demi-seconde) ne justifie pas l'augmentation de taille des binaires (~30%), contraire à l'objectif d'un `bin/gloomy_infer` minimal ; le benchmark n'est pas parallélisé, `DenseLayer::seedWeightInitialization` reposant sur un générateur statique partagé qu'il faudrait d'abord découpler (même risque que l'arena allocator) ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles (aucun jeu de données réel disponible dans cet environnement sans accès réseau) ; il n'existe pas non plus de baseline `float32` distincte d'int16/int8.
 

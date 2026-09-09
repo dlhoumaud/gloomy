@@ -24,6 +24,7 @@
 #include "NormalizationSerialization.h"
 #include "MomentumOptimizer.h"
 #include "AdamOptimizer.h"
+#include "CompressedAdamOptimizer.h"
 #include "OptimizerSerialization.h"
 #include "LearningMemorySerialization.h"
 #include "ModelSerialization.h"
@@ -33,6 +34,7 @@
 #include "GloomyConfigFile.h"
 #include "OnlineLearningRuntime.h"
 #include "ConceptDriftDetector.h"
+#include "PageHinkleyDetector.h"
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -242,6 +244,56 @@ void testSoftmaxGradientCheck() {
     const std::vector<double> target = {1.0, 0.0, 0.0};
     MSELoss loss;
     checkNetworkGradient(network, loss, input, target);
+}
+
+void testCrossEntropyLoss() {
+    // compute()/gradient() directs, sur une distribution one-hot simple.
+    {
+        CrossEntropyLoss loss;
+        const std::vector<double> prediction = {0.7, 0.2, 0.1};
+        const std::vector<double> target = {1.0, 0.0, 0.0};
+        assertClose(loss.compute(prediction, target), -std::log(0.7));
+
+        const std::vector<double> gradient = loss.gradient(prediction, target);
+        assert(gradient.size() == 3);
+        assertClose(gradient[0], -1.0 / 0.7);
+        assertClose(gradient[1], 0.0);
+        assertClose(gradient[2], 0.0);
+    }
+
+    // Une prediction negative (pas une probabilite valide — ex. des logits
+    // bruts passes par erreur sans post_algorithm=softmax) est rejetee avec
+    // un message explicite, plutot que de produire silencieusement
+    // log(negatif) = NaN.
+    {
+        CrossEntropyLoss loss;
+        bool threw = false;
+        try {
+            loss.compute({-0.1, 1.1}, {1.0, 0.0});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Verification par difference finie sur un reseau complet a sortie
+    // softmax a 3 classes : confirme que le gradient de CrossEntropyLoss se
+    // compose correctement avec le jacobien softmax deja implemente dans
+    // DenseLayer::backward (meme principe que testSoftmaxGradientCheck,
+    // avec une perte de classification cette fois plutot que MSE).
+    {
+        DenseLayer::seedWeightInitialization(13u);
+        NeuralNetwork network;
+        network.algorithm = "none";
+        network.post_algorithm = "softmax";
+        network.addLayer(3, 4);
+        network.addLayer(4, 3);
+
+        const std::vector<double> input = {0.5, -0.2, 0.8};
+        const std::vector<double> target = {0.0, 1.0, 0.0};
+        CrossEntropyLoss loss;
+        checkNetworkGradient(network, loss, input, target);
+    }
 }
 
 void testActivationStabilityWithLargeValues() {
@@ -1626,6 +1678,86 @@ void testAdamOptimizer() {
     assert(optimizer.stateBytes() == sizeof(double) * 4);
 }
 
+void testCompressedAdamOptimizer() {
+    // Meme mise a jour de base qu'AdamOptimizer : le poids doit bouger dans
+    // la meme direction.
+    {
+        DenseLayer layer(1, 1);
+        layer.set_algorithm("none");
+        layer.weights()[0][0] = 0.0;
+        layer.bias()[0] = 0.0;
+        MSELoss loss;
+        const std::vector<double> input = {1.0};
+        const std::vector<double> target = {2.0};
+
+        layer.forward(input);
+        layer.zeroGradients();
+        layer.backward(loss.gradient(layer.forward(input), target));
+        std::vector<DenseLayer> layers;
+        layers.push_back(layer);
+        CompressedAdamOptimizer optimizer(0.05);
+        optimizer.update(layers);
+        assert(layers[0].weights()[0][0] > 0.0);
+    }
+
+    // Convergence comparable a AdamOptimizer sur une tache reelle (y=2x+1,
+    // reseau 1-8-1, 80 epochs), et etat compresse reellement plus petit
+    // (mesure : 228 octets contre 400 pour un Adam natif sur cette
+    // architecture — un gain reel mais loin du 4x theorique, le cout fixe
+    // de calibration par vecteur dominant sur un reseau aussi petit, comme
+    // pour NetworkQuantization — voir docs/optimizers.md).
+    {
+        const auto makeSamples = []() {
+            std::vector<TrainingSample> samples;
+            for (int index = 0; index < 80; ++index) {
+                const double x = index / 10.0;
+                samples.push_back({{x}, {2.0 * x + 1.0}});
+            }
+            return samples;
+        };
+
+        DenseLayer::seedWeightInitialization(4242u);
+        NeuralNetwork adam_network;
+        adam_network.algorithm = "none";
+        adam_network.addLayer(1, 8);
+        adam_network.addLayer(8, 1);
+        MSELoss adam_loss;
+        AdamOptimizer adam_optimizer(0.01);
+        LearningEngine adam_engine(adam_network, adam_loss, adam_optimizer);
+        const double adam_final_loss = adam_engine.train(makeSamples(), 80, 8);
+
+        DenseLayer::seedWeightInitialization(4242u);
+        NeuralNetwork compressed_network;
+        compressed_network.algorithm = "none";
+        compressed_network.addLayer(1, 8);
+        compressed_network.addLayer(8, 1);
+        MSELoss compressed_loss;
+        CompressedAdamOptimizer compressed_optimizer(0.01);
+        LearningEngine compressed_engine(compressed_network, compressed_loss, compressed_optimizer);
+        const double compressed_final_loss = compressed_engine.train(makeSamples(), 80, 8);
+
+        assert(std::isfinite(adam_final_loss));
+        assert(std::isfinite(compressed_final_loss));
+        assert(adam_final_loss < 0.001);
+        // La quantification des moments introduit une petite perte de
+        // precision : la perte finale compressee reste proche de celle
+        // d'Adam natif, sans etre forcement identique.
+        assert(compressed_final_loss < 0.01);
+        assert(compressed_optimizer.stateBytes() < adam_optimizer.stateBytes());
+    }
+
+    // Validation des hyperparametres, comme AdamOptimizer.
+    {
+        bool threw = false;
+        try {
+            CompressedAdamOptimizer optimizer(-0.1);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
 void testOptimizerRejectsNonFiniteGradients() {
     // DenseLayer::backward already rejects a non-finite *incoming* gradient
     // (see testNonFiniteValuesRejected), so it cannot be used here to get a
@@ -1675,6 +1807,17 @@ void testOptimizerRejectsNonFiniteGradients() {
         bool threw = false;
         try {
             AdamOptimizer(0.05).update(layers);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    {
+        std::vector<DenseLayer> layers;
+        layers.push_back(makeOverflowingLayer());
+        bool threw = false;
+        try {
+            CompressedAdamOptimizer(0.05).update(layers);
         } catch (const std::invalid_argument&) {
             threw = true;
         }
@@ -2780,6 +2923,91 @@ void testConceptDriftDetector() {
     }
 }
 
+void testPageHinkleyDetector() {
+    // Test sequentiel de detection de rupture (Page-Hinkley), une methode
+    // distincte de ConceptDriftDetector (accumulation d'un ecart tolere
+    // plutot que comparaison moyenne recente / ligne de base) — voir
+    // docs/memory.md, « Détection de dérive plus avancée ».
+
+    // Regime stable : un bruit de faible amplitude autour de la meme
+    // moyenne ne doit jamais declencher de derive, avec les parametres par
+    // defaut (calibres sur ce cas precisement).
+    {
+        PageHinkleyDetector detector;
+        bool any_drift = false;
+        for (int index = 0; index < 200; ++index) {
+            const double value = 0.05 + (index % 2 == 0 ? 0.001 : -0.001);
+            any_drift = any_drift || detector.update(value);
+        }
+        assert(!any_drift);
+        assert(detector.count() == 200);
+    }
+
+    // Saut net apres un long regime stable a faible erreur : signale une
+    // derive quelques pas seulement apres la transition (calibre sur une
+    // execution reelle : detection au premier pas du nouveau regime).
+    {
+        PageHinkleyDetector detector;
+        for (int index = 0; index < 50; ++index) {
+            detector.update(0.01);
+        }
+        assert(!detector.driftDetected());
+
+        bool drift_seen = false;
+        int drift_step = -1;
+        for (int index = 0; index < 20; ++index) {
+            if (detector.update(5.0)) {
+                drift_seen = true;
+                if (drift_step == -1) drift_step = index;
+            }
+        }
+        assert(drift_seen);
+        assert(drift_step <= 4);
+    }
+
+    // reset() efface completement l'etat.
+    {
+        PageHinkleyDetector detector;
+        detector.update(1.0);
+        detector.update(1.0);
+        assert(detector.count() == 2);
+        detector.reset();
+        assert(detector.count() == 0);
+        assert(!detector.driftDetected());
+    }
+
+    // Constructeur : delta negatif ou lambda non fini/non positif rejetes.
+    {
+        bool threw = false;
+        try {
+            PageHinkleyDetector detector(-0.1, 10.0);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+
+        threw = false;
+        try {
+            PageHinkleyDetector detector(0.05, 0.0);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    // Une valeur non finie est rejetee.
+    {
+        PageHinkleyDetector detector;
+        bool threw = false;
+        try {
+            detector.update(std::numeric_limits<double>::quiet_NaN());
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+}
+
 // Regimes synthetiques pour les tests de catastrophic forgetting et de
 // concept drift ci-dessous : memes fonctions que l'experience de
 // BenchmarkRunner.cpp (regime A lineaire croissant, regime B lineaire
@@ -2925,6 +3153,7 @@ int main() {
     testDenseLayerSeededInitialization();
     testGradientCheckingAllActivations();
     testSoftmaxGradientCheck();
+    testCrossEntropyLoss();
     testActivationStabilityWithLargeValues();
     testNonFiniteValuesRejected();
     testSGDUpdateReducesLoss();
@@ -2962,6 +3191,7 @@ int main() {
     testBenchmarkCsv();
     testMomentumOptimizer();
     testAdamOptimizer();
+    testCompressedAdamOptimizer();
     testOptimizerRejectsNonFiniteGradients();
     testOptimizerSerialization();
     testLearningMemorySerialization();
@@ -2976,6 +3206,7 @@ int main() {
     testOnlineLearningRuntimeConceptDriftDetection();
     testOnlineLearningRuntimeLongSequenceStability();
     testConceptDriftDetector();
+    testPageHinkleyDetector();
     testCatastrophicForgettingWithoutReplay();
     testCatastrophicForgettingMitigatedByReplay();
     testConceptDriftReturnToPreviousRegime();

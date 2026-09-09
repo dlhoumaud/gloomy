@@ -4,6 +4,7 @@
 #include "headers/Optimizer.h"
 #include "headers/MomentumOptimizer.h"
 #include "headers/AdamOptimizer.h"
+#include "headers/CompressedAdamOptimizer.h"
 #include "headers/LearningMemory.h"
 #include "headers/FIFOMemory.h"
 #include "headers/ReservoirMemory.h"
@@ -36,6 +37,9 @@ std::unique_ptr<Optimizer> makeOptimizer(const GloomyConfig& config) {
     }
     if (config.optimizer == "adam") {
         return std::make_unique<AdamOptimizer>(config.learning_rate, config.beta1, config.beta2, config.epsilon);
+    }
+    if (config.optimizer == "compressed_adam") {
+        return std::make_unique<CompressedAdamOptimizer>(config.learning_rate, config.beta1, config.beta2, config.epsilon);
     }
     throw std::invalid_argument("Unknown optimizer: " + config.optimizer);
 }

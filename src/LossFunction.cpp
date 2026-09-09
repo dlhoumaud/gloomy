@@ -1,4 +1,5 @@
 #include "headers/LossFunction.h"
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -125,4 +126,47 @@ std::vector<double> HuberLoss::gradient(
 
 double HuberLoss::delta() const {
     return threshold;
+}
+
+namespace {
+constexpr double cross_entropy_epsilon = 1e-12;
+
+void validateProbabilities(const std::vector<double>& prediction) {
+    for (double value : prediction) {
+        if (value < 0.0) {
+            throw std::invalid_argument(
+                "CrossEntropyLoss expects non-negative probabilities (post-softmax prediction)"
+            );
+        }
+    }
+}
+}
+
+double CrossEntropyLoss::compute(
+    const std::vector<double>& prediction,
+    const std::vector<double>& target
+) const {
+    validateInputs(prediction, target);
+    validateProbabilities(prediction);
+
+    double total = 0.0;
+    for (size_t index = 0; index < prediction.size(); ++index) {
+        if (target[index] == 0.0) continue;
+        total -= target[index] * std::log(std::max(prediction[index], cross_entropy_epsilon));
+    }
+    return total;
+}
+
+std::vector<double> CrossEntropyLoss::gradient(
+    const std::vector<double>& prediction,
+    const std::vector<double>& target
+) const {
+    validateInputs(prediction, target);
+    validateProbabilities(prediction);
+
+    std::vector<double> result(prediction.size());
+    for (size_t index = 0; index < prediction.size(); ++index) {
+        result[index] = -target[index] / std::max(prediction[index], cross_entropy_epsilon);
+    }
+    return result;
 }

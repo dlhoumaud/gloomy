@@ -241,6 +241,24 @@ concept_drift_std_devs=3.0
 
 Vérifié sur un changement de régime synthétique net (pente `2` puis pente `-3`, avec un long régime stable au préalable) : la dérive est signalée quelques pas après la transition (le temps que la fenêtre récente se remplisse de valeurs du nouveau régime) et s'éteint à nouveau une fois le réseau réadapté — voir `testOnlineLearningRuntimeConceptDriftDetection` (`tests/loss_tests.cpp`).
 
+## Détection de dérive plus avancée : Page-Hinkley
+
+`PageHinkleyDetector` (`src/headers/PageHinkleyDetector.h`) est une seconde méthode de détection de dérive, de nature différente de `ConceptDriftDetector` : un test séquentiel de détection de rupture classique (Page 1954, Hinkley 1971), largement cité dans la littérature du concept drift, plutôt qu'une comparaison moyenne récente / ligne de base par écarts-types.
+
+Principe : pour chaque nouvelle valeur `x_t`, le détecteur maintient une moyenne courante `m_t`, accumule un écart toléré `U_t = somme(x_i - m_i - delta)`, et compare cet écart cumulé à son minimum observé jusque-là :
+
+```cpp
+PageHinkleyDetector detector(/*delta=*/0.05, /*lambda=*/10.0);
+const bool drift = detector.update(step_loss);
+```
+
+- `delta` : magnitude de changement tolérée avant de commencer à accumuler un signal (plus grand = moins sensible au bruit) ;
+- `lambda` : seuil de détection sur l'écart cumulé (plus grand = détection plus tardive mais moins de faux positifs).
+
+Les défauts (`delta=0.05`, `lambda=10.0`) sont calibrés sur le même changement de régime synthétique net que `ConceptDriftDetector` (pente `2` puis pente `-3`) : détection en 0 à 4 pas seulement après la transition — nettement plus réactif que `ConceptDriftDetector` sur ce cas précis, qui doit d'abord remplir sa fenêtre récente — sans faux positif observé sur un bruit stable (200 pas, écart-type `0.01`). Voir `testPageHinkleyDetector` (`tests/loss_tests.cpp`).
+
+**Ce qui reste hors de portée** : cette classe existe et est testée comme primitive indépendante, mais n'est pas encore branchée dans `runOnlineLearning()` (contrairement à `ConceptDriftDetector`, qui l'est via `concept_drift_detection`) — les deux mécanismes ne sont pas encore combinables. Une « adaptation dynamique apprise » (un contrôleur qui apprendrait, plutôt que suivrait des règles fixes, comment réagir à une dérive détectée) reste un chantier de recherche distinct, non commencé.
+
 ## Training Scheduler
 
 Le `TrainingScheduler` décide si une observation doit déclencher un replay :

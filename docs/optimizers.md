@@ -53,6 +53,26 @@ Il conserve deux `double` par paramètre, soit environ deux fois le coût d'éta
 
 Adam doit être comparé à SGD et Momentum sur les mêmes données, seeds, nombre d'updates et budgets mémoire. Il ne doit pas être considéré comme supérieur par défaut.
 
+## Adam à état compressé
+
+`CompressedAdamOptimizer` applique exactement la même formule qu'`AdamOptimizer`, mais conserve les moments (premier, second) **quantifiés en int16** (`Int16Quantizer`) entre deux appels à `update()` plutôt qu'en `double` natif — le même principe que `QuantizedFIFOMemory` appliqué à l'état d'un optimiseur plutôt qu'à une mémoire de replay :
+
+```cpp
+CompressedAdamOptimizer optimizer(0.01);
+LearningEngine engine(network, loss, optimizer);
+```
+
+À chaque `update()` : les moments sont déquantifiés, mis à jour avec la formule Adam standard **en double** (le calcul du pas courant n'est pas dégradé), puis recalibrés et requantifiés avant d'être restockés. Contrairement à `QuantizedFIFOMemory` (calibrée une fois pour toutes à la construction sur un jeu d'échantillons fixe), la recalibration doit se refaire à **chaque** pas ici, car la plage des moments évolue tout au long de l'entraînement.
+
+### Impact mesuré
+
+Sur un réseau 1-8-1 (seed `4242`, 80 epochs, SGD lr=0.01, tâche y=2x+1), comparé à `AdamOptimizer` :
+
+- perte finale : `~0.000001` pour les deux (convergence quasi identique — la quantification des moments à chaque pas n'a pas empêché l'entraînement de converger sur cette tâche) ;
+- `stateBytes()` : `228` octets contre `400` pour Adam natif (~1.75×), **loin du 4× théorique** (`double` 8 octets vs `int16` 2 octets) — même constat que pour `NetworkQuantization` (voir [Quantification](quantization.md)) : le coût fixe de calibration par vecteur (`scale`/`zero_point`, 4 vecteurs par couche) domine sur un réseau aussi petit. Le gain se rapprocherait de 4× pour des couches beaucoup plus larges.
+
+`optimizer=compressed_adam` le sélectionne dans le CLI (`online_learning`/`training`) — voir [Configurations et limites](configurations.md). Limite connue : `OptimizerSerialization`/`ModelSerialization` ne le reconnaissent pas encore (seuls SGD/Momentum/Adam le sont) ; utiliser `model_path` avec cet optimiseur échoue avec une erreur explicite (`"Unsupported optimizer type for serialization"`) plutôt que de corrompre silencieusement l'état sauvegardé.
+
 ## Persistance de l'état
 
 `OptimizerSerialization` sauvegarde et restaure n'importe quel `Optimizer` concret (SGD, Momentum ou Adam) dans un fichier binaire versionné, protégé par un checksum FNV-1a :

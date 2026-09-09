@@ -41,7 +41,7 @@ Elle calcule d'abord une **baseline naïve** `baseline_last_value` — prédire 
 - **FIFO int16 et FIFO int8**, désormais balayées sur les **mêmes quatre capacités et les mêmes 3 seeds** que le balayage float64 (les mémoires quantifiées sont déterministes — pas de tirage aléatoire interne — donc la seed ne fait varier ici que l'initialisation des poids, comme pour FIFO dans le balayage float64) : 4 × 2 précisions × 3 optimiseurs × 3 pertes × 3 seeds = 216 scénarios ;
 - deux scénarios de **catastrophic forgetting** (voir plus bas), seed unique, perte MSE uniquement.
 
-Les scénarios bornés utilisent le mode online (un seul passage sur les données) et un replay de taille `8`. L'ensemble tourne en quelques secondes sur une machine de développement courante (avec le balayage complet des précisions quantifiées, principalement du fait de l'encodage/décodage supplémentaire à chaque pas).
+Les scénarios bornés utilisent le mode online (un seul passage sur les données) et un replay de taille `8`. L'ensemble (y compris le balayage complet des précisions quantifiées) reste sous la demi-seconde sur une machine de développement courante (mesuré : ~0.43 s, exécution seule, hors compilation).
 
 ### Fichiers produits
 
