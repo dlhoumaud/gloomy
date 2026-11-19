@@ -63,3 +63,12 @@ Le chargement reconstruit les couches avant de restaurer leurs paramètres. Le f
 NormalizationSerialization::save("normalization.bin", normalizer);
 NormalizationSerialization::load("normalization.bin", restored_normalizer);
 ```
+
+## Optimiseur
+
+`OptimizerSerialization` sauvegarde le type d'optimiseur, ses hyperparamètres et ses buffers (vitesses Momentum, moments et compteur d'updates Adam). Le checkpoint possède son propre magic, sa version et son checksum. Il doit être chargé dans une instance du même type, après avoir restauré le réseau ; les formes de couches sont vérifiées avant la restauration.
+
+```cpp
+OptimizerSerialization::save("optimizer.bin", optimizer);
+OptimizerSerialization::load("optimizer.bin", optimizer, network.layers());
+```

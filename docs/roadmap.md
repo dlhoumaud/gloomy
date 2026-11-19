@@ -165,7 +165,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
    Le format doit prévoir des sections, des tailles, une version et une compatibilité future. Le chargement doit être atomique : un fichier invalide ne doit pas laisser un modèle partiellement modifié.
 
-2. **Persistance de l'état des optimiseurs**
+2. **Persistance de l'état des optimiseurs** — première version implémentée dans `OptimizerSerialization`.
 
    Ajouter à l'abstraction `Optimizer` un contrat de sauvegarde/restauration. Il faudra persister :
 
@@ -176,7 +176,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    - vitesses Momentum ;
    - premiers et seconds moments Adam.
 
-   L'état doit être vérifié contre la forme des couches pour éviter de restaurer un buffer incompatible.
+   L'état est vérifié contre le type et la forme des couches pour éviter de restaurer un buffer incompatible. L'intégration au futur fichier `GLOOMY_MODEL` reste à faire.
 
 3. **Persistance des mémoires**
 

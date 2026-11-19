@@ -17,6 +17,9 @@ public:
     double learningRate() const;
     double momentum() const;
     size_t stateBytes() const;
+    std::string checkpointType() const override;
+    void writeCheckpoint(std::ostream& stream) const override;
+    void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) override;
 
 private:
     struct LayerState {

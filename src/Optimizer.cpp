@@ -1,9 +1,10 @@
 #include "headers/Optimizer.h"
 #include <stdexcept>
+#include <cmath>
 
 SGDOptimizer::SGDOptimizer(double learning_rate)
     : learning_rate(learning_rate) {
-    if (learning_rate <= 0.0) {
+    if (learning_rate <= 0.0 || !std::isfinite(learning_rate)) {
         throw std::invalid_argument("Learning rate must be positive");
     }
 }
@@ -36,8 +37,25 @@ double SGDOptimizer::learningRate() const {
 }
 
 void SGDOptimizer::setLearningRate(double learning_rate) {
-    if (learning_rate <= 0.0) {
+    if (learning_rate <= 0.0 || !std::isfinite(learning_rate)) {
         throw std::invalid_argument("Learning rate must be positive");
     }
     this->learning_rate = learning_rate;
+}
+
+std::string SGDOptimizer::checkpointType() const { return "sgd"; }
+
+void SGDOptimizer::writeCheckpoint(std::ostream& stream) const {
+    stream.write(reinterpret_cast<const char*>(&learning_rate), sizeof(learning_rate));
+    if (!stream) throw std::runtime_error("Unable to write optimizer checkpoint");
+}
+
+void SGDOptimizer::readCheckpoint(std::istream& stream, const std::vector<DenseLayer>&) {
+    double restored_rate = 0.0;
+    stream.read(reinterpret_cast<char*>(&restored_rate), sizeof(restored_rate));
+    if (!stream || restored_rate <= 0.0 || !std::isfinite(restored_rate))
+        throw std::runtime_error("Invalid SGD optimizer checkpoint");
+    if (stream.peek() != std::char_traits<char>::eof())
+        throw std::runtime_error("Unexpected optimizer checkpoint data");
+    learning_rate = restored_rate;
 }

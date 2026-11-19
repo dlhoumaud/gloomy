@@ -23,6 +23,9 @@ public:
     double beta1() const;
     double beta2() const;
     size_t stateBytes() const;
+    std::string checkpointType() const override;
+    void writeCheckpoint(std::ostream& stream) const override;
+    void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) override;
 
 private:
     struct LayerState {

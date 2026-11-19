@@ -2,6 +2,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <utility>
+#include <cstdint>
 
 AdamOptimizer::AdamOptimizer(
     double learning_rate,
@@ -96,6 +97,61 @@ size_t AdamOptimizer::stateBytes() const {
         count += state.bias_first_moment.size() + state.bias_second_moment.size();
     }
     return count * sizeof(double);
+}
+
+std::string AdamOptimizer::checkpointType() const { return "adam"; }
+
+void AdamOptimizer::writeCheckpoint(std::ostream& stream) const {
+    auto write = [&stream](const void* data, size_t size) {
+        stream.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+        if (!stream) throw std::runtime_error("Unable to write optimizer checkpoint");
+    };
+    write(&learning_rate, sizeof(learning_rate)); write(&first_decay, sizeof(first_decay));
+    write(&second_decay, sizeof(second_decay)); write(&epsilon, sizeof(epsilon));
+    const std::uint64_t updates = update_count, count = states.size();
+    write(&updates, sizeof(updates)); write(&count, sizeof(count));
+    for (const LayerState& state : states) {
+        const std::uint64_t inputs = state.first_moment.size(), outputs = state.bias_first_moment.size();
+        write(&inputs, sizeof(inputs)); write(&outputs, sizeof(outputs));
+        for (const auto& row : state.first_moment) write(row.data(), row.size() * sizeof(double));
+        for (const auto& row : state.second_moment) write(row.data(), row.size() * sizeof(double));
+        write(state.bias_first_moment.data(), outputs * sizeof(double));
+        write(state.bias_second_moment.data(), outputs * sizeof(double));
+    }
+}
+
+void AdamOptimizer::readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) {
+    auto read = [&stream](void* data, size_t size) {
+        stream.read(static_cast<char*>(data), static_cast<std::streamsize>(size));
+        if (!stream) throw std::runtime_error("Invalid or truncated optimizer checkpoint");
+    };
+    double rate = 0.0, beta_1 = 0.0, beta_2 = 0.0, eps = 0.0;
+    std::uint64_t updates = 0, count = 0;
+    read(&rate, sizeof(rate)); read(&beta_1, sizeof(beta_1)); read(&beta_2, sizeof(beta_2)); read(&eps, sizeof(eps));
+    read(&updates, sizeof(updates)); read(&count, sizeof(count));
+    if (!std::isfinite(rate) || rate <= 0.0 || !std::isfinite(beta_1) || beta_1 < 0.0 || beta_1 >= 1.0 ||
+        !std::isfinite(beta_2) || beta_2 < 0.0 || beta_2 >= 1.0 || !std::isfinite(eps) || eps <= 0.0 || count != layers.size())
+        throw std::runtime_error("Optimizer checkpoint configuration or layer count mismatch");
+    std::vector<LayerState> restored; restored.reserve(layers.size());
+    for (size_t i = 0; i < layers.size(); ++i) {
+        std::uint64_t inputs = 0, outputs = 0; read(&inputs, sizeof(inputs)); read(&outputs, sizeof(outputs));
+        if (inputs != layers[i].weights().size() || outputs != layers[i].bias().size())
+            throw std::runtime_error("Optimizer checkpoint layer shape mismatch");
+        LayerState state;
+        state.first_moment.resize(inputs, std::vector<double>(outputs)); state.second_moment.resize(inputs, std::vector<double>(outputs));
+        state.bias_first_moment.resize(outputs); state.bias_second_moment.resize(outputs);
+        for (auto& row : state.first_moment) read(row.data(), row.size() * sizeof(double));
+        for (auto& row : state.second_moment) read(row.data(), row.size() * sizeof(double));
+        read(state.bias_first_moment.data(), outputs * sizeof(double)); read(state.bias_second_moment.data(), outputs * sizeof(double));
+        auto finite = [](const std::vector<double>& values) { for (double value : values) if (!std::isfinite(value)) return false; return true; };
+        for (const auto& row : state.first_moment) if (!finite(row)) throw std::runtime_error("Non-finite optimizer state");
+        for (const auto& row : state.second_moment) if (!finite(row)) throw std::runtime_error("Non-finite optimizer state");
+        if (!finite(state.bias_first_moment) || !finite(state.bias_second_moment)) throw std::runtime_error("Non-finite optimizer state");
+        restored.push_back(std::move(state));
+    }
+    if (stream.peek() != std::char_traits<char>::eof()) throw std::runtime_error("Unexpected optimizer checkpoint data");
+    learning_rate = rate; first_decay = beta_1; second_decay = beta_2; epsilon = eps;
+    update_count = static_cast<size_t>(updates); states = std::move(restored);
 }
 
 void AdamOptimizer::ensureState(const std::vector<DenseLayer>& layers) {

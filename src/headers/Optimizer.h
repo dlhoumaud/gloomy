@@ -3,6 +3,9 @@
 
 #include "DenseLayer.h"
 #include <vector>
+#include <istream>
+#include <ostream>
+#include <string>
 
 class Optimizer {
 public:
@@ -11,6 +14,9 @@ public:
         std::vector<DenseLayer>& layers,
         double gradient_scale = 1.0
     ) = 0;
+    virtual std::string checkpointType() const = 0;
+    virtual void writeCheckpoint(std::ostream& stream) const = 0;
+    virtual void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) = 0;
 };
 
 class SGDOptimizer final : public Optimizer {
@@ -23,6 +29,9 @@ public:
     ) override;
     double learningRate() const;
     void setLearningRate(double learning_rate);
+    std::string checkpointType() const override;
+    void writeCheckpoint(std::ostream& stream) const override;
+    void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) override;
 
 private:
     double learning_rate;
