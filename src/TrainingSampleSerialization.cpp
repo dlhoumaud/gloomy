@@ -115,5 +115,8 @@ std::vector<TrainingSample> TrainingSampleSerialization::load(const std::string&
         readBytes(stream, &sample.usage_count, sizeof(sample.usage_count));
         samples.push_back(std::move(sample));
     }
+    if (stream.peek() != std::char_traits<char>::eof()) {
+        throw std::runtime_error("Unexpected data in sample file");
+    }
     return samples;
 }

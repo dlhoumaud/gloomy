@@ -1,11 +1,13 @@
 #include "headers/NetworkSerialization.h"
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 constexpr char magic[] = "GLOOMYNN";
@@ -117,9 +119,10 @@ void NetworkSerialization::load(const std::string& path, NeuralNetwork& network)
         throw std::runtime_error("Network layer count is invalid");
     }
 
-    network.clear();
-    network.algorithm = algorithm;
-    network.post_algorithm = post_algorithm;
+    NeuralNetwork restored_network;
+    restored_network.algorithm = algorithm;
+    restored_network.post_algorithm = post_algorithm;
+    std::uint64_t previous_output_count = 0;
     for (std::uint64_t layer_index = 0; layer_index < layer_count; ++layer_index) {
         std::uint64_t input_count = 0;
         std::uint64_t output_count = 0;
@@ -129,11 +132,25 @@ void NetworkSerialization::load(const std::string& path, NeuralNetwork& network)
             input_count > maximum_dimension || output_count > maximum_dimension) {
             throw std::runtime_error("Network layer dimensions are invalid");
         }
-        network.addLayer(static_cast<int>(input_count), static_cast<int>(output_count));
-        DenseLayer& layer = network.layers().back();
+        if (layer_index != 0 && input_count != previous_output_count) {
+            throw std::runtime_error("Network layer dimensions are inconsistent");
+        }
+        previous_output_count = output_count;
+        restored_network.addLayer(static_cast<int>(input_count), static_cast<int>(output_count));
+        DenseLayer& layer = restored_network.layers().back();
         for (auto& row : layer.weights()) {
             readBytes(stream, row.data(), row.size() * sizeof(double));
+            for (double weight : row) {
+                if (!std::isfinite(weight)) throw std::runtime_error("Network parameters must be finite");
+            }
         }
         readBytes(stream, layer.bias().data(), layer.bias().size() * sizeof(double));
+        for (double bias : layer.bias()) {
+            if (!std::isfinite(bias)) throw std::runtime_error("Network parameters must be finite");
+        }
     }
+    if (stream.peek() != std::char_traits<char>::eof()) {
+        throw std::runtime_error("Unexpected data in network file");
+    }
+    network = std::move(restored_network);
 }

@@ -80,14 +80,21 @@ void StreamingNormalizer::restore(
             throw std::invalid_argument("Normalizer statistics must be finite and consistent");
         }
     }
-    value_count = count;
-    means = restored_means;
-    moments.resize(variances.size());
+    std::vector<double> restored_means_copy = restored_means;
+    std::vector<double> restored_minimum_copy = restored_minimum;
+    std::vector<double> restored_maximum_copy = restored_maximum;
+    std::vector<double> restored_moments(variances.size());
     for (size_t index = 0; index < variances.size(); ++index) {
-        moments[index] = variances[index] * static_cast<double>(count);
+        restored_moments[index] = variances[index] * static_cast<double>(count);
+        if (!std::isfinite(restored_moments[index])) {
+            throw std::invalid_argument("Normalizer moment statistics must be finite");
+        }
     }
-    minimum_values = restored_minimum;
-    maximum_values = restored_maximum;
+    means.swap(restored_means_copy);
+    moments.swap(restored_moments);
+    minimum_values.swap(restored_minimum_copy);
+    maximum_values.swap(restored_maximum_copy);
+    value_count = count;
 }
 
 size_t StreamingNormalizer::count() const {

@@ -53,7 +53,7 @@ NetworkSerialization::save("model.gloomy", network);
 NetworkSerialization::load("model.gloomy", restored_network);
 ```
 
-Le chargement reconstruit les couches avant de restaurer leurs paramètres. Le format est versionné, protégé par un checksum FNV-1a et refuse les magic, versions, dimensions, corruptions ou fichiers tronqués invalides. L'état de l'optimiseur, la mémoire d'apprentissage et la quantification restent à intégrer dans le format modèle complet.
+Le chargement reconstruit et valide le réseau dans un objet temporaire avant de remplacer l'objet cible. Le format est versionné, protégé par un checksum FNV-1a et refuse les magic, versions, dimensions incohérentes, paramètres non finis, corruptions, données surnuméraires ou fichiers tronqués invalides. L'état de l'optimiseur, la mémoire d'apprentissage et la quantification restent à intégrer dans le format modèle complet.
 
 ## Normalisation
 
@@ -63,6 +63,10 @@ Le chargement reconstruit les couches avant de restaurer leurs paramètres. Le f
 NormalizationSerialization::save("normalization.bin", normalizer);
 NormalizationSerialization::load("normalization.bin", restored_normalizer);
 ```
+
+Le fichier est entièrement lu dans des buffers temporaires et toutes les statistiques sont validées avant leur application. Les données tronquées ou surnuméraires et les statistiques invalides sont refusées sans changer l'objet cible.
+
+`TrainingSampleSerialization::load` construit et retourne une nouvelle collection ; un fichier incomplet ou contenant des données surnuméraires est refusé avant que la collection soit renvoyée.
 
 ## Optimiseur
 

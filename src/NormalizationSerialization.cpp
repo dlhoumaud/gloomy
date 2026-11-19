@@ -79,5 +79,8 @@ void NormalizationSerialization::load(
     readVector(stream, variances);
     readVector(stream, minimum);
     readVector(stream, maximum);
+    if (stream.peek() != std::char_traits<char>::eof()) {
+        throw std::runtime_error("Unexpected data in normalizer file");
+    }
     normalizer.restore(static_cast<size_t>(count), means, variances, minimum, maximum);
 }

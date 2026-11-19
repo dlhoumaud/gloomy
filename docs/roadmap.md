@@ -319,8 +319,8 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 
 ## 4. Ordre recommandé pour la suite
 
-1. Stabiliser la sérialisation unifiée du modèle.
-2. Ajouter la persistance de l'état Optimizer.
+1. Rendre le chargement des composants transactionnel — implémenté pour le réseau, le normaliseur, les échantillons et l'optimiseur.
+2. Stabiliser la sérialisation unifiée du modèle.
 3. Ajouter la persistance des mémoires et des paramètres de quantification.
 4. Centraliser les défauts dans une configuration C++.
 5. Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.
