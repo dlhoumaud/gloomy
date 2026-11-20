@@ -39,7 +39,9 @@ void BenchmarkCsv::write(
 
     stream << "memory_strategy,precision,optimizer,experiment,loss,seed,aggregation,memory_capacity,"
               "training_loss,validation_loss,mae,rmse,mae_stddev,rmse_stddev,mae_ci95,rmse_ci95,"
-              "last_value_baseline_mae,mae_ratio_vs_full,training_time_ms,inference_time_us,"
+              "last_value_baseline_mae,mae_ratio_vs_full,phase_a_mae_after_a,phase_a_mae_after_b,"
+              "phase_a_mae_after_recovery,phase_b_mae_after_b,phase_b_mae_after_recovery,recovery,"
+              "recovery_stddev,recovery_ci95,forgetting_stddev,forgetting_ci95,training_time_ms,inference_time_us,"
               "samples_per_second,updates_per_second,memory_used_bytes,samples_stored,"
               "parameter_updates,forgetting\n";
     stream << std::setprecision(17);
@@ -66,6 +68,16 @@ void BenchmarkCsv::write(
                << ',' << result.rmse_ci95
                << ',' << result.last_value_baseline_mae
                << ',' << result.mae_ratio_vs_full
+               << ',' << result.phase_a_mae_after_a
+               << ',' << result.phase_a_mae_after_b
+               << ',' << result.phase_a_mae_after_recovery
+               << ',' << result.phase_b_mae_after_b
+               << ',' << result.phase_b_mae_after_recovery
+               << ',' << result.recovery
+               << ',' << result.recovery_stddev
+               << ',' << result.recovery_ci95
+               << ',' << result.forgetting_stddev
+               << ',' << result.forgetting_ci95
                << ',' << result.training_time_ms
                << ',' << result.inference_time_us
                << ',' << result.samples_per_second

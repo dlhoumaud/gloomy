@@ -24,6 +24,16 @@ struct BenchmarkResult {
     double rmse_ci95 = 0.0;
     double last_value_baseline_mae = 0.0;
     double mae_ratio_vs_full = 0.0;
+    double phase_a_mae_after_a = 0.0;
+    double phase_a_mae_after_b = 0.0;
+    double phase_a_mae_after_recovery = 0.0;
+    double phase_b_mae_after_b = 0.0;
+    double phase_b_mae_after_recovery = 0.0;
+    double recovery = 0.0;
+    double recovery_stddev = 0.0;
+    double recovery_ci95 = 0.0;
+    double forgetting_stddev = 0.0;
+    double forgetting_ci95 = 0.0;
     double training_time_ms = 0.0;
     double inference_time_us = 0.0;
     double samples_per_second = 0.0;

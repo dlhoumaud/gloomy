@@ -37,16 +37,20 @@ La matrice compare SGD, Momentum et Adam, les pertes MSE, MAE et Huber, et les c
 
 Une baseline `last_value_baseline` prédit la dernière valeur d'entrée. Pour chaque scénario à mémoire bornée, `mae_ratio_vs_full` donne `MAE du scénario / MAE full_dataset` sur le même seed, optimiseur et perte ; une valeur inférieure à `1` indique une MAE meilleure que la référence full dataset. Les colonnes de débit rapportent les exemples et updates par seconde. Les octets mémoire incluent une estimation des échantillons, des paramètres du réseau et de l'état de l'optimiseur ; ils ne représentent pas le pic RSS du processus.
 
-Trois fichiers sont produits à la racine : `benchmark_results.csv` rassemble la campagne, `benchmark_memory.csv` contient baseline et comparaisons mémoire, et `benchmark_forgetting.csv` contient l'expérience A → B avec/sans replay.
+Quatre fichiers sont produits à la racine : `benchmark_results.csv` rassemble la campagne, `benchmark_memory.csv` contient baseline et comparaisons mémoire, `benchmark_forgetting.csv` contient les expériences d'oubli, et `benchmark_drift.csv` contient le protocole A → B → A.
 
-Le runner ajoute aussi deux lignes d'expérience de catastrophic forgetting : `forgetting_no_replay` entraîne sur A puis B sans replay, tandis que `forgetting_fifo_replay` réentraîne périodiquement depuis la mémoire FIFO de A. Leur colonne `forgetting` suit la convention `performance_before - performance_after`; ici il s'agit d'une perte, donc une valeur négative signifie que la perte a augmenté après l'apprentissage de B.
+Le runner conserve deux lignes de comparaison A → B : `forgetting_no_replay` entraîne sur A puis B sans replay, tandis que `forgetting_fifo_replay` réentraîne périodiquement depuis la mémoire FIFO de A. Leur colonne `forgetting` suit la convention `perte_A_avant - perte_A_après`; une valeur négative signifie que la perte A a augmenté après l'apprentissage de B.
+
+Le protocole `concept_drift_a_b_a` entraîne sur A, bascule sur B, puis revient sur A. Il compare `no_replay`, FIFO, Reservoir, Prioritized, Novelty et Hybrid sur trois seeds. Chaque phase reçoit dix passages et le même nombre d'updates (50) pour chaque stratégie. La mémoire a une capacité de 64. Le CSV donne la MAE sur A après la première phase A, après B et après le retour à A, ainsi que la MAE sur B après B et après le retour à A.
+
+Pour ce protocole, `forgetting = MAE_A_après_A - MAE_A_après_B` : une valeur négative indique un oubli. `recovery = MAE_A_après_B - MAE_A_après_retour_A` : une valeur positive indique une récupération. Les lignes `mean` contiennent les moyennes, écarts-types et IC 95 % du forgetting et de la récupération sur les seeds. Ces résultats restent indicatifs : le scénario est synthétique et la dérive est une bascule nette entre deux fonctions.
 
 Cette campagne reste synthétique et sert à détecter des tendances, pas à établir un classement universel. Les poids du réseau restent en float64 ; les scénarios int16/int8 quantifient uniquement la mémoire d'apprentissage. Les temps et débits dépendent de la machine et ne doivent être comparés qu'à environnement constant.
 
 Pour contrôler les valeurs numériques sans faux positif sur l'en-tête `inference_time_us`, vérifier les colonnes de données plutôt que rechercher `inf` dans tout le fichier :
 
 ```bash
-awk -F, 'NR > 1 { for (i = 6; i <= 26; ++i) if (i != 7 && ($i == "" || $i != $i + 0)) exit 1 }' benchmark_results.csv
+awk -F, 'NR > 1 { for (i = 6; i <= 36; ++i) if (i != 7 && ($i == "" || $i != $i + 0)) exit 1 }' benchmark_results.csv
 ```
 
 ## Baseline obligatoire

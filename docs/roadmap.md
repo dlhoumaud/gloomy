@@ -141,7 +141,7 @@ Le runner benchmark compare actuellement :
 - mémoire d'apprentissage ;
 - MAE, RMSE et pertes.
 
-Il contient aussi une expérience synthétique de catastrophic forgetting avec et sans replay FIFO.
+Il contient aussi une expérience A → B de catastrophic forgetting et un protocole A → B → A sur trois seeds, avec et sans replay et plusieurs stratégies de mémoire.
 
 ## 3. Ce qui n'est pas encore fait
 
@@ -274,23 +274,11 @@ Le parseur actuel accepte des lignes `clé=valeur`, des lignes vides et des comm
 - mémoire par régimes ;
 - détection légère de concept drift ;
 - règles adaptatives explicites avant tout mécanisme appris ;
-- expériences A -> B -> A plus nombreuses et reproductibles.
+- dérives progressives ou alternances entre plus de deux régimes ; le protocole A -> B -> A initial est maintenant dans le benchmark.
 
 ### Priorité moyenne : benchmark scientifique
 
-Étendre le runner à :
-
-- capacités `32`, `64`, `128`, `256` ;
-- Novelty et Hybrid ;
-- float64, int16 et int8 sur les mêmes données ;
-- pertes MSE, MAE et Huber ;
-- plusieurs seeds ;
-- moyenne, écart-type et intervalles de confiance ;
-- baseline dernière valeur connue ;
-- ratio `performance_memory_limited / performance_full_dataset` ;
-- coût CPU et nombre d'opérations approximatif ;
-- samples/sec et updates/sec ;
-- fichiers CSV séparés par expérience.
+La première campagne est implémentée : capacités `32/64/128/256`, Novelty et Hybrid, précisions float64/int16/int8 pour les mémoires, pertes MSE/MAE/Huber, trois seeds, moyennes/écarts-types/IC 95 %, baseline dernière valeur, ratio MAE limité/full, débits et CSV séparés. Il reste à estimer le coût CPU par nombre d'opérations et à élargir les datasets au-delà du scénario synthétique.
 
 ### Priorité moyenne : compression et embarqué
 
@@ -321,7 +309,7 @@ Le parseur actuel accepte des lignes `clé=valeur`, des lignes vides et des comm
 3. Ajouter la persistance des mémoires et des paramètres de quantification — implémenté dans la section mémoire optionnelle de `GLOOMY_MODEL` pour les stratégies intégrées et FIFO int16/int8.
 4. Raccorder le chargement, l'entraînement et l'inférence au CLI — version initiale disponible avec `-f/--config`.
 5. Étendre les benchmarks aux capacités et stratégies restantes — matrice initiale ajoutée pour capacités 32/64/128/256, stratégies intégrées, trois pertes, trois optimiseurs, trois seeds et baseline dernière valeur.
-6. Ajouter des expériences reproductibles de concept drift et catastrophic forgetting.
+6. Étendre les expériences de concept drift — protocole A -> B -> A à trois seeds et six stratégies ajouté ; dérives progressives et plus de deux régimes restent à étudier.
 7. Optimiser les allocations et la représentation mémoire.
 8. Préparer le runtime embarqué et la quantification des poids.
 

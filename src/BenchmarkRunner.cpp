@@ -166,9 +166,9 @@ BenchmarkResult evaluate(
     return result;
 }
 
-using GroupKey = std::tuple<std::string, std::string, std::string, std::string, size_t>;
+using GroupKey = std::tuple<std::string, std::string, std::string, std::string, size_t, std::string>;
 GroupKey groupKey(const BenchmarkResult& row) {
-    return {row.memory_strategy, row.precision, row.optimizer, row.loss, row.memory_capacity};
+    return {row.memory_strategy, row.precision, row.optimizer, row.loss, row.memory_capacity, row.experiment};
 }
 
 std::vector<BenchmarkResult> addSeedSummaries(const std::vector<BenchmarkResult>& runs) {
@@ -186,6 +186,9 @@ std::vector<BenchmarkResult> addSeedSummaries(const std::vector<BenchmarkResult>
         const double denominator = static_cast<double>(rows.size());
         mean.training_loss = mean.validation_loss = mean.mae = mean.rmse = 0.0;
         mean.last_value_baseline_mae = mean.mae_ratio_vs_full = 0.0;
+        mean.phase_a_mae_after_a = mean.phase_a_mae_after_b = 0.0;
+        mean.phase_a_mae_after_recovery = mean.phase_b_mae_after_b = 0.0;
+        mean.phase_b_mae_after_recovery = mean.recovery = mean.forgetting = 0.0;
         mean.training_time_ms = mean.inference_time_us = 0.0;
         mean.samples_per_second = mean.updates_per_second = mean.memory_used_bytes = 0.0;
         mean.samples_stored = mean.parameter_updates = 0;
@@ -195,6 +198,12 @@ std::vector<BenchmarkResult> addSeedSummaries(const std::vector<BenchmarkResult>
             mean.mae += row.mae; mean.rmse += row.rmse;
             mean.last_value_baseline_mae += row.last_value_baseline_mae;
             mean.mae_ratio_vs_full += row.mae_ratio_vs_full;
+            mean.phase_a_mae_after_a += row.phase_a_mae_after_a;
+            mean.phase_a_mae_after_b += row.phase_a_mae_after_b;
+            mean.phase_a_mae_after_recovery += row.phase_a_mae_after_recovery;
+            mean.phase_b_mae_after_b += row.phase_b_mae_after_b;
+            mean.phase_b_mae_after_recovery += row.phase_b_mae_after_recovery;
+            mean.recovery += row.recovery; mean.forgetting += row.forgetting;
             mean.training_time_ms += row.training_time_ms;
             mean.inference_time_us += row.inference_time_us;
             mean.samples_per_second += row.samples_per_second;
@@ -206,6 +215,10 @@ std::vector<BenchmarkResult> addSeedSummaries(const std::vector<BenchmarkResult>
         mean.training_loss /= denominator; mean.validation_loss /= denominator;
         mean.mae /= denominator; mean.rmse /= denominator;
         mean.last_value_baseline_mae /= denominator; mean.mae_ratio_vs_full /= denominator;
+        mean.phase_a_mae_after_a /= denominator; mean.phase_a_mae_after_b /= denominator;
+        mean.phase_a_mae_after_recovery /= denominator; mean.phase_b_mae_after_b /= denominator;
+        mean.phase_b_mae_after_recovery /= denominator;
+        mean.recovery /= denominator; mean.forgetting /= denominator;
         mean.training_time_ms /= denominator; mean.inference_time_us /= denominator;
         mean.samples_per_second /= denominator; mean.updates_per_second /= denominator;
         mean.memory_used_bytes /= denominator;
@@ -221,6 +234,15 @@ std::vector<BenchmarkResult> addSeedSummaries(const std::vector<BenchmarkResult>
         mean.rmse_stddev = std::sqrt(rmse_variance / sample_denominator);
         mean.mae_ci95 = 1.96 * mean.mae_stddev / std::sqrt(denominator);
         mean.rmse_ci95 = 1.96 * mean.rmse_stddev / std::sqrt(denominator);
+        double forgetting_variance = 0.0, recovery_variance = 0.0;
+        for (const auto& row : rows) {
+            forgetting_variance += std::pow(row.forgetting - mean.forgetting, 2.0);
+            recovery_variance += std::pow(row.recovery - mean.recovery, 2.0);
+        }
+        mean.forgetting_stddev = std::sqrt(forgetting_variance / sample_denominator);
+        mean.recovery_stddev = std::sqrt(recovery_variance / sample_denominator);
+        mean.forgetting_ci95 = 1.96 * mean.forgetting_stddev / std::sqrt(denominator);
+        mean.recovery_ci95 = 1.96 * mean.recovery_stddev / std::sqrt(denominator);
         summaries.push_back(mean);
     }
     return summaries;
@@ -288,6 +310,110 @@ void runForgettingExperiment(std::vector<BenchmarkResult>& results) {
         row.memory_used_bytes = memory.size() * sampleBytes(regime_a.front()) + parameterBytes(network);
         results.push_back(row);
     }
+}
+
+std::vector<TrainingSample> makeConceptRegime(bool regime_a) {
+    std::vector<TrainingSample> samples;
+    samples.reserve(40);
+    for (size_t index = 0; index < 40; ++index) {
+        const double x = static_cast<double>(index) / 100.0;
+        samples.push_back({{x}, {(regime_a ? 2.0 : -2.0) * x + 1.0}});
+    }
+    return samples;
+}
+
+double datasetMae(NeuralNetwork& network, const std::vector<TrainingSample>& data) {
+    double total = 0.0;
+    for (const auto& sample : data) {
+        const auto prediction = network.forward(sample.input);
+        total += Metrics::regression(prediction, sample.target).mae;
+    }
+    return total / static_cast<double>(data.size());
+}
+
+double datasetRmse(NeuralNetwork& network, const std::vector<TrainingSample>& data) {
+    double squared_error = 0.0;
+    size_t value_count = 0;
+    for (const auto& sample : data) {
+        const auto prediction = network.forward(sample.input);
+        for (size_t index = 0; index < prediction.size(); ++index) {
+            const double error = prediction[index] - sample.target[index];
+            squared_error += error * error;
+            ++value_count;
+        }
+    }
+    return std::sqrt(squared_error / static_cast<double>(value_count));
+}
+
+void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
+    const auto regime_a = makeConceptRegime(true);
+    const auto regime_b = makeConceptRegime(false);
+    const std::vector<std::pair<std::string, std::string>> strategies = {
+        {"no_replay", "float64"}, {"fifo", "float64"}, {"reservoir", "float64"},
+        {"prioritized", "float64"}, {"novelty", "float64"}, {"hybrid", "float64"}
+    };
+    std::vector<BenchmarkResult> seed_runs;
+    for (std::uint32_t seed : seeds) {
+        for (const auto& strategy : strategies) {
+            std::srand(seed);
+            NeuralNetwork network = makeNetwork();
+            SGDOptimizer optimizer(0.01);
+            MSELoss loss;
+            LearningEngine engine(network, loss, optimizer);
+            std::unique_ptr<LearningMemory> memory;
+            EveryNScheduler scheduler(train_every);
+            if (strategy.first != "no_replay") {
+                std::vector<TrainingSample> calibration = regime_a;
+                calibration.insert(calibration.end(), regime_b.begin(), regime_b.end());
+                memory = makeMemory(strategy.first, "float64", 64, calibration);
+            }
+            auto trainPhase = [&](const std::vector<TrainingSample>& phase) {
+                if (!memory) {
+                    engine.train(phase, 10, replay_batch);
+                    return;
+                }
+                for (size_t epoch = 0; epoch < 10; ++epoch)
+                    for (const auto& sample : phase) engine.learn(*memory, sample, replay_batch, scheduler);
+            };
+
+            trainPhase(regime_a);
+            const double a_after_a = datasetMae(network, regime_a);
+            trainPhase(regime_b);
+            const double a_after_b = datasetMae(network, regime_a);
+            const double b_after_b = datasetMae(network, regime_b);
+            trainPhase(regime_a);
+            const double a_after_recovery = datasetMae(network, regime_a);
+            const double b_after_recovery = datasetMae(network, regime_b);
+
+            BenchmarkResult row;
+            row.experiment = "concept_drift_a_b_a";
+            row.memory_strategy = strategy.first;
+            row.precision = strategy.second;
+            row.optimizer = "sgd";
+            row.loss = "mse";
+            row.seed = static_cast<int>(seed);
+            row.memory_capacity = memory ? memory->capacity() : 0;
+            row.phase_a_mae_after_a = a_after_a;
+            row.phase_a_mae_after_b = a_after_b;
+            row.phase_a_mae_after_recovery = a_after_recovery;
+            row.phase_b_mae_after_b = b_after_b;
+            row.phase_b_mae_after_recovery = b_after_recovery;
+            row.forgetting = a_after_a - a_after_b;
+            row.recovery = a_after_b - a_after_recovery;
+            row.validation_loss = a_after_recovery;
+            row.mae = a_after_recovery;
+            row.rmse = datasetRmse(network, regime_a);
+            row.training_loss = datasetLoss(network, loss, regime_a);
+            row.samples_stored = memory ? memory->size() : 0;
+            row.parameter_updates = 3 * 10 * ((regime_a.size() + train_every - 1) / train_every);
+            row.memory_used_bytes = parameterBytes(network) + optimizerStateBytes(optimizer);
+            if (memory) row.memory_used_bytes += memory->size() * sampleBytes(regime_a.front());
+            seed_runs.push_back(row);
+        }
+    }
+    results.insert(results.end(), seed_runs.begin(), seed_runs.end());
+    const auto summaries = addSeedSummaries(seed_runs);
+    results.insert(results.end(), summaries.begin(), summaries.end());
 }
 }
 
@@ -376,14 +502,17 @@ int main() {
     const auto full_summaries = addSeedSummaries(full_runs);
     all_results.insert(all_results.end(), full_summaries.begin(), full_summaries.end());
     runForgettingExperiment(all_results);
+    runConceptDriftExperiment(all_results);
 
-    std::vector<BenchmarkResult> memory_results, forgetting_results;
+    std::vector<BenchmarkResult> memory_results, forgetting_results, drift_results;
     for (const auto& row : all_results) {
         if (row.experiment == "memory_replay" || row.experiment == "baseline") memory_results.push_back(row);
-        if (row.experiment == "catastrophic_forgetting") forgetting_results.push_back(row);
+        if (row.experiment == "catastrophic_forgetting" || row.experiment == "concept_drift_a_b_a") forgetting_results.push_back(row);
+        if (row.experiment == "concept_drift_a_b_a") drift_results.push_back(row);
     }
     BenchmarkCsv::write("benchmark_results.csv", all_results);
     BenchmarkCsv::write("benchmark_memory.csv", memory_results);
     BenchmarkCsv::write("benchmark_forgetting.csv", forgetting_results);
+    BenchmarkCsv::write("benchmark_drift.csv", drift_results);
     return 0;
 }
