@@ -37,8 +37,10 @@ void BenchmarkCsv::write(
         throw std::runtime_error("Unable to open benchmark CSV for writing");
     }
 
-    stream << "memory_strategy,precision,optimizer,training_loss,validation_loss,mae,rmse,"
-              "training_time_ms,inference_time_us,memory_used_bytes,samples_stored,"
+    stream << "memory_strategy,precision,optimizer,experiment,loss,seed,aggregation,memory_capacity,"
+              "training_loss,validation_loss,mae,rmse,mae_stddev,rmse_stddev,mae_ci95,rmse_ci95,"
+              "last_value_baseline_mae,mae_ratio_vs_full,training_time_ms,inference_time_us,"
+              "samples_per_second,updates_per_second,memory_used_bytes,samples_stored,"
               "parameter_updates,forgetting\n";
     stream << std::setprecision(17);
     for (const BenchmarkResult& result : results) {
@@ -47,12 +49,27 @@ void BenchmarkCsv::write(
         writeField(stream, result.precision);
         stream << ',';
         writeField(stream, result.optimizer);
-        stream << ',' << result.training_loss
+        stream << ',';
+        writeField(stream, result.experiment);
+        stream << ',';
+        writeField(stream, result.loss);
+        stream << ',' << result.seed << ',';
+        writeField(stream, result.aggregation);
+        stream << ',' << result.memory_capacity
+               << ',' << result.training_loss
                << ',' << result.validation_loss
                << ',' << result.mae
                << ',' << result.rmse
+               << ',' << result.mae_stddev
+               << ',' << result.rmse_stddev
+               << ',' << result.mae_ci95
+               << ',' << result.rmse_ci95
+               << ',' << result.last_value_baseline_mae
+               << ',' << result.mae_ratio_vs_full
                << ',' << result.training_time_ms
                << ',' << result.inference_time_us
+               << ',' << result.samples_per_second
+               << ',' << result.updates_per_second
                << ',' << result.memory_used_bytes
                << ',' << result.samples_stored
                << ',' << result.parameter_updates

@@ -320,7 +320,7 @@ Le parseur actuel accepte des lignes `clé=valeur`, des lignes vides et des comm
 2. Stabiliser la sérialisation unifiée du modèle — version 1 implémentée avec sections réseau, normalisation, optimiseur et mémoire optionnelle ; quantification des poids et métadonnées de runtime restent à intégrer.
 3. Ajouter la persistance des mémoires et des paramètres de quantification — implémenté dans la section mémoire optionnelle de `GLOOMY_MODEL` pour les stratégies intégrées et FIFO int16/int8.
 4. Raccorder le chargement, l'entraînement et l'inférence au CLI — version initiale disponible avec `-f/--config`.
-5. Étendre les benchmarks aux capacités et stratégies restantes.
+5. Étendre les benchmarks aux capacités et stratégies restantes — matrice initiale ajoutée pour capacités 32/64/128/256, stratégies intégrées, trois pertes, trois optimiseurs, trois seeds et baseline dernière valeur.
 6. Ajouter des expériences reproductibles de concept drift et catastrophic forgetting.
 7. Optimiser les allocations et la représentation mémoire.
 8. Préparer le runtime embarqué et la quantification des poids.
