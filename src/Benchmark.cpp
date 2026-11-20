@@ -91,3 +91,23 @@ void BenchmarkCsv::write(
         throw std::runtime_error("Unable to write benchmark CSV");
     }
 }
+
+void BenchmarkProfileCsv::write(
+    const std::string& path,
+    const std::vector<BenchmarkProfileResult>& results
+) {
+    std::ofstream stream(path, std::ios::trunc);
+    if (!stream) throw std::runtime_error("Unable to open benchmark profile CSV for writing");
+    stream << "workload,operation,iterations,mean_time_us,p50_time_us,p95_time_us,allocations_per_operation\n";
+    stream << std::setprecision(17);
+    for (const BenchmarkProfileResult& result : results) {
+        writeField(stream, result.workload); stream << ',';
+        writeField(stream, result.operation);
+        stream << ',' << result.iterations
+               << ',' << result.mean_time_us
+               << ',' << result.p50_time_us
+               << ',' << result.p95_time_us
+               << ',' << result.allocations_per_operation << '\n';
+    }
+    if (!stream) throw std::runtime_error("Unable to write benchmark profile CSV");
+}

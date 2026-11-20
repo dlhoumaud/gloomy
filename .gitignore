@@ -5,3 +5,4 @@ benchmark_results.csv
 benchmark_memory.csv
 benchmark_forgetting.csv
 benchmark_drift.csv
+benchmark_profile.csv

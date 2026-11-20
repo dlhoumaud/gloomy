@@ -44,11 +44,29 @@ struct BenchmarkResult {
     double forgetting = 0.0;
 };
 
+struct BenchmarkProfileResult {
+    std::string workload;
+    std::string operation;
+    size_t iterations = 0;
+    double mean_time_us = 0.0;
+    double p50_time_us = 0.0;
+    double p95_time_us = 0.0;
+    double allocations_per_operation = 0.0;
+};
+
 class BenchmarkCsv {
 public:
     static void write(
         const std::string& path,
         const std::vector<BenchmarkResult>& results
+    );
+};
+
+class BenchmarkProfileCsv {
+public:
+    static void write(
+        const std::string& path,
+        const std::vector<BenchmarkProfileResult>& results
     );
 };
 

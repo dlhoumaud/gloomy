@@ -18,8 +18,37 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <new>
 #include <tuple>
 #include <vector>
+
+namespace {
+bool count_allocations = false;
+size_t tracked_allocations = 0;
+volatile double profile_sink = 0.0;
+}
+
+void* operator new(std::size_t size) {
+    if (void* memory = std::malloc(size == 0 ? 1 : size)) {
+        if (count_allocations) ++tracked_allocations;
+        return memory;
+    }
+    throw std::bad_alloc();
+}
+
+void* operator new[](std::size_t size) {
+    if (void* memory = std::malloc(size == 0 ? 1 : size)) {
+        if (count_allocations) ++tracked_allocations;
+        return memory;
+    }
+    throw std::bad_alloc();
+}
+
+[[gnu::noinline]] void releaseAllocation(void* memory) noexcept { std::free(memory); }
+void operator delete(void* memory) noexcept { releaseAllocation(memory); }
+void operator delete[](void* memory) noexcept { releaseAllocation(memory); }
+void operator delete(void* memory, std::size_t) noexcept { releaseAllocation(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { releaseAllocation(memory); }
 
 namespace {
 constexpr size_t training_count = 400;
@@ -30,6 +59,74 @@ const std::vector<size_t> capacities = {32, 64, 128, 256};
 const std::vector<std::uint32_t> seeds = {1234u, 2027u, 4242u};
 const std::vector<std::string> optimizer_names = {"sgd", "momentum", "adam"};
 const std::vector<std::string> loss_names = {"mse", "mae", "huber"};
+
+std::vector<TrainingSample> makeDataset(size_t count, size_t start);
+NeuralNetwork makeNetwork();
+std::unique_ptr<Optimizer> makeOptimizer(const std::string& name);
+std::unique_ptr<LossFunction> makeLoss(const std::string& name);
+
+template <typename Operation>
+BenchmarkProfileResult profileOperation(
+    const std::string& workload,
+    const std::string& name,
+    size_t iterations,
+    Operation operation
+) {
+    for (size_t index = 0; index < 100; ++index) operation();
+
+    std::vector<double> latencies;
+    latencies.reserve(iterations);
+    double total_us = 0.0;
+    for (size_t index = 0; index < iterations; ++index) {
+        const auto start = std::chrono::steady_clock::now();
+        operation();
+        const auto end = std::chrono::steady_clock::now();
+        const double elapsed = std::chrono::duration<double, std::micro>(end - start).count();
+        latencies.push_back(elapsed);
+        total_us += elapsed;
+    }
+
+    tracked_allocations = 0;
+    count_allocations = true;
+    for (size_t index = 0; index < iterations; ++index) operation();
+    count_allocations = false;
+
+    std::sort(latencies.begin(), latencies.end());
+    const size_t p50_index = (latencies.size() - 1) / 2;
+    const size_t p95_index = static_cast<size_t>(std::ceil(0.95 * latencies.size())) - 1;
+    return {workload, name, iterations, total_us / iterations,
+        latencies[p50_index], latencies[p95_index],
+        static_cast<double>(tracked_allocations) / iterations};
+}
+
+std::vector<BenchmarkProfileResult> profileCoreOperations() {
+    const std::string workload = "dense_1_8_1_float64";
+    NeuralNetwork network = makeNetwork();
+    std::srand(1234u);
+    auto loss = makeLoss("mse");
+    auto optimizer = makeOptimizer("sgd");
+    LearningEngine engine(network, *loss, *optimizer);
+    const auto samples = makeDataset(replay_batch, 0);
+    FIFOMemory memory(64);
+    for (size_t index = 0; index < 64; ++index) memory.add(samples[index % samples.size()]);
+
+    std::vector<BenchmarkProfileResult> results;
+    results.push_back(profileOperation(workload, "forward", 10000, [&]() {
+        const auto output = network.forward(samples.front().input);
+        profile_sink += output.front();
+    }));
+    results.push_back(profileOperation(workload, "train_batch_update", 1000, [&]() {
+        profile_sink += engine.trainBatch(samples);
+    }));
+    results.push_back(profileOperation(workload, "memory_replay", 1000, [&]() {
+        profile_sink += engine.trainFromMemory(memory, replay_batch);
+    }));
+    results.push_back(profileOperation(workload, "minibatch_copy", 5000, [&]() {
+        const auto copied_batch = samples;
+        profile_sink += copied_batch.front().target.front();
+    }));
+    return results;
+}
 
 std::vector<TrainingSample> makeDataset(size_t count, size_t start) {
     std::vector<TrainingSample> samples;
@@ -419,6 +516,7 @@ void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
 }
 
 int main() {
+    const auto profile_results = profileCoreOperations();
     const auto training = makeDataset(training_count, 0);
     const auto validation = makeDataset(validation_count, training_count);
     const double baseline_mae = lastValueBaselineMae(validation);
@@ -515,5 +613,6 @@ int main() {
     BenchmarkCsv::write("benchmark_memory.csv", memory_results);
     BenchmarkCsv::write("benchmark_forgetting.csv", forgetting_results);
     BenchmarkCsv::write("benchmark_drift.csv", drift_results);
+    BenchmarkProfileCsv::write("benchmark_profile.csv", profile_results);
     return 0;
 }
