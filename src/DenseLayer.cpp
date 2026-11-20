@@ -180,6 +180,13 @@ const std::vector<double>& DenseLayer::biasGradients() const {
     return bias_gradients;
 }
 
+std::size_t DenseLayer::allocatedBytes() const {
+    return (weights_data.capacity() + weight_gradients.capacity() + bias_data.capacity() +
+        bias_gradients.capacity() + inputs.capacity() + preActivations.capacity() +
+        outputs.capacity() + gradient_after_activation.capacity() + gradient_inputs.capacity()) *
+        sizeof(double);
+}
+
 // Fonction d'activation Sigmoid
 double DenseLayer::sigmoid(double x) {
     return 1.0 / (1.0 + exp(-x));  // Sigmoid : 1 / (1 + exp(-x))

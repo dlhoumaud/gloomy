@@ -86,3 +86,9 @@ void NeuralNetwork::clear() {
     layers_data.clear();
 }
 
+std::size_t NeuralNetwork::allocatedBytes() const {
+    std::size_t bytes = sizeof(*this) + layers_data.capacity() * sizeof(DenseLayer);
+    for (const DenseLayer& layer : layers_data) bytes += layer.allocatedBytes();
+    return bytes;
+}
+

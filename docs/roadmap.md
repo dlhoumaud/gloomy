@@ -20,8 +20,6 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 
 ## 3. Réduire les coûts du pipeline de données et de mémoire
 
-- compléter la mesure mémoire avec les buffers transitoires du `LearningEngine` et le pic RSS du runtime ;
-- proposer des limites mémoire en octets, en tenant compte des métadonnées, paramètres de quantification et allocations ;
 - mesurer les compromis des stratégies de replay et des formats compacts sur des données représentatives.
 
 ## 4. Séparer les formats de persistance

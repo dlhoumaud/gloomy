@@ -70,6 +70,16 @@ size_t MomentumOptimizer::stateBytes() const {
     return count * sizeof(double);
 }
 
+size_t MomentumOptimizer::allocatedBytes() const {
+    size_t bytes = sizeof(*this) + states.capacity() * sizeof(LayerState);
+    for (const LayerState& state : states) {
+        bytes += state.weight_velocity.capacity() * sizeof(std::vector<double>);
+        for (const auto& row : state.weight_velocity) bytes += row.capacity() * sizeof(double);
+        bytes += state.bias_velocity.capacity() * sizeof(double);
+    }
+    return bytes;
+}
+
 std::string MomentumOptimizer::checkpointType() const { return "momentum"; }
 
 void MomentumOptimizer::writeCheckpoint(std::ostream& stream) const {

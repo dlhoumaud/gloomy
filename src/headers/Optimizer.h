@@ -17,6 +17,7 @@ public:
     virtual std::string checkpointType() const = 0;
     virtual void writeCheckpoint(std::ostream& stream) const = 0;
     virtual void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) = 0;
+    virtual std::size_t allocatedBytes() const { return 0; }
 };
 
 class SGDOptimizer final : public Optimizer {
@@ -32,6 +33,7 @@ public:
     std::string checkpointType() const override;
     void writeCheckpoint(std::ostream& stream) const override;
     void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) override;
+    std::size_t allocatedBytes() const override;
 
 private:
     double learning_rate;

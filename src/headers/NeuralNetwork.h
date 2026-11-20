@@ -29,6 +29,7 @@ public:
     const std::vector<DenseLayer>& layers() const;
     double predict(const std::vector<double>& sequence);
     void clear();
+    std::size_t allocatedBytes() const;
 
 private:
     std::vector<DenseLayer> layers_data;

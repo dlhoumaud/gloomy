@@ -38,6 +38,15 @@ LearningEngine::LearningEngine(
 )
     : network(network), loss(loss), optimizer(optimizer) {}
 
+size_t LearningEngine::allocatedBytes() const {
+    size_t bytes = sizeof(*this) + gradient_buffer.capacity() * sizeof(double) +
+        replay_entries.capacity() * sizeof(MemoryEntry);
+    for (const MemoryEntry& entry : replay_entries) {
+        bytes += trainingSampleDynamicBytes(entry.sample);
+    }
+    return bytes;
+}
+
 double LearningEngine::trainBatch(const std::vector<TrainingSample>& batch) {
     return trainBatchSamples(network, loss, optimizer, gradient_buffer, batch.size(),
         [&batch](size_t index) -> const TrainingSample& { return batch[index]; });

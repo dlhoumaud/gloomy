@@ -9,6 +9,7 @@
 #include "headers/MomentumOptimizer.h"
 #include "headers/NoveltyMemory.h"
 #include "headers/PrioritizedMemory.h"
+#include "headers/ProcessMemory.h"
 #include "headers/Quantization.h"
 #include "headers/QuantizedFIFOMemory.h"
 #include "headers/QuantizedInt8FIFOMemory.h"
@@ -53,6 +54,7 @@ struct RuntimeConfig {
     std::string memory_strategy = "fifo";
     std::string precision = "float64";
     size_t memory_capacity = 256;
+    size_t memory_budget_bytes = 0;
     double novelty_threshold = 1.0;
     double recent_ratio = 0.25;
     double error_ratio = 0.25;
@@ -118,6 +120,7 @@ void applyValue(RuntimeConfig& config, const std::string& key, const std::string
     else if (key == "memory_strategy") config.memory_strategy = value;
     else if (key == "precision") config.precision = value;
     else if (key == "memory_capacity") config.memory_capacity = parseSize(value, key);
+    else if (key == "memory_budget_bytes") config.memory_budget_bytes = parseSize(value, key);
     else if (key == "novelty_threshold") config.novelty_threshold = parseDouble(value, key);
     else if (key == "recent_ratio") config.recent_ratio = parseDouble(value, key);
     else if (key == "error_ratio") config.error_ratio = parseDouble(value, key);
@@ -159,7 +162,7 @@ RuntimeConfig readConfig(const std::string& path, int argc, char* argv[]) {
     for (int index = 3; index < argc; ++index) {
         const std::string option = argv[index];
         if (option == "--help" || option == "-h") {
-            std::cout << "Usage: gloomy -f CONFIG [--runtime MODE] [--model PATH] [--data PATH] [--input VALUES]\n";
+            std::cout << "Usage: gloomy -f CONFIG [--runtime MODE] [--model PATH] [--data PATH] [--input VALUES] [--memory-budget-bytes N]\n";
             std::exit(0);
         }
         if (index + 1 >= argc) throw std::invalid_argument("Missing value for option: " + option);
@@ -170,6 +173,7 @@ RuntimeConfig readConfig(const std::string& path, int argc, char* argv[]) {
         else if (option == "--input") applyValue(config, "input", value);
         else if (option == "--epochs") applyValue(config, "epochs", value);
         else if (option == "--batch-size") applyValue(config, "batch_size", value);
+        else if (option == "--memory-budget-bytes") applyValue(config, "memory_budget_bytes", value);
         else throw std::invalid_argument("Unknown config-mode option: " + option);
     }
     return config;
@@ -296,6 +300,54 @@ std::unique_ptr<LearningMemory> createMemory(
     return std::make_unique<HybridMemory>(c.memory_capacity, ratios, c.novelty_threshold, c.seed);
 }
 
+size_t capacityWithinByteBudget(
+    const RuntimeConfig& config,
+    size_t input_dimensions,
+    size_t target_dimensions
+) {
+    size_t fixed_bytes = 0;
+    size_t bytes_per_sample = 0;
+    size_t scratch_bytes_per_sample = 0;
+    if (config.precision == "int16") {
+        fixed_bytes = sizeof(QuantizedFIFOMemory);
+        bytes_per_sample = sizeof(QuantizedTrainingSample) +
+            (input_dimensions + target_dimensions) * sizeof(std::int16_t);
+    } else if (config.precision == "int8") {
+        fixed_bytes = sizeof(QuantizedInt8FIFOMemory);
+        bytes_per_sample = sizeof(Int8QuantizedTrainingSample) + input_dimensions + target_dimensions;
+    } else {
+        const size_t sample_bytes = sizeof(TrainingSample) +
+            (input_dimensions + target_dimensions) * sizeof(double);
+        if (config.memory_strategy == "fifo") {
+            fixed_bytes = sizeof(FIFOMemory);
+            bytes_per_sample = sample_bytes;
+        } else if (config.memory_strategy == "reservoir") {
+            fixed_bytes = sizeof(ReservoirMemory);
+            bytes_per_sample = sample_bytes;
+            scratch_bytes_per_sample = sizeof(size_t);
+        } else if (config.memory_strategy == "prioritized") {
+            fixed_bytes = sizeof(PrioritizedMemory);
+            bytes_per_sample = sample_bytes;
+            scratch_bytes_per_sample = sizeof(size_t) + sizeof(double);
+        } else if (config.memory_strategy == "novelty") {
+            fixed_bytes = sizeof(NoveltyMemory);
+            bytes_per_sample = sample_bytes;
+        } else {
+            fixed_bytes = sizeof(HybridMemory);
+            bytes_per_sample = sample_bytes + sizeof(size_t);
+            scratch_bytes_per_sample = sizeof(size_t);
+        }
+    }
+    if (bytes_per_sample > std::numeric_limits<size_t>::max() - scratch_bytes_per_sample)
+        throw std::invalid_argument("Memory budget dimensions overflow");
+    const size_t per_sample = bytes_per_sample + scratch_bytes_per_sample;
+    if (config.memory_budget_bytes <= fixed_bytes || per_sample == 0 ||
+        (config.memory_budget_bytes - fixed_bytes) / per_sample == 0) {
+        throw std::invalid_argument("memory_budget_bytes is too small for one replay sample");
+    }
+    return std::min(config.memory_capacity, (config.memory_budget_bytes - fixed_bytes) / per_sample);
+}
+
 std::unique_ptr<LossFunction> createLoss(const RuntimeConfig& c) {
     if (c.loss == "mae") return std::make_unique<MAELoss>();
     if (c.loss == "huber") return std::make_unique<HuberLoss>(c.huber_delta);
@@ -347,6 +399,11 @@ int run(const RuntimeConfig& config) {
         });
     }
 
+    if (memory && config.memory_budget_bytes > 0 &&
+        memory->allocatedBytes() > config.memory_budget_bytes) {
+        throw std::invalid_argument("Restored memory exceeds memory_budget_bytes");
+    }
+
     if (config.runtime == "inference") {
         std::vector<double> normalized_input;
         normalizer.normalizeInto(inference_input, normalized_input);
@@ -382,7 +439,12 @@ int run(const RuntimeConfig& config) {
             target_quantization = Int8Quantizer::calibrateRange(target_minimum, target_maximum);
         }
     }
-    if (!memory) memory = createMemory(config, input_quantization, target_quantization);
+    RuntimeConfig memory_config = config;
+    if (!memory && config.memory_budget_bytes > 0) {
+        memory_config.memory_capacity = capacityWithinByteBudget(
+            config, input_size, target_size);
+    }
+    if (!memory) memory = createMemory(memory_config, input_quantization, target_quantization);
     auto loss = createLoss(config);
     LearningEngine engine(network, *loss, *optimizer);
 
@@ -421,7 +483,11 @@ int run(const RuntimeConfig& config) {
         final_loss = accumulated / static_cast<double>(dataset_info.sample_count);
     }
     GloomyModelSerialization::save(config.model_path, network, normalizer, *optimizer, memory.get());
-    std::cerr << "loss=" << final_loss << " samples=" << dataset_info.sample_count << '\n';
+    const size_t retained_bytes = network.allocatedBytes() + optimizer->allocatedBytes() +
+        engine.allocatedBytes() + memory->allocatedBytes();
+    std::cerr << "loss=" << final_loss << " samples=" << dataset_info.sample_count
+              << " allocated_bytes=" << retained_bytes
+              << " peak_rss_bytes=" << peakResidentSetBytes() << '\n';
     return 0;
 }
 }

@@ -8,6 +8,7 @@
 #include "headers/MomentumOptimizer.h"
 #include "headers/NoveltyMemory.h"
 #include "headers/PrioritizedMemory.h"
+#include "headers/ProcessMemory.h"
 #include "headers/QuantizedFIFOMemory.h"
 #include "headers/QuantizedInt8FIFOMemory.h"
 #include "headers/ReservoirMemory.h"
@@ -134,6 +135,8 @@ std::vector<BenchmarkProfileResult> profileCoreOperations() {
         const auto copied_batch = samples;
         profile_sink += copied_batch.front().target.front();
     }));
+    const size_t peak_rss_bytes = peakResidentSetBytes();
+    for (BenchmarkProfileResult& result : results) result.process_peak_rss_bytes = peak_rss_bytes;
     return results;
 }
 
@@ -165,21 +168,6 @@ std::unique_ptr<LossFunction> makeLoss(const std::string& name) {
     if (name == "mae") return std::make_unique<MAELoss>();
     if (name == "huber") return std::make_unique<HuberLoss>(1.0);
     return std::make_unique<MSELoss>();
-}
-
-size_t optimizerStateBytes(const Optimizer& optimizer) {
-    if (const auto* momentum = dynamic_cast<const MomentumOptimizer*>(&optimizer)) return momentum->stateBytes();
-    if (const auto* adam = dynamic_cast<const AdamOptimizer*>(&optimizer)) return adam->stateBytes();
-    return 0;
-}
-
-size_t parameterBytes(const NeuralNetwork& network) {
-    size_t count = 0;
-    for (const DenseLayer& layer : network.layers()) {
-        count += layer.weightValues().size();
-        count += layer.bias().size();
-    }
-    return count * sizeof(double);
 }
 
 size_t sampleBytes(const TrainingSample& sample) {
@@ -221,6 +209,7 @@ double lastValueBaselineMae(const std::vector<TrainingSample>& validation) {
 BenchmarkResult evaluate(
     NeuralNetwork& network,
     Optimizer& optimizer,
+    const LearningEngine& engine,
     const LossFunction& loss,
     const std::vector<TrainingSample>& validation,
     const std::string& strategy,
@@ -266,7 +255,8 @@ BenchmarkResult evaluate(
         static_cast<double>(validation.size());
     result.samples_per_second = elapsed_seconds > 0.0 ? samples_processed / elapsed_seconds : 0.0;
     result.updates_per_second = elapsed_seconds > 0.0 ? updates / elapsed_seconds : 0.0;
-    result.memory_used_bytes = memory_bytes + parameterBytes(network) + optimizerStateBytes(optimizer);
+    result.memory_used_bytes = memory_bytes + network.allocatedBytes() +
+        optimizer.allocatedBytes() + engine.allocatedBytes();
     result.samples_stored = samples_stored;
     result.parameter_updates = updates;
     return result;
@@ -396,7 +386,8 @@ void runForgettingExperiment(std::vector<BenchmarkResult>& results) {
         row.precision = "float64"; row.optimizer = "sgd"; row.loss = "mse";
         row.seed = 1234; row.validation_loss = after; row.forgetting = Metrics::forgetting(before, after);
         row.samples_stored = regime_b.size(); row.parameter_updates = 160 * ((regime_a.size() + replay_batch - 1) / replay_batch);
-        row.memory_used_bytes = parameterBytes(network); results.push_back(row);
+        row.memory_used_bytes = network.allocatedBytes() + optimizer.allocatedBytes() + engine.allocatedBytes();
+        results.push_back(row);
     }
     {
         std::srand(1234);
@@ -413,7 +404,8 @@ void runForgettingExperiment(std::vector<BenchmarkResult>& results) {
         row.precision = "float64"; row.optimizer = "sgd"; row.loss = "mse";
         row.seed = 1234; row.validation_loss = after; row.forgetting = Metrics::forgetting(before, after);
         row.samples_stored = memory.size(); row.parameter_updates = 160 * ((regime_a.size() + replay_batch - 1) / replay_batch) + 20;
-        row.memory_used_bytes = memory.allocatedBytes() + parameterBytes(network);
+        row.memory_used_bytes = memory.allocatedBytes() + network.allocatedBytes() +
+            optimizer.allocatedBytes() + engine.allocatedBytes();
         results.push_back(row);
     }
 }
@@ -512,7 +504,7 @@ void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
             row.training_loss = datasetLoss(network, loss, regime_a);
             row.samples_stored = memory ? memory->size() : 0;
             row.parameter_updates = 3 * 10 * ((regime_a.size() + train_every - 1) / train_every);
-            row.memory_used_bytes = parameterBytes(network) + optimizerStateBytes(optimizer);
+            row.memory_used_bytes = network.allocatedBytes() + optimizer.allocatedBytes() + engine.allocatedBytes();
             if (memory) row.memory_used_bytes += memory->allocatedBytes();
             seed_runs.push_back(row);
         }
@@ -548,7 +540,7 @@ int main() {
                 const size_t updates = (training.size() + replay_batch - 1) / replay_batch;
                 const double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
                 const size_t memory_bytes = training.size() * sampleBytes(training.front());
-                BenchmarkResult row = evaluate(network, *optimizer, *loss, validation,
+                BenchmarkResult row = evaluate(network, *optimizer, engine, *loss, validation,
                     "full_dataset", "float64", optimizer_name, loss_name, static_cast<int>(seed),
                     training.size(), datasetLoss(network, *loss, training), elapsed_ms,
                     training.size(), training.size(), memory_bytes, updates, baseline_mae);
@@ -586,7 +578,7 @@ int main() {
                         const size_t updates = (training.size() + train_every - 1) / train_every;
                         const double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
                         const size_t memory_bytes = memory->allocatedBytes();
-                        BenchmarkResult row = evaluate(network, *optimizer, *loss, validation,
+                        BenchmarkResult row = evaluate(network, *optimizer, engine, *loss, validation,
                             variant.first, variant.second, optimizer_name, loss_name, static_cast<int>(seed),
                             capacity, datasetLoss(network, *loss, training), elapsed_ms,
                             training.size(), memory->size(), memory_bytes, updates, baseline_mae);

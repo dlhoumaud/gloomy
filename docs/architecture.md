@@ -47,10 +47,10 @@ Les stratégies mémoire intégrées peuvent remplir un tableau `MemoryEntry` fo
 
 Le calibrage des mémoires FIFO int16/int8 parcourt directement les entrées et cibles pour calculer leurs bornes min/max; il ne crée pas de vecteurs aplatis supplémentaires proportionnels à la taille du dataset.
 
-La capacité mémoire est généralement exprimée en nombre d'échantillons, pas en budget d'octets strict. `LearningMemory::allocatedBytes()` estime les allocations conservées pour les stratégies intégrées, y compris capacités des vecteurs et buffers de sélection; les implémentations externes qui n'ont pas cette mesure renvoient zéro (inconnu). L'estimation n'inclut pas les frais de l'allocateur ni toute la mémoire du processus.
+`LearningMemory::allocatedBytes()` estime les allocations conservées par les stratégies intégrées, y compris capacités des vecteurs et buffers de sélection; les implémentations externes qui n'ont pas cette mesure renvoient zéro (inconnu). Les mesures complémentaires de `NeuralNetwork`, `Optimizer` et `LearningEngine` incluent leurs principaux buffers dynamiques. Elles ne comptabilisent pas les frais de l'allocateur ni toute la mémoire du processus. Le runtime peut borner l'estimation replay avec `memory_budget_bytes` et rapporte aussi le pic RSS fourni par le système d'exploitation; ce budget n'est pas un plafond RSS strict.
 
 ## Priorité d'optimisation machine
 
-Le benchmark actuel mesure un temps moyen d'inférence par exemple, le temps total d'entraînement, les débits et une estimation mémoire. Il ne mesure ni les percentiles de latence, ni le pic RSS, ni l'énergie, ni le coût CPU sur une cible embarquée. La priorité de conception retenue est la latence et le coût CPU; les optimisations doivent être comparées avec la qualité prédictive et la mémoire.
+Le benchmark mesure un temps moyen d'inférence par exemple, le temps total d'entraînement, les débits, une estimation des allocations retenues et, dans le profil d'opérations, le pic RSS du processus. Il ne mesure ni l'énergie ni le coût CPU sur une cible embarquée. La priorité de conception retenue est la latence et le coût CPU; les optimisations doivent être comparées avec la qualité prédictive et la mémoire.
 
 Les couches stockent encore poids et activations avec des vecteurs dynamiques imbriqués en `double`. Le traitement du dataset n'est pas en flux et les poids ne sont pas quantifiés. Les buffers contigus, la réutilisation des buffers et les mesures sur matériel cible restent à évaluer.

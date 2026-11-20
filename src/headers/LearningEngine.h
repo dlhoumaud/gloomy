@@ -35,6 +35,7 @@ public:
         size_t epochs,
         size_t batch_size
     );
+    size_t allocatedBytes() const;
 
 private:
     double trainBatchRange(

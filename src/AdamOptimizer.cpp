@@ -101,6 +101,19 @@ size_t AdamOptimizer::stateBytes() const {
     return count * sizeof(double);
 }
 
+size_t AdamOptimizer::allocatedBytes() const {
+    size_t bytes = sizeof(*this) + states.capacity() * sizeof(LayerState);
+    for (const LayerState& state : states) {
+        bytes += state.first_moment.capacity() * sizeof(std::vector<double>);
+        bytes += state.second_moment.capacity() * sizeof(std::vector<double>);
+        for (const auto& row : state.first_moment) bytes += row.capacity() * sizeof(double);
+        for (const auto& row : state.second_moment) bytes += row.capacity() * sizeof(double);
+        bytes += state.bias_first_moment.capacity() * sizeof(double);
+        bytes += state.bias_second_moment.capacity() * sizeof(double);
+    }
+    return bytes;
+}
+
 std::string AdamOptimizer::checkpointType() const { return "adam"; }
 
 void AdamOptimizer::writeCheckpoint(std::ostream& stream) const {

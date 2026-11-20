@@ -52,6 +52,7 @@ struct BenchmarkProfileResult {
     double p50_time_us = 0.0;
     double p95_time_us = 0.0;
     double allocations_per_operation = 0.0;
+    std::size_t process_peak_rss_bytes = 0;
 };
 
 class BenchmarkCsv {

@@ -32,4 +32,4 @@ Le CLI historique `./bin/gloomy "10.5 11.0 12.3" -c 1 -l 2 -n 8 -a tanh` est dé
 
 ## Mesures et portée
 
-`make test` exécute les tests existants; `make benchmark` lance les scénarios synthétiques reproductibles décrits dans [benchmark](benchmark.md). La latence et le débit dépendent de la machine. Le benchmark ne mesure ni pic RSS, ni énergie, ni performances sur matériel embarqué.
+`make test` exécute les tests existants; `make benchmark` lance les scénarios synthétiques reproductibles décrits dans [benchmark](benchmark.md), dont le profil inclut le pic RSS du processus. La latence et le débit dépendent de la machine. Le benchmark ne mesure ni énergie, ni performances sur matériel embarqué.

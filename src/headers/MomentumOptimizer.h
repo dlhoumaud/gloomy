@@ -20,6 +20,7 @@ public:
     std::string checkpointType() const override;
     void writeCheckpoint(std::ostream& stream) const override;
     void readCheckpoint(std::istream& stream, const std::vector<DenseLayer>& layers) override;
+    size_t allocatedBytes() const override;
 
 private:
     struct LayerState {

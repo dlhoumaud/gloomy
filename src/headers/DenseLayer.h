@@ -92,6 +92,7 @@ public:
     ConstDenseMatrixView weightGradients() const;
     const std::vector<double>& weightGradientValues() const;
     const std::vector<double>& biasGradients() const;
+    std::size_t allocatedBytes() const;
     double sigmoid_derivative(double x);
 
 private:

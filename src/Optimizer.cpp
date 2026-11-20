@@ -56,3 +56,7 @@ void SGDOptimizer::readCheckpoint(std::istream& stream, const std::vector<DenseL
         throw std::runtime_error("Unexpected optimizer checkpoint data");
     learning_rate = restored_rate;
 }
+
+std::size_t SGDOptimizer::allocatedBytes() const {
+    return sizeof(*this);
+}
