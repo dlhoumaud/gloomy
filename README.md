@@ -1,128 +1,59 @@
-# Réseau de Neurones en C++ - Gloomy
+# Gloomy
 
-## Description
-Gloomy est un moteur de réseau neuronal dense écrit en C++. Il supporte la propagation avant, la rétropropagation, la perte MSE, l'optimiseur SGD, l'entraînement par mini-batches et une première mémoire d'apprentissage FIFO bornée.
+Gloomy est un moteur expérimental de réseaux neuronaux denses en C++17, avec apprentissage batch et online, replay mémoire, persistance de modèles et benchmark synthétique. Le runtime configuré est le chemin prévu pour entraîner, reprendre et utiliser un modèle. Le CLI historique est conservé comme démonstration d'inférence et ne doit pas être interprété comme un entraînement de série temporelle.
 
-## Fonctionnalités
+## Capacités actuelles
 
-- **Types de couches** : Couches denses (entièrement connectées)
-- **Fonctions d'activation** :
-  - Sigmoid
-  - ReLU
-  - Leaky ReLU
-  - Tanh
-  - Leurs dérivées (pour la rétropropagation)
-- **Post-activation** : Softmax
-- **Interface en ligne de commande** pour interagir avec le modèle :
-  - Définir la séquence d'entrée
-  - Spécifier le nombre de prédictions, de couches, de neurones, de fonctions d'activation, etc.
+- couches Dense, rétropropagation, activations `none`, `sigmoid`, `relu`, `leaky_relu`, `tanh` et softmax final ;
+- pertes MSE, MAE et Huber; optimiseurs SGD, Momentum et Adam ;
+- mémoires FIFO, Reservoir, Prioritized, Novelty et Hybrid, avec replay et scheduler ;
+- mémoire FIFO expérimentale en int16/int8; les poids du réseau restent en float64 ;
+- normalisation streaming et format de modèle `GLOOMY_MODEL` avec réseau, normalisation, état d'optimiseur et mémoire optionnelle ;
+- benchmark synthétique avec métriques de qualité, temps et estimation mémoire.
 
-## Prérequis
+## Prérequis et compilation
 
-- **Compilateur C++** : Le code est compatible avec C++17 et versions ultérieures.
-- **Bibliothèques** :
-  - Le projet ne nécessite aucune bibliothèque externe, tout est implémenté avec les bibliothèques standard de C++.
-- **Outil de compilation** : Make (pour faciliter la compilation)
-
-## Installation des dépendances
-
-```bash
-sudo apt update && sudo apt install g++ make
-```
-
-## Compilation et Utilisation
-
-### 1. Cloner le dépôt
+Le projet utilise un compilateur C++17 (g++) et Make, sans dépendance C++ externe. Sur Debian/Ubuntu, installer les outils avec `sudo apt install g++ make`.
 
 ```bash
 git clone https://github.com/dlhoumaud/gloomy.git
 cd gloomy
 ```
 
-### 2. Compiler le code
-
-Vous pouvez compiler le projet avec `make` (assurez-vous que `make` est installé) :
-
 ```bash
 make
+make test
+make benchmark
 ```
 
-Cela générera l'exécutable `gloomy` dans le répertoire `bin/`.
+`make benchmark` exécute une campagne synthétique et écrit des CSV ignorés par Git. Ces résultats servent à comparer des variantes dans un environnement donné, pas à établir un classement universel ni à prédire les performances sur une cible embarquée.
 
-### 3. Exécuter le programme
+## Runtime configuré
 
-Pour utiliser le programme, vous pouvez spécifier une séquence de valeurs d'entrée et divers paramètres via la ligne de commande.
-
-Exemple d'utilisation :
-
-```bash
-./bin/gloomy "10.5 11.0 12.3" -c 3 -l 2 -n 4 -a sigmoid
-```
-
-Le CLI configuré charge et sauvegarde un modèle complet, et permet l'entraînement depuis un fichier de paires entrée/cible :
+Le runtime configuré accepte un fichier de configuration et expose les modes `training`, `online_learning` et `inference` :
 
 ```bash
 ./bin/gloomy -f gloomy.config
 ```
 
-Voir [`docs/configurations.md`](docs/configurations.md) pour les modes runtime et le format du dataset.
+Le format de configuration, le dataset et les options de surcharge sont décrits dans [`docs/configurations.md`](docs/configurations.md). Une configuration minimale d'inférence référence un modèle existant et fournit `runtime=inference` et `input=...`.
 
-#### Arguments
+## Démonstration CLI historique
 
-- **`<sequence_values>`** : Liste de valeurs séparées par des espaces (ex : `"10.5 11.0 12.3"`).
-- **`-c C`** : Nombre de prédictions à générer (par défaut 1).
-- **`-l L`** : Nombre de couches cachées (par défaut 2).
-- **`-n N`** : Nombre de neurones par couche cachée (par défaut 2).
-- **`-a [none|sigmoid|sigmoid_derivative|relu|leaky_relu|tanh|tanh_derivative]`** : Fonction d'activation (par défaut `none`).
-- **`-A [none|softmax]`** : Fonction de post-activation (par défaut `none`).
-- **`-h`** : Affiche l'aide.
-
-#### Exemple de sortie
+Ce chemin crée un réseau neuf à chaque prédiction successive; il ne charge ni n'entraîne un modèle persistant. Il est conservé pour la démonstration :
 
 ```bash
-0.1258
-0.1423
-0.1579
-0.1725
-0.1850
+./bin/gloomy "10.5 11.0 12.3" -c 3 -l 2 -n 4 -a sigmoid
 ```
 
-Ce sont les prédictions générées en fonction de la séquence d'entrée donnée.
+- `<sequence_values>` : valeurs d'entrée séparées par des espaces ;
+- `-c C` : nombre de prédictions (défaut `1`) ;
+- `-l L` : couches cachées (défaut `2`) ;
+- `-n N` : neurones par couche cachée (défaut `2`) ;
+- `-a A` : activation ;
+- `-A A` : post-activation (`none` ou `softmax`) ;
+- `-h` : aide.
 
-## Documentation détaillée
+## Documentation
 
-La documentation complète se trouve dans [`docs/README.md`](docs/README.md). Le suivi détaillé des fonctionnalités réalisées et des prochaines étapes se trouve dans [`docs/roadmap.md`](docs/roadmap.md).
-
-## Aperçu du Code
-
-### Architecture du Réseau de Neurones
-
-L'architecture du réseau de neurones consiste en des couches entièrement connectées, chaque couche étant représentée par la classe `DenseLayer`. Cette classe gère l'initialisation des poids, la propagation avant des entrées et l'application de la fonction d'activation sélectionnée.
-
-### Classes principales
-
-- **DenseLayer** : Représente une couche dans le réseau de neurones. Elle gère l'initialisation des poids, la propagation avant et l'application des fonctions d'activation.
-- **NeuralNetwork** : Encapsule le réseau de neurones, permettant l'ajout de couches et la prédiction des résultats.
-- **Main** : Le point d'entrée de l'application, qui gère le parsing des entrées, la configuration du réseau de neurones et l'affichage des résultats.
-
-### Fonctions d'Activation
-
-- **Sigmoid** : `1 / (1 + exp(-x))`
-- **ReLU** : `max(0, x)`
-- **Leaky ReLU** : `alpha * x si x < 0 sinon x` (alpha par défaut = 0.01)
-- **Tanh** : `tanh(x)`
-- **Softmax** : Convertit les sorties en une distribution de probabilité.
-
-### Flux d'Exécution
-
-1. Les valeurs d'entrée sont extraites des arguments en ligne de commande.
-2. Le réseau de neurones est configuré avec le nombre spécifié de couches, de neurones et de fonctions d'activation.
-3. Le réseau effectue des prédictions basées sur les valeurs d'entrée et affiche les résultats.
-
-## Contribution
-
-Si vous souhaitez contribuer à ce projet, n'hésitez pas à forker le dépôt, effectuer vos modifications et soumettre une pull request.
-
-### Licence
-
-Ce projet est sous licence MIT.
+Commencer par [`docs/README.md`](docs/README.md). Les fonctionnalités livrées figurent dans [`CHANGELOG.md`](CHANGELOG.md); seuls les travaux à venir figurent dans [`docs/roadmap.md`](docs/roadmap.md).

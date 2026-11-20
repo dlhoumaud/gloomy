@@ -17,13 +17,13 @@
 - nombre de mises à jour ;
 - forgetting.
 
-`BenchmarkCsv::write()` exporte une collection de résultats dans un CSV. Les trois premières colonnes conservent l'ordre historique pour les outils qui lisent déjà ce fichier :
+`BenchmarkCsv::write()` exporte une collection de résultats dans un CSV. Les trois premières colonnes conservent l'ordre historique pour les outils qui lisent déjà ces fichiers :
 
 ```cpp
 BenchmarkCsv::write("results.csv", results);
 ```
 
-Les champs textuels sont échappés selon les règles CSV. Le composant n'exécute pas encore automatiquement les configurations : il fournit le format de sortie commun que le futur runner pourra remplir.
+Les champs textuels sont échappés selon les règles CSV. Le runner implémenté dans `src/BenchmarkRunner.cpp` produit les scénarios décrits ci-dessous.
 
 ## Runner actuel
 
@@ -35,7 +35,7 @@ make benchmark
 
 La matrice compare SGD, Momentum et Adam, les pertes MSE, MAE et Huber, et les capacités `32`, `64`, `128` et `256`. Elle couvre FIFO, Reservoir, Prioritized, Novelty, Hybrid et FIFO quantifié int16/int8. Le dataset contient `400` exemples d'entraînement et `80` de validation ; les scénarios utilisent des updates par batch de `8` exemples. Les lignes brutes sont suivies de lignes `mean` avec moyenne, écart-type et intervalle de confiance à 95 % sur les trois seeds.
 
-Une baseline `last_value_baseline` prédit la dernière valeur d'entrée. Pour chaque scénario à mémoire bornée, `mae_ratio_vs_full` donne `MAE du scénario / MAE full_dataset` sur le même seed, optimiseur et perte ; une valeur inférieure à `1` indique une MAE meilleure que la référence full dataset. Les colonnes de débit rapportent les exemples et updates par seconde. Les octets mémoire incluent une estimation des échantillons, des paramètres du réseau et de l'état de l'optimiseur ; ils ne représentent pas le pic RSS du processus.
+Une baseline `last_value_baseline` prédit la dernière valeur d'entrée. Pour chaque scénario à mémoire bornée, `mae_ratio_vs_full` donne `MAE du scénario / MAE full_dataset` sur le même seed, optimiseur et perte ; une valeur inférieure à `1` indique une MAE meilleure que la référence full dataset. `inference_time_us` est le temps moyen par exemple de la boucle d'évaluation, qui comprend prédiction, perte et métriques; ce n'est pas une mesure isolée du seul appel `forward()`. Les colonnes de débit rapportent les exemples et updates par seconde dans la boucle chronométrée. Les octets mémoire sont une estimation des échantillons stockés, des paramètres du réseau et de l'état de l'optimiseur; ils n'incluent pas le coût complet des conteneurs/allocations et ne représentent pas le pic RSS du processus.
 
 Quatre fichiers sont produits à la racine : `benchmark_results.csv` rassemble la campagne, `benchmark_memory.csv` contient baseline et comparaisons mémoire, `benchmark_forgetting.csv` contient les expériences d'oubli, et `benchmark_drift.csv` contient le protocole A → B → A.
 
@@ -45,13 +45,7 @@ Le protocole `concept_drift_a_b_a` entraîne sur A, bascule sur B, puis revient 
 
 Pour ce protocole, `forgetting = MAE_A_après_A - MAE_A_après_B` : une valeur négative indique un oubli. `recovery = MAE_A_après_B - MAE_A_après_retour_A` : une valeur positive indique une récupération. Les lignes `mean` contiennent les moyennes, écarts-types et IC 95 % du forgetting et de la récupération sur les seeds. Ces résultats restent indicatifs : le scénario est synthétique et la dérive est une bascule nette entre deux fonctions.
 
-Cette campagne reste synthétique et sert à détecter des tendances, pas à établir un classement universel. Les poids du réseau restent en float64 ; les scénarios int16/int8 quantifient uniquement la mémoire d'apprentissage. Les temps et débits dépendent de la machine et ne doivent être comparés qu'à environnement constant.
-
-Pour contrôler les valeurs numériques sans faux positif sur l'en-tête `inference_time_us`, vérifier les colonnes de données plutôt que rechercher `inf` dans tout le fichier :
-
-```bash
-awk -F, 'NR > 1 { for (i = 6; i <= 36; ++i) if (i != 7 && ($i == "" || $i != $i + 0)) exit 1 }' benchmark_results.csv
-```
+Cette campagne reste synthétique et sert à détecter des tendances, pas à établir un classement universel. Les poids du réseau restent en float64; les scénarios int16/int8 quantifient uniquement les vecteurs de la mémoire FIFO. Les temps et débits dépendent de la machine et ne doivent être comparés qu'à environnement constant. La campagne ne mesure ni pic RSS, ni énergie, ni percentiles de latence, ni coût CPU théorique ou performances sur matériel embarqué.
 
 ## Baseline obligatoire
 
@@ -59,4 +53,4 @@ Chaque campagne devrait inclure une référence `full_dataset`, puis comparer le
 
 Le ratio MAE limité/full est calculé directement pour chaque stratégie, seed, optimiseur et perte.
 
-Les résultats doivent aussi distinguer `float32`, `int16` et `int8` lorsque ces formats seront disponibles. La métrique composite performance/mémoire/CPU pourra être étudiée plus tard, mais les colonnes brutes doivent rester la référence pour éviter de masquer les compromis.
+Les résultats bruts restent la référence pour éviter de masquer les compromis. Les prochains benchmarks utiles pour la priorité latence/CPU devront ajouter des workloads représentatifs et des mesures sur cible, en conservant séparément les métriques de qualité, mémoire, temps et débit. Les précisions `float32` pour les poids et `int8` pour les poids/calcul ne sont pas encore disponibles.

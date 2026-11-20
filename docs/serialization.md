@@ -25,9 +25,9 @@ const std::vector<TrainingSample> restored =
 
 Le lecteur vérifie le magic, la version, les tailles maximales et les lectures complètes. Les fichiers tronqués, incompatibles ou contenant des tailles excessives sont refusés.
 
-## Limites et évolution
+## Formats autonomes et format de modèle
 
-Ce premier format d'échantillons ne sauvegarde pas encore l'état de l'optimiseur, les paramètres de quantification ou les statistiques de normalisation dans le même fichier. Ces composants disposent toutefois maintenant de sérialiseurs séparés.
+`TrainingSampleSerialization` est un format autonome d'échantillons; il n'est pas le format de reprise complet. Les composants réseau, normalisation et optimiseur disposent aussi de sérialiseurs autonomes.
 
 `GloomyModelSerialization` fournit le premier format unifié `GLOOMY_MODEL` versionné :
 
@@ -57,7 +57,9 @@ GloomyModelSerialization::load("model.gloomy", network, normalizer, optimizer, &
 
 FIFO, Reservoir, Prioritized, Novelty, Hybrid, FIFO int16 et FIFO int8 sont pris en charge. Reservoir, Prioritized et Hybrid sauvegardent l'état de leur générateur pseudo-aléatoire. Les mémoires quantifiées préservent leurs paramètres de calibration et les valeurs entières encodées. Les implémentations personnalisées de `LearningMemory` ne sont pas encore sérialisables.
 
-Le chargement valide toutes les sections et prépare le réseau, le normaliseur et la mémoire avant de restaurer l'optimiseur et de remplacer les objets cibles. Le type d'optimiseur doit correspondre à l'instance fournie, et les dimensions du normaliseur doivent correspondre aux entrées du réseau. Une normalisation sans observation ne peut pas être sauvegardée.
+Le chargement vérifie le checksum, la version, les sections, le type d'optimiseur et la cohérence des dimensions. Il prépare le réseau, le normaliseur et la mémoire avant de remplacer ces objets, puis restaure l'état d'optimiseur compatible. Une normalisation sans observation ne peut pas être sauvegardée.
+
+Le format est conçu comme checkpoint de reprise, pas comme artefact d'inférence minimal : la section `OPTIMIZER` est requise même en mode inference, et le lecteur reçoit une instance du type d'optimiseur correspondant. Une mémoire peut être omise à la sauvegarde; lorsqu'elle est présente, elle peut être chargée pour une reprise d'entraînement. Un format allégé sans état d'entraînement reste à concevoir.
 
 ## Réseau neuronal
 
@@ -68,7 +70,7 @@ NetworkSerialization::save("model.gloomy", network);
 NetworkSerialization::load("model.gloomy", restored_network);
 ```
 
-Le chargement reconstruit et valide le réseau dans un objet temporaire avant de remplacer l'objet cible. Le format réseau séparé est versionné, protégé par un checksum FNV-1a et refuse les magic, versions, dimensions incohérentes, paramètres non finis, corruptions, données surnuméraires ou fichiers tronqués invalides. Pour sauvegarder ensemble le réseau, la normalisation et l'optimiseur, utiliser le format `GLOOMY_MODEL`.
+Le chargement reconstruit et valide le réseau dans un objet temporaire avant de remplacer l'objet cible. Le format réseau séparé est versionné, protégé par un checksum FNV-1a et refuse les magic, versions, dimensions incohérentes, paramètres non finis, corruptions, données surnuméraires ou fichiers tronqués. Pour sauvegarder ensemble le réseau, la normalisation et l'optimiseur, utiliser le format `GLOOMY_MODEL`.
 
 ## Normalisation
 
@@ -85,7 +87,7 @@ Le fichier est entièrement lu dans des buffers temporaires et toutes les statis
 
 ## Optimiseur
 
-`OptimizerSerialization` sauvegarde le type d'optimiseur, ses hyperparamètres et ses buffers (vitesses Momentum, moments et compteur d'updates Adam). Le checkpoint possède son propre magic, sa version et son checksum. Il doit être chargé dans une instance du même type, après avoir restauré le réseau ; les formes de couches sont vérifiées avant la restauration.
+`OptimizerSerialization` sauvegarde le type d'optimiseur, ses hyperparamètres et ses buffers (vitesses Momentum, moments et compteur d'updates Adam). Le checkpoint autonome possède son propre magic, sa version et son checksum. Il doit être chargé dans une instance du même type, après avoir restauré le réseau; les formes de couches sont vérifiées avant la restauration. Le format `GLOOMY_MODEL` utilise ce contrat d'état dans sa section `OPTIMIZER`.
 
 ```cpp
 OptimizerSerialization::save("optimizer.bin", optimizer);

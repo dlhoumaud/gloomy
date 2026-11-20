@@ -1,6 +1,6 @@
 # Fonctions de perte
 
-Toutes les pertes implémentent l'abstraction `LossFunction` avec `compute(prediction, target)` et `gradient(prediction, target)`.
+Toutes les pertes implémentent l'abstraction `LossFunction` avec `compute(prediction, target)` et `gradient(prediction, target)`. Le runtime configuré les sélectionne avec `loss=mse`, `loss=mae` ou `loss=huber`.
 
 ## MSE
 

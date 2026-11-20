@@ -28,9 +28,9 @@ Les vecteurs vides et les valeurs non finies sont refusés. Un vecteur constant 
 
 ## Coût et limites
 
-Le stockage des valeurs passe de 8 octets par `double` à 2 octets par valeur, hors paramètres de quantification. Cette première version quantifie des vecteurs indépendants ; elle ne quantifie pas encore les poids, les `TrainingSample` complets ou les buffers internes du réseau.
+Le stockage des valeurs passe de 8 octets par `double` à 2 octets par valeur, hors paramètres de quantification. Le quantizer encode des vecteurs; `TrainingSampleQuantizer` encode ensemble les vecteurs `input` et `target` et conserve les métadonnées en précision native. Les poids et buffers internes du réseau ne sont pas quantifiés.
 
-La quantification introduit une erreur d'arrondi et peut saturer les valeurs hors de la plage de calibration. Il faut donc mesurer l'impact sur MAE/RMSE avant de l'utiliser pour l'entraînement online. L'étape recommandée est de conserver les poids float32 et de quantifier d'abord la mémoire d'apprentissage.
+La quantification introduit une erreur d'arrondi et peut saturer les valeurs hors de la plage de calibration. Il faut mesurer son impact sur MAE/RMSE avant de l'utiliser pour l'entraînement online. Les poids restent actuellement en float64; les quantifier est un travail distinct.
 
 ## TrainingSample
 
@@ -45,13 +45,13 @@ const TrainingSample restored = quantizer.decode(compact);
 
 Les paramètres de quantification sont calibrés sur l'ensemble des échantillons fourni, puis réutilisés pour les encodages suivants. Les métadonnées d'apprentissage (`priority`, `error`, `age`, `usage_count`, etc.) sont conservées en précision native dans cette première version.
 
-Ce codec est prêt à être utilisé par une mémoire compacte, mais les stratégies `FIFO`, `Reservoir`, `Prioritized`, `Novelty` et `Hybrid` stockent encore des `double` directement. Leur remplacement par un stockage quantifié sera une étape distincte, nécessaire pour garantir un vrai `memory_budget_bytes`.
+Ce codec est utilisé par `QuantizedFIFOMemory` (int16) et `QuantizedInt8FIFOMemory` (int8). Les stratégies Reservoir, Prioritized, Novelty et Hybrid stockent encore leurs vecteurs en `double`. Les métadonnées de toutes les mémoires restent en précision native.
 
 ## Quantification int8
 
 `Int8Quantizer` applique la même représentation affine avec une plage `[-128, 127]`. À nombre de valeurs égal, le stockage brut passe à 1 octet par valeur, mais le pas `scale` est plus grand qu'en int16 et l'erreur de reconstruction peut donc augmenter.
 
-Les résultats int8 doivent être comparés sur les mêmes valeurs de calibration que int16, avec MAE et RMSE mesurées après déquantification. Le codec int8 est disponible pour les vecteurs ; il n'est pas encore utilisé par une mémoire compacte dédiée.
+Les résultats int8 doivent être comparés sur les mêmes valeurs de calibration que int16, avec MAE et RMSE mesurées après déquantification. Le codec int8 est utilisé par la mémoire FIFO int8; les autres stratégies n'ont pas de stockage compact int8.
 
 ## Mémoire FIFO quantifiée
 
@@ -61,10 +61,10 @@ Les résultats int8 doivent être comparés sur les mêmes valeurs de calibratio
 - `memoryUsedBytes()` : occupation des échantillons actuellement stockés ;
 - `capacity()` : nombre maximal d'échantillons.
 
-Les paramètres `scale` et `zero_point` ne sont pas dupliqués par échantillon. Ils doivent être conservés avec le modèle ou l'état de la mémoire lors de la future sérialisation. Cette mémoire constitue la première base concrète pour tester des budgets comme `4 KB`, `8 KB` ou `16 KB`.
+Les paramètres `scale` et `zero_point` ne sont pas dupliqués par échantillon. Ils sont conservés dans la sérialisation de la mémoire incluse dans `GLOOMY_MODEL`. `memoryUsedBytes()` estime l'espace des échantillons encodés et leurs métadonnées; il ne représente pas le pic RSS ni l'ensemble des allocations du processus.
 
 ## Mémoire FIFO int8
 
 `QuantizedInt8FIFOMemory` applique le même principe avec 1 octet par valeur quantifiée. Elle expose également `bytesPerSample()` et `memoryUsedBytes()`, ce qui permet de comparer directement les budgets int16 et int8 pour une même capacité.
 
-Le gain mémoire concerne uniquement les vecteurs `input` et `target` ; les métadonnées restent en précision native. La perte de précision doit être mesurée après déquantification avant de choisir int8 pour un entraînement online.
+Le gain mémoire concerne uniquement les valeurs des vecteurs `input` et `target`; les métadonnées restent en précision native. La perte de précision doit être mesurée après déquantification avant de choisir int8 pour un entraînement online. Dans le runtime configuré, les précisions int16/int8 sont réservées à la stratégie FIFO.

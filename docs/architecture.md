@@ -1,10 +1,27 @@
-# Couches et neurones
+# Architecture et pipeline
+
+## Chemins d'exécution
+
+Le runtime configuré (`./bin/gloomy -f CONFIG`) est le chemin actuel pour l'apprentissage et l'inférence persistants :
+
+```text
+configuration + dataset entrée|cible
+  -> validation et TrainingSample (double)
+  -> normalisation des entrées
+  -> training : réseau Dense -> perte -> optimiseur
+  -> online_learning : observation -> mémoire -> scheduler/replay -> mise à jour
+  -> sauvegarde GLOOMY_MODEL
+```
+
+En mode `inference`, le modèle existant et son normaliseur sont chargés, puis les sorties sont écrites une par ligne. Le runtime lit le dataset complet en mémoire et crée une copie normalisée pour l'apprentissage; le parsing et le traitement en flux ne sont donc pas des chemins à mémoire bornée.
+
+Le CLI historique (`./bin/gloomy "..."`) est une démonstration séparée : il crée un réseau à poids aléatoires et, pour plusieurs prédictions, reconstruit le réseau avec de nouveaux poids à chaque étape. Il ne charge pas le modèle configuré et ne constitue pas un entraînement autorégressif.
 
 ## Couche dense
 
-Une `DenseLayer` relie chaque entrée à chaque neurone de sortie. Pour `I` entrées et `O` sorties, elle possède `I * O` poids et `O` biais. Chaque neurone reçoit toutes les valeurs de la couche précédente.
+Une `DenseLayer` relie chaque entrée à chaque neurone de sortie. Pour `I` entrées et `O` sorties, elle possède `I * O` poids et `O` biais.
 
-Le réseau construit :
+Le CLI historique construit :
 
 ```text
 entrée (taille de la séquence)
@@ -12,32 +29,22 @@ entrée (taille de la séquence)
   -> sortie de 1 neurone
 ```
 
-Avec `-l 0`, il n'y a pas de couche cachée : la séquence est directement reliée à la sortie. Avec `-l 2 -n 8`, il y a deux couches cachées de 8 neurones, puis la sortie.
+Avec `-l 0`, il n'y a pas de couche cachée. Le runtime configuré utilise `hidden_layers` et `neurons`, et détermine la taille de sortie à partir des cibles du dataset; elle n'est pas nécessairement égale à `1`.
 
-## Neurones
+Augmenter la largeur ou le nombre de couches accroît la capacité, le nombre de paramètres, le calcul et le risque de surajustement. Le runtime configuré prend en charge les pertes MSE/MAE/Huber et SGD/Momentum/Adam. Il ne fournit pas de split entraînement/validation automatique ni de régularisation.
 
-`-n N` fixe la largeur de chaque couche cachée. Augmenter `N` donne plus de capacité pour représenter des relations complexes, mais augmente le nombre de paramètres et le risque de surajustement. Le projet possède maintenant un entraînement MSE + SGD via `LearningEngine`, mais aucune validation automatique ni régularisation.
+## Apprentissage, mémoire et normalisation
 
-Le nombre de paramètres des couches cachées dépend de la taille de la séquence et de `N`. Une séquence longue avec beaucoup de neurones peut rapidement produire un modèle inutilement grand.
+Le `LearningEngine` gère les mini-batches, l'entraînement depuis une mémoire et l'ajout d'observations avant replay. Le runtime `online_learning` connecte cette boucle à un `EveryNScheduler`. Les stratégies FIFO, Reservoir, Prioritized, Novelty et Hybrid partagent l'interface `LearningMemory`.
 
-## Limites actuelles
+`LearningEngine::train()` parcourt les mini-batches dans le dataset sans les recopier dans un vecteur temporaire. L'entraînement depuis une mémoire reçoit toutefois un batch indexé contenant des copies des exemples échantillonnés. Ces réductions de copies ne rendent pas le pipeline du runtime streaming : le dataset et une version normalisée sont tous deux conservés pendant l'apprentissage.
 
-Les classes C++ d'entraînement savent recevoir des cibles, calculer une perte, propager les gradients et mettre à jour les paramètres avec les optimiseurs disponibles. Le CLI configuré charge un dataset en paires entrée/cible et prend en charge l'entraînement batch et le replay online.
+`StreamingNormalizer` calcule moyenne et variance avec Welford. Pour un nouveau modèle, le runtime met à jour le normaliseur avec les entrées de tout le dataset chargé; il ne crée pas de split train/validation/test. À la reprise, les statistiques sauvegardées sont réutilisées. Il faut donc fournir un dataset d'entraînement approprié et réserver séparément les données d'évaluation.
 
-`LearningEngine::train()` parcourt maintenant les mini-batches directement dans le dataset, sans copier les exemples dans un vecteur temporaire. L'entraînement depuis une mémoire évite aussi une seconde copie après l'échantillonnage.
+La capacité mémoire est généralement exprimée en nombre d'échantillons, pas en budget d'octets strict. Les mémoires FIFO int16/int8 exposent une estimation des octets occupés par les échantillons, hors coût complet du processus.
 
-Une mémoire FIFO bornée existe également comme composant indépendant, mais elle n'est pas encore orchestrée automatiquement par le `LearningEngine`.
+## Priorité d'optimisation machine
 
-## Normalisation streaming
+Le benchmark actuel mesure un temps moyen d'inférence par exemple, le temps total d'entraînement, les débits et une estimation mémoire. Il ne mesure ni les percentiles de latence, ni le pic RSS, ni l'énergie, ni le coût CPU sur une cible embarquée. La priorité de conception retenue est la latence et le coût CPU; les optimisations doivent être comparées avec la qualité prédictive et la mémoire.
 
-`StreamingNormalizer` conserve séparément les statistiques des entrées : nombre d'observations, moyenne, variance, minimum et maximum. La moyenne et la variance sont mises à jour avec l'algorithme de Welford, sans conserver le dataset complet.
-
-```cpp
-StreamingNormalizer normalizer(input_dimensions);
-normalizer.update(training_input);
-const std::vector<double> normalized = normalizer.normalize(input);
-```
-
-Les statistiques doivent être apprises sur le flux d'entraînement uniquement. Elles ne doivent pas être recalculées avec les données de validation ou de test, afin d'éviter une fuite d'information. Les dimensions sont fixes et les valeurs non finies sont refusées.
-
-De plus, lors de plusieurs prédictions, la séquence grandit mais le réseau est recréé avec de nouveaux poids. Ce comportement est compatible avec la démonstration CLI, mais il empêche une extrapolation stable.
+Les couches stockent encore poids et activations avec des vecteurs dynamiques imbriqués en `double`. Le traitement du dataset n'est pas en flux et les poids ne sont pas quantifiés. Les buffers contigus, la réutilisation des buffers et les mesures sur matériel cible restent à évaluer.

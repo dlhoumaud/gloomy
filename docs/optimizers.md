@@ -28,6 +28,8 @@ LearningEngine engine(network, loss, optimizer);
 
 Momentum peut accélérer la convergence et lisser les directions bruyantes, mais il n'est pas automatiquement supérieur à SGD sous une contrainte RAM stricte. La méthode `stateBytes()` permet de mesurer son coût.
 
+Le runtime configuré sélectionne `sgd`, `momentum` ou `adam` via `optimizer`. Les coûts et la qualité dépendent du jeu de données et du nombre d'updates; aucun optimiseur n'est le meilleur par défaut.
+
 ## Comparaison expérimentale
 
 Comparer au minimum :
@@ -64,4 +66,4 @@ OptimizerSerialization::load("optimizer.bin", optimizer, network.layers());
 
 Le chargement restaure aussi les hyperparamètres. Le type du checkpoint doit correspondre à l'instance fournie, et les dimensions des buffers doivent correspondre aux couches du réseau. Les fichiers tronqués, corrompus ou contenant des valeurs non finies sont refusés.
 
-Un checkpoint pris avant le premier update contient des buffers vides ; au premier update, l'optimiseur initialise son état comme d'habitude. Cette sauvegarde est actuellement séparée de celle du réseau : pour reprendre un entraînement, restaurer d'abord le réseau puis le checkpoint de l'optimiseur.
+Un checkpoint pris avant le premier update contient des buffers vides; au premier update, l'optimiseur initialise son état. `OptimizerSerialization` permet de sauvegarder séparément l'optimiseur, tandis que `GLOOMY_MODEL` regroupe le réseau, le normaliseur et l'état de l'optimiseur (ainsi qu'une mémoire optionnelle). Pour charger le format séparé, restaurer d'abord le réseau et utiliser une instance du même type d'optimiseur.

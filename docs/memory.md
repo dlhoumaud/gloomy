@@ -9,6 +9,8 @@ L'interface fournit :
 - `add(sample)` : proposer un échantillon à la mémoire ;
 - `remove(index)` : retirer un échantillon ;
 - `sample(batch_size)` : produire un batch de replay ;
+- `sampleIndexed(batch_size)` : produire des exemples avec leur indice pour mettre à jour précisément leurs métadonnées après replay ;
+- `update(index, sample)` et `advanceAges()` : remplacer un échantillon et faire avancer les âges lors d'un replay ;
 - `size()` et `capacity()` : observer l'occupation ;
 - `clear()` : vider la mémoire.
 
@@ -44,7 +46,7 @@ Ces deux stratégies peuvent maintenant être transmises au même `LearningEngin
 
 ## Limites actuelles
 
-La capacité est limitée en nombre de `TrainingSample`, pas en octets. Les vecteurs `input` et `target` utilisent actuellement des `double` et leurs tailles peuvent varier ; le budget RAM réel n'est donc pas encore strictement contrôlé.
+La capacité est limitée en nombre de `TrainingSample`, pas en octets. Les mémoires non quantifiées utilisent des vecteurs `double` de tailles variables; le budget RAM réel, notamment les allocations et métadonnées de conteneurs, n'est pas strictement contrôlé.
 
 `QuantizedFIFOMemory` constitue une exception expérimentale : ses vecteurs `input` et `target` sont stockés en `int16` après calibration et la classe expose `memoryUsedBytes()`. Les autres stratégies utilisent encore leur représentation `double` native.
 
@@ -52,7 +54,7 @@ La capacité est limitée en nombre de `TrainingSample`, pas en octets. Les vect
 
 La mémoire FIFO favorise les données récentes et peut provoquer du catastrophic forgetting. Reservoir limite ce biais temporel, mais ne tient pas encore compte de l'erreur, de la nouveauté ou des régimes de données.
 
-Le `LearningEngine` peut maintenant appeler `trainFromMemory(memory, batch_size)` pour sélectionner un batch avec `memory.sample()` puis le transmettre à `trainBatch()`. La méthode `learn(memory, sample, batch_size)` ajoute une observation et déclenche immédiatement un replay.
+Le `LearningEngine` peut appeler `trainFromMemory(memory, batch_size)` pour sélectionner un batch indexé puis l'entraîner. La méthode `learn(memory, sample, batch_size)` ajoute une observation et déclenche un replay; avec un scheduler, l'observation reste en mémoire même si ce replay est différé.
 
 Cette première intégration entraîne après chaque observation lorsqu'elle est utilisée avec `learn()`. Un `TrainingScheduler` peut maintenant différer l'entraînement pour réduire le coût CPU.
 
@@ -100,7 +102,7 @@ La politique de routage actuelle est déterministe : une priorité supérieure �
 
 La partition `recent` évince son élément le plus ancien lorsqu'elle est pleine. La partition `historical` remplace un élément choisi aléatoirement. Le replay final mélange les partitions sans remise.
 
-Cette version est une base expérimentale : l'âge n'est pas encore une métadonnée de `TrainingSample`, la récence est donc approximée par le routage. Une future version pourra utiliser un score d'importance normalisé et une vraie politique hybride adaptative.
+Cette version est une base expérimentale : bien que `age` existe et progresse à chaque replay, le routage ne l'utilise pas pour calculer la récence. Le routage se fonde actuellement sur la priorité, la distance et l'alternance entre partitions; une politique hybride adaptative basée sur un score complet reste à étudier.
 
 ## Score d'importance
 
@@ -114,13 +116,13 @@ Cette version est une base expérimentale : l'âge n'est pas encore une métadon
 
 Le score est une moyenne pondérée. Un poids égal à zéro désactive une composante, ce qui permet de comparer `error-only`, `novelty-only` ou des combinaisons sans changer la mémoire.
 
-`TrainingSample` conserve maintenant `priority`, `error`, `novelty`, `rarity`, `recency`, `diversity`, `age` et `usage_count`. Pour l'instant, `LearningEngine::learn()` renseigne automatiquement l'erreur et calcule une priorité `error-only` normalisée. À chaque appel de replay, `advanceAges()` augmente l'âge de tous les échantillons et la mémoire incrémente `usage_count` pour les éléments sélectionnés.
+`TrainingSample` conserve `priority`, `error`, `novelty`, `rarity`, `recency`, `diversity`, `age` et `usage_count`. `LearningEngine::learn()` renseigne automatiquement l'erreur absolue maximale de sortie et calcule une priorité normalisée à partir de cette seule composante. À chaque replay, `advanceAges()` augmente l'âge de tous les échantillons et l'échantillonnage incrémente `usage_count` pour les éléments sélectionnés. Les autres composantes du score ne sont pas automatiquement alimentées par le runtime.
 
 Le replay indexé fournit maintenant l'indice mémoire avec chaque copie. `LearningEngine::trainFromMemory()` recalcule donc l'erreur après la mise à jour des poids et réécrit précisément l'échantillon concerné avec sa nouvelle priorité. Cela fonctionne même si deux observations ont des valeurs identiques, car leurs indices sont distincts.
 
 ## Training Scheduler
 
-Le `TrainingScheduler` décide si une observation doit déclencher un replay :
+Le `TrainingScheduler` décide si une observation doit déclencher un replay dans `learn()` :
 
 - `EverySampleScheduler` entraîne après chaque observation ;
 - `EveryNScheduler(N)` entraîne tous les `N` échantillons ;
@@ -133,7 +135,7 @@ EveryNScheduler scheduler(10);
 engine.learn(memory, sample, 8, scheduler);
 ```
 
-L'observation est conservée même lorsque l'entraînement est différé. Le scheduler réduit donc les mises à jour, mais ne réduit pas à lui seul la taille de la mémoire. Le nombre d'updates et le coût CPU devront être mesurés dans les futurs benchmarks.
+L'observation est conservée même lorsque l'entraînement est différé. Le scheduler réduit les updates mais ne réduit pas la taille de la mémoire. Le benchmark actuel mesure temps d'entraînement et débit dans son scénario synthétique; le coût CPU sur des données et une cible représentatives reste à mesurer.
 
 ## Persistance
 

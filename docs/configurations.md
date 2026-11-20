@@ -1,6 +1,6 @@
-# Configurations recommandées
+# Configurations et limites
 
-Il n'existe pas de configuration universellement la plus juste. Elle dépend des données, de l'échelle des valeurs, de l'horizon de prédiction et d'une validation hors échantillon. Les recommandations ci-dessous sont des points de départ pour l'entraînement MSE + SGD disponible dans les classes C++.
+Il n'existe pas de configuration universellement la plus juste. Elle dépend des données, de l'échelle des valeurs, de l'horizon de prédiction et d'une validation hors échantillon. Les réglages ci-dessous sont des heuristiques de capacité pour un petit réseau Dense entraîné, pas des valeurs optimales garanties. Le CLI historique expose les options d'architecture mais ne charge ni n'entraîne un modèle persistant. Le runtime configuré applique une activation commune aux couches; il ne permet pas de choisir séparément l'activation de sortie.
 
 ## Réglages par activation
 
@@ -9,24 +9,24 @@ Il n'existe pas de configuration universellement la plus juste. Elle dépend des
 | Régression scalaire générale | `tanh` avec données normalisées, sinon `leaky_relu` | 1 à 3 | 8 à 64 |
 | Relations simples ou presque linéaires | `none` ou `tanh` | 0 à 1 | 4 à 16 |
 | Réseau profond général | `leaky_relu` | 2 à 4 | 16 à 128 |
-| Sortie bornée entre 0 et 1 | `sigmoid` en sortie | 1 à 3 | 8 à 64 |
-| Sortie bornée entre -1 et 1 | `tanh` en sortie | 1 à 3 | 8 à 64 |
-| Classification multi-classe | `relu` ou `leaky_relu` caché, `softmax` final | 1 à 3 | 16 à 128 |
+| Sortie bornée entre 0 et 1 | `sigmoid` (également appliqué aux couches cachées dans le CLI actuel) | 1 à 3 | 8 à 64 |
+| Sortie bornée entre -1 et 1 | `tanh` (également appliqué aux couches cachées dans le CLI actuel) | 1 à 3 | 8 à 64 |
+| Classification multi-classe | non prise en charge comme tâche complète; sortie K et softmax seuls ne suffisent pas | — | — |
 
-Les options `sigmoid_derivative` et `tanh_derivative` ne sont pas des choix réalistes pour les couches cachées d'un réseau entraîné. Elles sont conservées pour compatibilité CLI, tandis que la rétropropagation utilise leurs dérivées en interne.
+Les options `sigmoid_derivative` et `tanh_derivative` ne sont pas des choix réalistes pour un réseau entraîné. Elles ne sont acceptées que par le CLI historique; la rétropropagation utilise les dérivées en interne.
 
 ## Méthode de sélection
 
 1. Normaliser les entrées avec les statistiques du jeu d'entraînement uniquement.
 2. Commencer par `-l 1 -n 16`, puis comparer `relu`, `leaky_relu` et `tanh`.
-3. Utiliser une séparation entraînement/validation/test et mesurer une métrique adaptée : MAE ou RMSE en régression, exactitude ou entropie croisée en classification.
+3. Créer une séparation entraînement/validation/test adaptée au problème et mesurer une métrique pertinente. Le runtime ne crée pas automatiquement ces partitions; le benchmark intégré n'utilise qu'un dataset synthétique.
 4. Augmenter `-l` ou `-n` seulement si l'erreur d'entraînement et l'erreur de validation le justifient.
 5. Fixer la graine aléatoire et répéter plusieurs essais, car l'initialisation peut changer fortement le résultat.
 6. Pour une série temporelle, conserver l'ordre temporel et comparer à une baseline simple, par exemple la dernière valeur connue.
 
 ## Recommandations spécifiques à ce dépôt
 
-Pour le comportement CLI actuel, utiliser `-A none` pour une sortie numérique. `-A softmax` est inutile puisque la sortie a un seul neurone et donnera toujours `1`. Pour obtenir des probabilités de classes, il faut encore modifier la taille de sortie et utiliser une perte adaptée.
+Pour le CLI historique, utiliser `-A none` pour une sortie numérique. `-A softmax` est inutile puisque ce chemin a un seul neurone de sortie et donnera toujours `1`. Le runtime configuré détermine la taille de sortie à partir des cibles et accepte `post_activation=softmax`, mais il ne fournit pas encore de perte classification/cross-entropy ni d'interface de décision de classe.
 
 Exemples :
 
@@ -65,14 +65,16 @@ seed=1234
 
 Lancer l'entraînement avec `./bin/gloomy -f gloomy.config`. Le fichier de données contient un exemple par ligne, sous la forme `valeurs d'entrée | valeurs cibles`; les lignes vides et celles commençant par `#` sont ignorées. Toutes les entrées doivent avoir la même dimension, ainsi que toutes les cibles.
 
-Les modes disponibles sont `training`, `online_learning` et `inference`. Le mode training entraîne chaque epoch sur le dataset et conserve aussi les exemples dans la mémoire choisie. Le mode online_learning ajoute chaque exemple à la mémoire puis déclenche le replay selon `train_every`. Dans ces deux modes, les statistiques d'entrée sont ajustées sur les entrées du dataset initial lors de la création d'un modèle, puis conservées lors des reprises.
+Les modes disponibles sont `training`, `online_learning` et `inference`. Le mode `training` entraîne chaque epoch sur le dataset et ajoute aussi les exemples à la mémoire choisie. Le mode `online_learning` traite les exemples dans l'ordre du fichier, les ajoute à la mémoire et déclenche un replay selon `train_every`. Le fichier complet est chargé en mémoire; le nom du mode ne signifie donc pas que l'entrée/sortie fichier est un flux à mémoire bornée.
 
-Pour l'inférence, configurer `runtime=inference` et `input=1.0 2.0 3.0`. Le modèle existant est chargé depuis `model_path`, l'entrée est normalisée avec ses statistiques sauvegardées, et les sorties sont écrites une par ligne. Si le fichier modèle contient une mémoire, elle peut être restaurée pour l'entraînement ; le mode inference ne la charge pas.
+Pour un nouveau modèle d'entraînement, les statistiques d'entrée sont calculées sur toutes les entrées du dataset fourni. Il n'y a pas de validation/test automatique : fournissez uniquement les données d'entraînement et évaluez séparément. Lorsqu'un `model_path` existe en mode entraînement, le réseau, le normaliseur et l'optimiseur sont chargés depuis ce modèle; les paramètres d'architecture de la configuration ne reconstruisent pas le réseau, et l'état de l'optimiseur sauvegardé remplace ses hyperparamètres. La mémoire est restaurée si elle est présente; dans ce cas, ses paramètres remplacent ceux utilisés pour créer une mémoire depuis la configuration.
 
-Les options `--runtime`, `--model`, `--data`, `--input`, `--epochs` et `--batch-size` peuvent surcharger le fichier :
+Pour l'inférence, configurer `runtime=inference` et `input=1.0 2.0 3.0`. Le modèle existant est chargé depuis `model_path`, l'entrée est normalisée avec ses statistiques sauvegardées, et les sorties sont écrites une par ligne. La mémoire n'est pas chargée en mode inference. Le type `optimizer` de la configuration doit correspondre à celui enregistré dans le modèle, même si l'optimiseur n'est pas utilisé pour calculer la prédiction.
+
+Seules les options `--runtime`, `--model`, `--data`, `--input`, `--epochs` et `--batch-size` peuvent surcharger le fichier :
 
 ```bash
 ./bin/gloomy -f gloomy.config --runtime inference --input "1.0 2.0 3.0"
 ```
 
-Le format du dataset est volontairement simple et ne couvre pas encore les CSV avec colonnes nommées, les données manquantes ou plusieurs fichiers.
+Le format du dataset est volontairement simple et ne couvre pas encore les CSV avec colonnes nommées, les données manquantes ou plusieurs fichiers. Les options de surcharge ne couvrent pas tous les paramètres de configuration.
