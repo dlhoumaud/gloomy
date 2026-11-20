@@ -26,14 +26,16 @@ void MomentumOptimizer::update(
     for (size_t layer_index = 0; layer_index < layers.size(); ++layer_index) {
         DenseLayer& layer = layers[layer_index];
         LayerState& state = states[layer_index];
-        auto& parameters = layer.weights();
-        const auto& gradients = layer.weightGradients();
-        for (size_t input_index = 0; input_index < parameters.size(); ++input_index) {
-            for (size_t output_index = 0; output_index < parameters[input_index].size(); ++output_index) {
-                const double gradient = gradient_scale * gradients[input_index][output_index];
+        auto& parameters = layer.weightValues();
+        const auto& gradients = layer.weightGradientValues();
+        const size_t output_count = layer.bias().size();
+        for (size_t input_index = 0; input_index < layer.weights().size(); ++input_index) {
+            for (size_t output_index = 0; output_index < output_count; ++output_index) {
+                const size_t weight_index = input_index * output_count + output_index;
+                const double gradient = gradient_scale * gradients[weight_index];
                 state.weight_velocity[input_index][output_index] =
                     momentum_factor * state.weight_velocity[input_index][output_index] + gradient;
-                parameters[input_index][output_index] -=
+                parameters[weight_index] -=
                     learning_rate * state.weight_velocity[input_index][output_index];
             }
         }

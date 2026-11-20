@@ -70,11 +70,10 @@ std::string serializeNetwork(const NeuralNetwork& network) {
         if (!inputs || !outputs || inputs > maximum_dimension || outputs > maximum_dimension)
             throw std::invalid_argument("Network layer dimensions are invalid");
         write(out, &inputs, sizeof(inputs)); write(out, &outputs, sizeof(outputs));
-        for (const auto& row : layer.weights()) {
-            if (row.size() != outputs) throw std::invalid_argument("Network weight shape is invalid");
-            for (double value : row) if (!std::isfinite(value)) throw std::invalid_argument("Network parameters must be finite");
-            write(out, row.data(), row.size() * sizeof(double));
-        }
+        const auto& weights = layer.weightValues();
+        if (weights.size() != inputs * outputs) throw std::invalid_argument("Network weight shape is invalid");
+        for (double value : weights) if (!std::isfinite(value)) throw std::invalid_argument("Network parameters must be finite");
+        write(out, weights.data(), weights.size() * sizeof(double));
         for (double value : layer.bias()) if (!std::isfinite(value)) throw std::invalid_argument("Network parameters must be finite");
         write(out, layer.bias().data(), layer.bias().size() * sizeof(double));
     }
@@ -98,10 +97,9 @@ NeuralNetwork deserializeNetwork(const std::string& bytes) {
         previous_outputs = outputs;
         result.addLayer(static_cast<int>(inputs), static_cast<int>(outputs));
         DenseLayer& layer = result.layers().back();
-        for (auto& row : layer.weights()) {
-            read(in, row.data(), row.size() * sizeof(double));
-            for (double value : row) if (!std::isfinite(value)) throw std::runtime_error("GLOOMY_MODEL parameters must be finite");
-        }
+        auto& weights = layer.weightValues();
+        read(in, weights.data(), weights.size() * sizeof(double));
+        for (double value : weights) if (!std::isfinite(value)) throw std::runtime_error("GLOOMY_MODEL parameters must be finite");
         read(in, layer.bias().data(), layer.bias().size() * sizeof(double));
         for (double value : layer.bias()) if (!std::isfinite(value)) throw std::runtime_error("GLOOMY_MODEL parameters must be finite");
     }

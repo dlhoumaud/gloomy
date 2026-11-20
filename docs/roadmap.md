@@ -15,7 +15,6 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 
 ## 2. Réduire la latence et le coût CPU
 
-- stockage contigu des poids et gradients de poids à réévaluer avec une migration coordonnée de l'API `weights()[i][j]`, actuellement exposée aux optimiseurs, à la sérialisation et aux consommateurs existants ;
 - comparer les optimisations sur les mêmes données, seeds, architecture et nombre d'updates ;
 - ne retenir un gain de vitesse qu'avec son impact mesuré sur la qualité et la mémoire.
 

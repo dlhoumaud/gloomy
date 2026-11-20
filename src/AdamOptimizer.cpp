@@ -41,18 +41,20 @@ void AdamOptimizer::update(
     for (size_t layer_index = 0; layer_index < layers.size(); ++layer_index) {
         DenseLayer& layer = layers[layer_index];
         LayerState& state = states[layer_index];
-        auto& parameters = layer.weights();
-        const auto& gradients = layer.weightGradients();
-        for (size_t input_index = 0; input_index < parameters.size(); ++input_index) {
-            for (size_t output_index = 0; output_index < parameters[input_index].size(); ++output_index) {
-                const double gradient = gradient_scale * gradients[input_index][output_index];
+        auto& parameters = layer.weightValues();
+        const auto& gradients = layer.weightGradientValues();
+        const size_t output_count = layer.bias().size();
+        for (size_t input_index = 0; input_index < layer.weights().size(); ++input_index) {
+            for (size_t output_index = 0; output_index < output_count; ++output_index) {
+                const size_t weight_index = input_index * output_count + output_index;
+                const double gradient = gradient_scale * gradients[weight_index];
                 double& first = state.first_moment[input_index][output_index];
                 double& second = state.second_moment[input_index][output_index];
                 first = first_decay * first + (1.0 - first_decay) * gradient;
                 second = second_decay * second + (1.0 - second_decay) * gradient * gradient;
                 const double corrected_first = first / first_correction;
                 const double corrected_second = second / second_correction;
-                parameters[input_index][output_index] -=
+                parameters[weight_index] -=
                     learning_rate * corrected_first / (std::sqrt(corrected_second) + epsilon);
             }
         }

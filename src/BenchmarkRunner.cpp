@@ -176,7 +176,7 @@ size_t optimizerStateBytes(const Optimizer& optimizer) {
 size_t parameterBytes(const NeuralNetwork& network) {
     size_t count = 0;
     for (const DenseLayer& layer : network.layers()) {
-        for (const auto& row : layer.weights()) count += row.size();
+        count += layer.weightValues().size();
         count += layer.bias().size();
     }
     return count * sizeof(double);

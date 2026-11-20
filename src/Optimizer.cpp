@@ -15,13 +15,10 @@ void SGDOptimizer::update(std::vector<DenseLayer>& layers, double gradient_scale
     }
 
     for (auto& layer : layers) {
-        auto& parameters = layer.weights();
-        const auto& gradients = layer.weightGradients();
-        for (size_t input_index = 0; input_index < parameters.size(); ++input_index) {
-            for (size_t output_index = 0; output_index < parameters[input_index].size(); ++output_index) {
-                parameters[input_index][output_index] -=
-                    learning_rate * gradient_scale * gradients[input_index][output_index];
-            }
+        auto& parameters = layer.weightValues();
+        const auto& gradients = layer.weightGradientValues();
+        for (size_t index = 0; index < parameters.size(); ++index) {
+            parameters[index] -= learning_rate * gradient_scale * gradients[index];
         }
 
         auto& biases = layer.bias();

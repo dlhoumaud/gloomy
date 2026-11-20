@@ -68,9 +68,7 @@ void NetworkSerialization::save(const std::string& path, const NeuralNetwork& ne
         const std::uint64_t output_count = layer.bias().size();
         writeBytes(payload, &input_count, sizeof(input_count));
         writeBytes(payload, &output_count, sizeof(output_count));
-        for (const auto& row : layer.weights()) {
-            writeBytes(payload, row.data(), row.size() * sizeof(double));
-        }
+        writeBytes(payload, layer.weightValues().data(), layer.weightValues().size() * sizeof(double));
         writeBytes(payload, layer.bias().data(), layer.bias().size() * sizeof(double));
     }
 
@@ -138,11 +136,10 @@ void NetworkSerialization::load(const std::string& path, NeuralNetwork& network)
         previous_output_count = output_count;
         restored_network.addLayer(static_cast<int>(input_count), static_cast<int>(output_count));
         DenseLayer& layer = restored_network.layers().back();
-        for (auto& row : layer.weights()) {
-            readBytes(stream, row.data(), row.size() * sizeof(double));
-            for (double weight : row) {
-                if (!std::isfinite(weight)) throw std::runtime_error("Network parameters must be finite");
-            }
+        auto& weights = layer.weightValues();
+        readBytes(stream, weights.data(), weights.size() * sizeof(double));
+        for (double weight : weights) {
+            if (!std::isfinite(weight)) throw std::runtime_error("Network parameters must be finite");
         }
         readBytes(stream, layer.bias().data(), layer.bias().size() * sizeof(double));
         for (double bias : layer.bias()) {

@@ -18,16 +18,16 @@ DenseLayer::DenseLayer(int input_size, int output_size) {
         throw std::invalid_argument("Layer dimensions must be positive");
     }
 
-    weights_data.resize(input_size, std::vector<double>(output_size));
+    this->input_size = static_cast<size_t>(input_size);
+    this->output_size = static_cast<size_t>(output_size);
+    weights_data.resize(this->input_size * this->output_size);
     bias_data.resize(output_size, 0.0);
-    weight_gradients.resize(input_size, std::vector<double>(output_size, 0.0));
+    weight_gradients.resize(this->input_size * this->output_size, 0.0);
     bias_gradients.resize(output_size, 0.0);
 
     // Initialisation aléatoire des poids
-    for (auto &row : weights_data) {
-        for (auto &weight : row) {
-            weight = ((double)rand() / RAND_MAX) - 0.5;  // Plage [-0.5, 0.5]
-        }
+    for (double& weight : weights_data) {
+        weight = ((double)rand() / RAND_MAX) - 0.5;  // Plage [-0.5, 0.5]
     }
 }
 
@@ -55,7 +55,7 @@ const std::vector<double>& DenseLayer::forwardInferenceRef(const std::vector<dou
 }
 
 const std::vector<double>& DenseLayer::forwardImpl(const std::vector<double>& inputs, bool cache_inputs) {
-    if (inputs.size() != weights_data.size()) {
+    if (inputs.size() != input_size) {
         throw std::invalid_argument("Input size does not match layer size");
     }
 
@@ -66,7 +66,7 @@ const std::vector<double>& DenseLayer::forwardImpl(const std::vector<double>& in
     // Calcul des sorties de la couche
     for (size_t j = 0; j < bias_data.size(); ++j) {
         for (size_t i = 0; i < inputs.size(); ++i) {
-            preActivations[j] += inputs[i] * weights_data[i][j];
+            preActivations[j] += inputs[i] * weights_data[i * output_size + j];
         }
         preActivations[j] += bias_data[j];
         outputs[j] = preActivations[j];
@@ -129,9 +129,10 @@ const std::vector<double>& DenseLayer::backwardRef(const std::vector<double>& gr
         bias_gradients[output_index] += local_gradient;
 
         for (size_t input_index = 0; input_index < inputs.size(); ++input_index) {
-            weight_gradients[input_index][output_index] +=
+            weight_gradients[input_index * output_size + output_index] +=
                 inputs[input_index] * local_gradient;
-            gradient_inputs[input_index] += weights_data[input_index][output_index] * local_gradient;
+            gradient_inputs[input_index] +=
+                weights_data[input_index * output_size + output_index] * local_gradient;
         }
     }
 
@@ -139,17 +140,23 @@ const std::vector<double>& DenseLayer::backwardRef(const std::vector<double>& gr
 }
 
 void DenseLayer::zeroGradients() {
-    for (auto& row : weight_gradients) {
-        std::fill(row.begin(), row.end(), 0.0);
-    }
+    std::fill(weight_gradients.begin(), weight_gradients.end(), 0.0);
     std::fill(bias_gradients.begin(), bias_gradients.end(), 0.0);
 }
 
-std::vector<std::vector<double>>& DenseLayer::weights() {
+DenseMatrixView DenseLayer::weights() {
+    return DenseMatrixView(weights_data.data(), input_size, output_size);
+}
+
+ConstDenseMatrixView DenseLayer::weights() const {
+    return ConstDenseMatrixView(weights_data.data(), input_size, output_size);
+}
+
+std::vector<double>& DenseLayer::weightValues() {
     return weights_data;
 }
 
-const std::vector<std::vector<double>>& DenseLayer::weights() const {
+const std::vector<double>& DenseLayer::weightValues() const {
     return weights_data;
 }
 
@@ -161,7 +168,11 @@ const std::vector<double>& DenseLayer::bias() const {
     return bias_data;
 }
 
-const std::vector<std::vector<double>>& DenseLayer::weightGradients() const {
+ConstDenseMatrixView DenseLayer::weightGradients() const {
+    return ConstDenseMatrixView(weight_gradients.data(), input_size, output_size);
+}
+
+const std::vector<double>& DenseLayer::weightGradientValues() const {
     return weight_gradients;
 }
 
