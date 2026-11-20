@@ -189,6 +189,47 @@ std::vector<BenchmarkProfileResult> profileCoreOperations() {
         const auto copied_batch = samples;
         profile_sink += copied_batch.front().target.front();
     }));
+
+    const std::string multi_output_workload = "multi_output_3_16_16_2_float64";
+    NeuralNetwork multi_output_network;
+    multi_output_network.algorithm = "tanh";
+    multi_output_network.addLayer(3, 16);
+    multi_output_network.addLayer(16, 16);
+    multi_output_network.addLayer(16, 2);
+    std::vector<TrainingSample> multi_output_samples;
+    for (size_t index = 0; index < replay_batch; ++index) {
+        const double x = -1.0 + 2.0 * static_cast<double>(index) / (replay_batch - 1);
+        const double y = 1.0 - x;
+        const double z = x * y;
+        multi_output_samples.push_back({{x, y, z}, {x + 0.5 * y - 0.25 * z, -0.5 * x + y + 0.25 * z}});
+    }
+    auto multi_output_loss = makeLoss("mse");
+    auto multi_output_optimizer = makeOptimizer("adam");
+    LearningEngine multi_output_engine(multi_output_network, *multi_output_loss, *multi_output_optimizer);
+    HybridMemoryRatios ratios{0.25, 0.25, 0.25, 0.25};
+    HybridMemory multi_output_memory(64, ratios, 0.000025, 1234u);
+    for (const TrainingSample& sample : multi_output_samples) multi_output_memory.add(sample);
+    std::vector<double> multi_output_gradient;
+    results.push_back(profileOperation(multi_output_workload, "forward_inference", 10000, [&]() {
+        const auto& output = multi_output_network.forwardInferenceRef(multi_output_samples.front().input);
+        profile_sink += output.front();
+    }));
+    results.push_back(profileOperation(multi_output_workload, "loss_gradient", 10000, [&]() {
+        multi_output_loss->gradientInto(
+            multi_output_network.forwardRef(multi_output_samples.front().input),
+            multi_output_samples.front().target, multi_output_gradient);
+        profile_sink += multi_output_gradient.front();
+    }));
+    results.push_back(profileOperation(multi_output_workload, "train_batch_update", 1000, [&]() {
+        profile_sink += multi_output_engine.trainBatch(multi_output_samples);
+    }));
+    results.push_back(profileOperation(multi_output_workload, "memory_replay", 1000, [&]() {
+        profile_sink += multi_output_engine.trainFromMemory(multi_output_memory, replay_batch);
+    }));
+    results.push_back(profileOperation(multi_output_workload, "minibatch_copy", 5000, [&]() {
+        const auto copied_batch = multi_output_samples;
+        profile_sink += copied_batch.front().target.front();
+    }));
     const size_t peak_rss_bytes = peakResidentSetBytes();
     for (BenchmarkProfileResult& result : results) result.process_peak_rss_bytes = peak_rss_bytes;
     return results;
