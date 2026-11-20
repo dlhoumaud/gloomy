@@ -39,15 +39,19 @@ const std::vector<double>& NeuralNetwork::forwardRef(const std::vector<double>& 
 }
 
 std::vector<double> NeuralNetwork::backward(const std::vector<double>& gradient_output) {
+    return backwardRef(gradient_output);
+}
+
+const std::vector<double>& NeuralNetwork::backwardRef(const std::vector<double>& gradient_output) {
     if (layers_data.empty()) {
         throw std::runtime_error("The network has no layers");
     }
 
-    std::vector<double> gradient = gradient_output;
+    const std::vector<double>* gradient = &gradient_output;
     for (auto layer = layers_data.rbegin(); layer != layers_data.rend(); ++layer) {
-        gradient = layer->backward(gradient);
+        gradient = &layer->backwardRef(*gradient);
     }
-    return gradient;
+    return *gradient;
 }
 
 void NeuralNetwork::zeroGradients() {

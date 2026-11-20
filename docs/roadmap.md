@@ -17,7 +17,7 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 ## 2. Réduire la latence et le coût CPU
 
 - étudier des buffers contigus, préalloués et réutilisables pour les poids, activations et gradients ;
-- poursuivre la réduction des allocations et copies dans les couches et les chemins d'inférence/entraînement ; le chemin d'entraînement réutilise maintenant les sorties en cache via `forwardRef()` ;
+- poursuivre la réduction des allocations et copies dans les couches et les chemins d'inférence/entraînement ; le chemin d'entraînement réutilise maintenant les sorties via `forwardRef()` et les buffers de gradient via `backwardRef()` ;
 - comparer les optimisations sur les mêmes données, seeds, architecture et nombre d'updates ;
 - ne retenir un gain de vitesse qu'avec son impact mesuré sur la qualité et la mémoire.
 

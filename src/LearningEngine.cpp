@@ -22,7 +22,7 @@ double trainBatchSamples(
         const TrainingSample& sample = sample_at(index);
         const std::vector<double>& prediction = network.forwardRef(sample.input);
         total_loss += loss.compute(prediction, sample.target);
-        network.backward(loss.gradient(prediction, sample.target));
+        network.backwardRef(loss.gradient(prediction, sample.target));
     }
     optimizer.update(network.layers(), 1.0 / static_cast<double>(sample_count));
     return total_loss / static_cast<double>(sample_count);

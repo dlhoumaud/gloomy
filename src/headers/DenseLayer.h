@@ -20,6 +20,7 @@ public:
     std::vector<double> forward(const std::vector<double>& inputs);
     const std::vector<double>& forwardRef(const std::vector<double>& inputs);
     std::vector<double> backward(const std::vector<double>& gradient_output);
+    const std::vector<double>& backwardRef(const std::vector<double>& gradient_output);
     void zeroGradients();
 
     std::vector<std::vector<double>>& weights();
@@ -36,6 +37,8 @@ private:
     std::vector<double> inputs;
     std::vector<double> preActivations;
     std::vector<double> outputs;
+    std::vector<double> gradient_after_activation;
+    std::vector<double> gradient_inputs;
     std::vector<std::vector<double>> weight_gradients;
     std::vector<double> bias_gradients;
     bool has_forward_cache = false;

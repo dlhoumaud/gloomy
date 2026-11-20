@@ -22,6 +22,7 @@ public:
     std::vector<double> forward(const std::vector<double>& inputs);
     const std::vector<double>& forwardRef(const std::vector<double>& inputs);
     std::vector<double> backward(const std::vector<double>& gradient_output);
+    const std::vector<double>& backwardRef(const std::vector<double>& gradient_output);
     void zeroGradients();
     std::vector<DenseLayer>& layers();
     const std::vector<DenseLayer>& layers() const;

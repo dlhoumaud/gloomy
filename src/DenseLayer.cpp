@@ -87,6 +87,10 @@ const std::vector<double>& DenseLayer::forwardRef(const std::vector<double>& inp
 }
 
 std::vector<double> DenseLayer::backward(const std::vector<double>& gradient_output) {
+    return backwardRef(gradient_output);
+}
+
+const std::vector<double>& DenseLayer::backwardRef(const std::vector<double>& gradient_output) {
     if (!has_forward_cache) {
         throw std::logic_error("Backward pass requires a preceding forward pass");
     }
@@ -97,7 +101,7 @@ std::vector<double> DenseLayer::backward(const std::vector<double>& gradient_out
         throw std::invalid_argument("Derivative functions cannot be used as training activations");
     }
 
-    std::vector<double> gradient_after_activation = gradient_output;
+    gradient_after_activation = gradient_output;
     if (post_algorithm == "softmax") {
         double dot_product = 0.0;
         for (size_t index = 0; index < outputs.size(); ++index) {
@@ -110,7 +114,7 @@ std::vector<double> DenseLayer::backward(const std::vector<double>& gradient_out
         throw std::invalid_argument("Unknown post-activation function");
     }
 
-    std::vector<double> gradient_inputs(inputs.size(), 0.0);
+    gradient_inputs.assign(inputs.size(), 0.0);
     for (size_t output_index = 0; output_index < bias_data.size(); ++output_index) {
         const double local_gradient = gradient_after_activation[output_index] *
             activationDerivative(algorithm, preActivations[output_index]);
