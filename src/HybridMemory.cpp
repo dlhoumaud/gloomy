@@ -11,7 +11,7 @@ HybridMemory::HybridMemory(
     double novelty_threshold,
     std::uint32_t seed
 )
-    : memory_capacity(capacity), memory_ratios(ratios), distance_threshold(novelty_threshold), generator(seed) {
+    : memory_capacity(capacity), initial_seed(seed), memory_ratios(ratios), distance_threshold(novelty_threshold), generator(seed) {
     if (capacity == 0) {
         throw std::invalid_argument("Memory capacity must be positive");
     }

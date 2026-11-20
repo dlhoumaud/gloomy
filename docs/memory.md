@@ -134,3 +134,9 @@ engine.learn(memory, sample, 8, scheduler);
 ```
 
 L'observation est conservée même lorsque l'entraînement est différé. Le scheduler réduit donc les mises à jour, mais ne réduit pas à lui seul la taille de la mémoire. Le nombre d'updates et le coût CPU devront être mesurés dans les futurs benchmarks.
+
+## Persistance
+
+Le format `GLOOMY_MODEL` peut inclure la mémoire avec `GloomyModelSerialization::save(..., &memory)`. Le chargement reconstruit le type, la capacité, les paramètres de stratégie, les échantillons et leurs métadonnées. Reservoir, Prioritized et Hybrid sauvegardent l'état de leur générateur pseudo-aléatoire et leurs compteurs d'observations. Les mémoires FIFO quantifiées conservent leurs paramètres de calibration et les valeurs int16/int8 encodées.
+
+Les classes `LearningMemory` personnalisées ne sont pas prises en charge par le format actuel.

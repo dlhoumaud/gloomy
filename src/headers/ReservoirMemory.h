@@ -21,7 +21,9 @@ public:
     void clear() override;
 
 private:
+    friend class LearningMemorySerialization;
     size_t memory_capacity;
+    std::uint32_t initial_seed;
     size_t seen_samples = 0;
     std::mt19937 generator;
     std::vector<TrainingSample> samples;

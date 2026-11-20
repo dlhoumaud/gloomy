@@ -8,7 +8,7 @@ PrioritizedMemory::PrioritizedMemory(
     double alpha,
     std::uint32_t seed
 )
-    : memory_capacity(capacity), priority_exponent(alpha), generator(seed) {
+    : memory_capacity(capacity), initial_seed(seed), priority_exponent(alpha), generator(seed) {
     if (capacity == 0) {
         throw std::invalid_argument("Memory capacity must be positive");
     }

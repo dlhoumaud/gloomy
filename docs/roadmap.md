@@ -147,7 +147,7 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
 ### Priorité haute : runtime d'apprentissage complet
 
-1. **Format `GLOOMY_MODEL` unifié**
+1. **Format `GLOOMY_MODEL` unifié** — version 1 implémentée pour réseau, normalisation, optimiseur et mémoire optionnelle.
 
    Regrouper dans un seul fichier versionné :
 
@@ -176,9 +176,9 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    - vitesses Momentum ;
    - premiers et seconds moments Adam.
 
-   L'état est vérifié contre le type et la forme des couches pour éviter de restaurer un buffer incompatible. L'intégration au futur fichier `GLOOMY_MODEL` reste à faire.
+   L'état est vérifié contre le type et la forme des couches pour éviter de restaurer un buffer incompatible. Il est inclus dans la section `OPTIMIZER` de `GLOOMY_MODEL`.
 
-3. **Persistance des mémoires**
+3. **Persistance des mémoires** — implémentée dans la section optionnelle `LEARNING_MEMORY` de `GLOOMY_MODEL` pour les stratégies intégrées.
 
    Sauvegarder et restaurer :
 
@@ -321,7 +321,7 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 
 1. Rendre le chargement des composants transactionnel — implémenté pour le réseau, le normaliseur, les échantillons et l'optimiseur.
 2. Stabiliser la sérialisation unifiée du modèle — version 1 implémentée avec sections réseau, normalisation et optimiseur ; mémoire et quantification restent à intégrer.
-3. Ajouter la persistance des mémoires et des paramètres de quantification.
+3. Ajouter la persistance des mémoires et des paramètres de quantification — implémenté dans la section mémoire optionnelle de `GLOOMY_MODEL` pour les stratégies intégrées et FIFO int16/int8.
 4. Centraliser les défauts dans une configuration C++.
 5. Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.
 6. Exposer un mode online fonctionnel dans le CLI.
@@ -339,8 +339,7 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;
 - les mémoires natives stockent encore des `double` ;
 - les poids restent en float64 ;
-- les optimiseurs ne sont pas encore persistés ;
-- les serializers séparés ne constituent pas encore un fichier modèle complet ;
+- la quantification des poids et certaines métadonnées de runtime ne sont pas encore persistées dans `GLOOMY_MODEL` ;
 - les statistiques de benchmark dépendent de la machine ;
 - les données synthétiques ne remplacent pas une évaluation sur données réelles.
 

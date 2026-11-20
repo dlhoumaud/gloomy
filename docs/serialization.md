@@ -36,17 +36,28 @@ HEADER (magic, version, nombre de sections)
 SECTION (identifiant, taille, contenu) : NETWORK
 SECTION (identifiant, taille, contenu) : NORMALIZATION
 SECTION (identifiant, taille, contenu) : OPTIMIZER
+SECTION optionnelle (identifiant, taille, contenu) : LEARNING_MEMORY
 CHECKSUM GLOBAL
 ```
 
-Chaque section est délimitée par son identifiant et sa taille. Les identifiants inconnus peuvent être ignorés pour permettre l'ajout de sections optionnelles dans une évolution compatible. Les trois sections ci-dessus sont requises en version 1. Les données de quantification et la mémoire d'apprentissage seront ajoutées dans les prochaines étapes. Le checksum couvre l'en-tête et toutes les sections.
+Chaque section est délimitée par son identifiant et sa taille. Les identifiants inconnus peuvent être ignorés pour permettre l'ajout de sections optionnelles. Les trois premières sections sont requises en version 1. La section mémoire est incluse lorsqu'une mémoire est fournie. Le checksum couvre l'en-tête et toutes les sections.
 
 ```cpp
 GloomyModelSerialization::save("model.gloomy", network, normalizer, optimizer);
 GloomyModelSerialization::load("model.gloomy", network, normalizer, optimizer);
 ```
 
-Le chargement valide toutes les sections et prépare le réseau ainsi que le normaliseur avant de restaurer l'optimiseur et de remplacer les objets cibles. Le type d'optimiseur doit correspondre à l'instance fournie, et les dimensions du normaliseur doivent correspondre aux entrées du réseau. Une normalisation sans observation ne peut pas être sauvegardée.
+Pour inclure la mémoire, fournir un pointeur vers celle-ci à `save`, puis un pointeur vers un `std::unique_ptr<LearningMemory>` à `load`. Le chargement recrée la stratégie et ses paramètres.
+
+```cpp
+GloomyModelSerialization::save("model.gloomy", network, normalizer, optimizer, &memory);
+std::unique_ptr<LearningMemory> restored_memory;
+GloomyModelSerialization::load("model.gloomy", network, normalizer, optimizer, &restored_memory);
+```
+
+FIFO, Reservoir, Prioritized, Novelty, Hybrid, FIFO int16 et FIFO int8 sont pris en charge. Reservoir, Prioritized et Hybrid sauvegardent l'état de leur générateur pseudo-aléatoire. Les mémoires quantifiées préservent leurs paramètres de calibration et les valeurs entières encodées. Les implémentations personnalisées de `LearningMemory` ne sont pas encore sérialisables.
+
+Le chargement valide toutes les sections et prépare le réseau, le normaliseur et la mémoire avant de restaurer l'optimiseur et de remplacer les objets cibles. Le type d'optimiseur doit correspondre à l'instance fournie, et les dimensions du normaliseur doivent correspondre aux entrées du réseau. Une normalisation sans observation ne peut pas être sauvegardée.
 
 ## Réseau neuronal
 

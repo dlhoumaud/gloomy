@@ -21,6 +21,7 @@ public:
     double noveltyThreshold() const;
 
 private:
+    friend class LearningMemorySerialization;
     static double squaredDistance(
         const std::vector<double>& left,
         const std::vector<double>& right

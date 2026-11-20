@@ -27,9 +27,11 @@ public:
     double alpha() const;
 
 private:
+    friend class LearningMemorySerialization;
     static constexpr double minimum_priority = 1e-12;
 
     size_t memory_capacity;
+    std::uint32_t initial_seed;
     double priority_exponent;
     std::mt19937 generator;
     std::vector<TrainingSample> samples;

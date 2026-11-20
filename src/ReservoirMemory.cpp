@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 ReservoirMemory::ReservoirMemory(size_t capacity, std::uint32_t seed)
-    : memory_capacity(capacity), generator(seed) {
+    : memory_capacity(capacity), initial_seed(seed), generator(seed) {
     if (capacity == 0) {
         throw std::invalid_argument("Memory capacity must be positive");
     }

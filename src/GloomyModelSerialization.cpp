@@ -1,4 +1,5 @@
 #include "headers/GloomyModelSerialization.h"
+#include "headers/LearningMemorySerialization.h"
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -16,6 +17,7 @@ constexpr std::uint32_t format_version = 1;
 constexpr std::uint32_t network_section = 1;
 constexpr std::uint32_t normalizer_section = 2;
 constexpr std::uint32_t optimizer_section = 3;
+constexpr std::uint32_t memory_section = 4;
 constexpr std::uint32_t maximum_sections = 32;
 constexpr std::uint64_t maximum_section_size = 256ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t hash_offset = 1469598103934665603ULL;
@@ -149,14 +151,16 @@ void GloomyModelSerialization::save(
     const std::string& path,
     const NeuralNetwork& network,
     const StreamingNormalizer& normalizer,
-    const Optimizer& optimizer
+    const Optimizer& optimizer,
+    const LearningMemory* memory
 ) {
     std::ostringstream payload(std::ios::binary);
     write(payload, magic, sizeof(magic) - 1); write(payload, &format_version, sizeof(format_version));
-    const std::uint32_t section_count = 3; write(payload, &section_count, sizeof(section_count));
+    const std::uint32_t section_count = memory ? 4 : 3; write(payload, &section_count, sizeof(section_count));
     writeSection(payload, network_section, serializeNetwork(network));
     writeSection(payload, normalizer_section, serializeNormalizer(normalizer));
     writeSection(payload, optimizer_section, serializeOptimizer(optimizer));
+    if (memory) writeSection(payload, memory_section, LearningMemorySerialization::serialize(*memory));
     const std::string bytes = payload.str(); const std::uint64_t hash = checksum(bytes);
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file) throw std::runtime_error("Unable to open GLOOMY_MODEL file for writing");
@@ -167,7 +171,8 @@ void GloomyModelSerialization::load(
     const std::string& path,
     NeuralNetwork& network,
     StreamingNormalizer& normalizer,
-    Optimizer& optimizer
+    Optimizer& optimizer,
+    std::unique_ptr<LearningMemory>* memory
 ) {
     std::ifstream file(path, std::ios::binary);
     if (!file) throw std::runtime_error("Unable to open GLOOMY_MODEL file for reading");
@@ -191,7 +196,7 @@ void GloomyModelSerialization::load(
         if (size > maximum_section_size || size > std::numeric_limits<size_t>::max())
             throw std::runtime_error("GLOOMY_MODEL section size is invalid");
         std::string bytes(static_cast<size_t>(size), '\0'); if (size) read(in, bytes.data(), bytes.size());
-        if (id >= network_section && id <= optimizer_section && !sections.emplace(id, std::move(bytes)).second)
+        if (id >= network_section && id <= memory_section && !sections.emplace(id, std::move(bytes)).second)
             throw std::runtime_error("Duplicate GLOOMY_MODEL section");
     }
     if (in.peek() != std::char_traits<char>::eof()) throw std::runtime_error("Unexpected GLOOMY_MODEL data");
@@ -205,8 +210,19 @@ void GloomyModelSerialization::load(
     std::istringstream optimizer_validation(sections.at(optimizer_section), std::ios::binary);
     if (readString(optimizer_validation, 64) != optimizer.checkpointType())
         throw std::runtime_error("GLOOMY_MODEL optimizer type mismatch");
+    std::unique_ptr<LearningMemory> restored_memory;
+    const auto memory_section_iterator = sections.find(memory_section);
+    if (memory_section_iterator != sections.end()) {
+        restored_memory = LearningMemorySerialization::deserialize(memory_section_iterator->second);
+        LearningMemorySerialization::validateDimensions(
+            *restored_memory,
+            restored_network.layers().front().weights().size(),
+            restored_network.layers().back().bias().size()
+        );
+    }
 
     deserializeOptimizer(sections.at(optimizer_section), optimizer, restored_network.layers());
     network = std::move(restored_network);
     normalizer = std::move(restored_normalizer);
+    if (memory) *memory = std::move(restored_memory);
 }

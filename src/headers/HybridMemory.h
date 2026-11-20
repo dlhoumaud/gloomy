@@ -36,6 +36,7 @@ public:
     std::vector<size_t> partitionSizes() const;
 
 private:
+    friend class LearningMemorySerialization;
     enum class Partition {
         Recent,
         Error,
@@ -58,6 +59,7 @@ private:
     void removeOldestFromPartition(Partition partition);
 
     size_t memory_capacity;
+    std::uint32_t initial_seed;
     HybridMemoryRatios memory_ratios;
     size_t recent_capacity;
     size_t error_capacity;
