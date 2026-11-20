@@ -193,9 +193,9 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
    - représentation float64/int16/int8 ;
    - paramètres `scale` / `zero_point`.
 
-4. **CLI d'entraînement et runtime online**
+4. **CLI d'entraînement et runtime online** — première version raccordée via `-f/--config`.
 
-   Le CLI actuel sait uniquement construire un réseau d'inférence et générer des prédictions. Il faut ajouter des modes explicites :
+   Le CLI configuré charge et sauvegarde le format complet et propose les modes explicites :
 
    - `TRAINING_RUNTIME` ;
    - `INFERENCE_RUNTIME` ;
@@ -210,9 +210,9 @@ Il contient aussi une expérience synthétique de catastrophic forgetting avec e
 
 ### Configuration fichier
 
-Aucune nouvelle option CLI n'a encore été ajoutée, et c'est cohérent pour l'instant : les nouvelles fonctionnalités sont des composants C++ testés séparément, tandis que le CLI historique reste focalisé sur l'inférence.
+Le chemin CLI historique reste disponible pour les démonstrations d'inférence. Le chemin configuré utilise un fichier clé-valeur sans dépendance et propose déjà l'entraînement batch, le replay online et l'inférence depuis un `GLOOMY_MODEL`.
 
-À terme, un fichier de configuration est préférable à une commande contenant des dizaines d'options. L'idée proposée est :
+Le runtime configuré utilise un fichier de configuration plutôt qu'une commande contenant de nombreuses options :
 
 ```bash
 ./bin/gloomy -f gloomy.config
@@ -231,6 +231,7 @@ huber_delta=1.0
 optimizer=momentum
 learning_rate=0.001
 momentum=0.9
+dataset_path=training.txt
 memory_strategy=hybrid
 memory_capacity=256
 recent_ratio=0.25
@@ -238,25 +239,21 @@ error_ratio=0.25
 novelty_ratio=0.25
 historical_ratio=0.25
 novelty_threshold=1.0
-precision=int8
+precision=float64
 train_every=10
 batch_size=8
 seed=1234
 model_path=model.gloomy
-metrics_path=benchmark.csv
 ```
 
-Avant de l'implémenter, il faudra décider :
+Les éléments suivants restent à compléter :
 
-- format INI simple, JSON sans dépendance externe, ou format clé-valeur propriétaire ;
-- priorité entre valeurs du fichier et options CLI ;
-- validation et messages d'erreur ;
-- valeurs par défaut centralisées ;
-- support des secrets ou chemins externes ;
-- compatibilité de version du fichier ;
-- distinction entre configuration d'entraînement et configuration d'inférence.
+- validation plus exhaustive des combinaisons de paramètres ;
+- options CLI de surcharge pour tous les paramètres ;
+- versionnement éventuel du fichier de configuration ;
+- distinction plus stricte entre les paramètres d'entraînement et d'inférence.
 
-Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendance externe, avec priorité `CLI > fichier > défauts`. Ne pas appeler ce fichier `.env` au sens strict si ses valeurs ne sont pas destinées à être des variables d'environnement ; `gloomy.config` ou `gloomy.ini` serait plus explicite. Un alias `-f` peut néanmoins accepter n'importe quel chemin.
+Le parseur actuel accepte des lignes `clé=valeur`, des lignes vides et des commentaires commençant par `#` ou `;`. Les options implémentées suivent la priorité `CLI > fichier > défauts`.
 
 ### Priorité moyenne : robustesse mathématique
 
@@ -320,21 +317,17 @@ Recommandation : commencer par un parseur clé-valeur INI minimal sans dépendan
 ## 4. Ordre recommandé pour la suite
 
 1. Rendre le chargement des composants transactionnel — implémenté pour le réseau, le normaliseur, les échantillons et l'optimiseur.
-2. Stabiliser la sérialisation unifiée du modèle — version 1 implémentée avec sections réseau, normalisation et optimiseur ; mémoire et quantification restent à intégrer.
+2. Stabiliser la sérialisation unifiée du modèle — version 1 implémentée avec sections réseau, normalisation, optimiseur et mémoire optionnelle ; quantification des poids et métadonnées de runtime restent à intégrer.
 3. Ajouter la persistance des mémoires et des paramètres de quantification — implémenté dans la section mémoire optionnelle de `GLOOMY_MODEL` pour les stratégies intégrées et FIFO int16/int8.
-4. Centraliser les défauts dans une configuration C++.
-5. Ajouter `-f/--config` au CLI avec priorité CLI > fichier > défauts.
-6. Exposer un mode online fonctionnel dans le CLI.
-7. Étendre les benchmarks aux capacités et stratégies restantes.
-8. Ajouter les tests de concept drift et catastrophic forgetting.
-9. Optimiser les allocations et la représentation mémoire.
-10. Préparer le runtime embarqué et la quantification des poids.
+4. Raccorder le chargement, l'entraînement et l'inférence au CLI — version initiale disponible avec `-f/--config`.
+5. Étendre les benchmarks aux capacités et stratégies restantes.
+6. Ajouter des expériences reproductibles de concept drift et catastrophic forgetting.
+7. Optimiser les allocations et la représentation mémoire.
+8. Préparer le runtime embarqué et la quantification des poids.
 
 ## 5. Limites connues à ne pas oublier
 
-- le CLI recrée actuellement le réseau entre prédictions autorégressives, avec de nouveaux poids aléatoires ;
-- le CLI ne charge pas encore de modèle sauvegardé ;
-- le CLI ne lance pas encore l'entraînement ;
+- le chemin CLI historique recrée le réseau entre prédictions autorégressives avec de nouveaux poids ;
 - `softmax` sur la sortie actuelle à un neurone vaut toujours `1` ;
 - les couches utilisent encore des vecteurs imbriqués et des allocations dynamiques ;
 - les mémoires natives stockent encore des `double` ;

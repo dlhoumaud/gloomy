@@ -59,6 +59,14 @@ Exemple d'utilisation :
 ./bin/gloomy "10.5 11.0 12.3" -c 3 -l 2 -n 4 -a sigmoid
 ```
 
+Le CLI configuré charge et sauvegarde un modèle complet, et permet l'entraînement depuis un fichier de paires entrée/cible :
+
+```bash
+./bin/gloomy -f gloomy.config
+```
+
+Voir [`docs/configurations.md`](docs/configurations.md) pour les modes runtime et le format du dataset.
+
 #### Arguments
 
 - **`<sequence_values>`** : Liste de valeurs séparées par des espaces (ex : `"10.5 11.0 12.3"`).

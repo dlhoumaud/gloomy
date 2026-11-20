@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include "headers/DenseLayer.h"
 #include "headers/NeuralNetwork.h"
+#include "headers/Runtime.h"
 
 // Fonction pour analyser les entrées sous forme de chaîne de caractères et les convertir en vecteur de doubles
 std::vector<double> parseInputs(const std::string &str) {
@@ -28,6 +29,7 @@ std::vector<double> parseInputs(const std::string &str) {
 // Fonction pour afficher l'aide sur les options du programme
 void displayHelp(const char *programName) {
     std::cerr << "Usage: " << programName << " <sequence_values> [-c C] [-a A] [-n N] [-l L] [-h]" << std::endl;
+    std::cerr << "       " << programName << " -f|--config CONFIG [runtime overrides]" << std::endl;
     std::cerr << std::endl;
     std::cerr << "Options:" << std::endl;
     std::cerr << "  <sequence_values>    : Sequence of space-separated values, ex: \"10.5 11.0 12.3\"" << std::endl;
@@ -38,6 +40,7 @@ void displayHelp(const char *programName) {
     std::cerr << "                       : Activation function (default none)" << std::endl;
     std::cerr << "  -A [none|softmax]    : Post-activation function (default none)" << std::endl;
     std::cerr << "  -h                   : Show this help" << std::endl;
+    std::cerr << "  -f, --config FILE    : Load a runtime configuration" << std::endl;
     std::cerr << std::endl;
 }
 
@@ -77,6 +80,13 @@ void parseArguments(int argc, char *argv[], int &num_predictions, int &num_layer
 }
 
 int main(int argc, char *argv[]) {
+    if (argc >= 2 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
+        displayHelp(argv[0]);
+        return 0;
+    }
+    if (argc >= 2 && (std::string(argv[1]) == "-f" || std::string(argv[1]) == "--config")) {
+        return runConfiguredRuntime(argc, argv);
+    }
     std::srand(std::time(0));  // Initialisation du générateur de nombres aléatoires
 
     // Paramètres par défaut
