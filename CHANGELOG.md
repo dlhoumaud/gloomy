@@ -11,6 +11,7 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - optimiseurs SGD, Momentum et Adam, avec mesures de taille d'état pour Momentum et Adam ;
 - entraînement par epochs et mini-batches, replay indexé et recalcul des priorités après mise à jour ;
 - parcours des mini-batches du dataset sans créer un vecteur de batch temporaire ;
+- accès interne par référence aux sorties de propagation avant pour éviter leurs copies pendant l'entraînement, tout en conservant l'API `forward()` par valeur ;
 - schedulers `EverySample`, `EveryN` et `OnHighError`.
 
 ### Mémoire et normalisation

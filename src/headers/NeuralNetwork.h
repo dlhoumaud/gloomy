@@ -20,6 +20,7 @@ public:
 
     void addLayer(int input_size, int output_size);
     std::vector<double> forward(const std::vector<double>& inputs);
+    const std::vector<double>& forwardRef(const std::vector<double>& inputs);
     std::vector<double> backward(const std::vector<double>& gradient_output);
     void zeroGradients();
     std::vector<DenseLayer>& layers();

@@ -20,7 +20,7 @@ double trainBatchSamples(
     double total_loss = 0.0;
     for (size_t index = 0; index < sample_count; ++index) {
         const TrainingSample& sample = sample_at(index);
-        const std::vector<double> prediction = network.forward(sample.input);
+        const std::vector<double>& prediction = network.forwardRef(sample.input);
         total_loss += loss.compute(prediction, sample.target);
         network.backward(loss.gradient(prediction, sample.target));
     }
@@ -65,7 +65,7 @@ double LearningEngine::trainFromMemory(LearningMemory& memory, size_t batch_size
     ImportanceScorer scorer;
     for (const MemoryEntry& entry : entries) {
         TrainingSample updated_sample = entry.sample;
-        const std::vector<double> prediction = network.forward(updated_sample.input);
+        const std::vector<double>& prediction = network.forwardRef(updated_sample.input);
         updated_sample.error = 0.0;
         for (size_t index = 0; index < prediction.size(); ++index) {
             updated_sample.error = std::max(
@@ -99,7 +99,7 @@ double LearningEngine::learn(
     }
 
     TrainingSample prioritized_sample = sample;
-    const std::vector<double> prediction = network.forward(sample.input);
+    const std::vector<double>& prediction = network.forwardRef(sample.input);
     const double sample_loss = loss.compute(prediction, sample.target);
     prioritized_sample.error = 0.0;
     for (size_t index = 0; index < prediction.size(); ++index) {

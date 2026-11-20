@@ -14,24 +14,28 @@ void NeuralNetwork::addLayer(int input_size, int output_size) {
 }
 
 std::vector<double> NeuralNetwork::forward(const std::vector<double>& inputs) {
+    return forwardRef(inputs);
+}
+
+const std::vector<double>& NeuralNetwork::forwardRef(const std::vector<double>& inputs) {
     if (layers_data.empty()) {
         throw std::runtime_error("The network has no layers");
     }
 
-    std::vector<double> current_inputs = inputs;
+    const std::vector<double>* current_inputs = &inputs;
     for (size_t index = 0; index < layers_data.size(); ++index) {
         auto &layer = layers_data[index];
         layer.set_algorithm(algorithm);
         // Softmax is a normalization of the final output, not a hidden-layer activation.
         layer.set_post_algorithm(index + 1 == layers_data.size() ? post_algorithm : "none");
-        current_inputs = layer.forward(current_inputs);
+        current_inputs = &layer.forwardRef(*current_inputs);
     }
 
-    if (current_inputs.empty()) {
+    if (current_inputs->empty()) {
         throw std::runtime_error("The network produced no output");
     }
 
-    return current_inputs;
+    return *current_inputs;
 }
 
 std::vector<double> NeuralNetwork::backward(const std::vector<double>& gradient_output) {

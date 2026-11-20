@@ -18,6 +18,7 @@ public:
     void set_algorithm(std::string algo);
     void set_post_algorithm(std::string algo);
     std::vector<double> forward(const std::vector<double>& inputs);
+    const std::vector<double>& forwardRef(const std::vector<double>& inputs);
     std::vector<double> backward(const std::vector<double>& gradient_output);
     void zeroGradients();
 

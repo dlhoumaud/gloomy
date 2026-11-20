@@ -43,6 +43,10 @@ void DenseLayer::set_post_algorithm(std::string algo) {
 
 // Propagation avant dans la couche
 std::vector<double> DenseLayer::forward(const std::vector<double>& inputs) {
+    return forwardRef(inputs);
+}
+
+const std::vector<double>& DenseLayer::forwardRef(const std::vector<double>& inputs) {
     if (inputs.size() != weights_data.size()) {
         throw std::invalid_argument("Input size does not match layer size");
     }

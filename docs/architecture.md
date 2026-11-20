@@ -39,6 +39,8 @@ Le `LearningEngine` gère les mini-batches, l'entraînement depuis une mémoire 
 
 `LearningEngine::train()` parcourt les mini-batches dans le dataset sans les recopier dans un vecteur temporaire. L'entraînement depuis une mémoire reçoit toutefois un batch indexé contenant des copies des exemples échantillonnés. Ces réductions de copies ne rendent pas le pipeline du runtime streaming : le dataset et une version normalisée sont tous deux conservés pendant l'apprentissage.
 
+`NeuralNetwork::forwardRef()` expose par référence les sorties mises en cache et réutilisées par les couches; `LearningEngine` s'en sert pour éviter de recopier les sorties à chaque exemple entraîné. L'API `forward()` reste disponible et renvoie une copie indépendante. Les caches d'entrée des couches et les gradients continuent d'utiliser leurs propres buffers dynamiques.
+
 `StreamingNormalizer` calcule moyenne et variance avec Welford. Pour un nouveau modèle, le runtime met à jour le normaliseur avec les entrées de tout le dataset chargé; il ne crée pas de split train/validation/test. À la reprise, les statistiques sauvegardées sont réutilisées. Il faut donc fournir un dataset d'entraînement approprié et réserver séparément les données d'évaluation.
 
 La capacité mémoire est généralement exprimée en nombre d'échantillons, pas en budget d'octets strict. Les mémoires FIFO int16/int8 exposent une estimation des octets occupés par les échantillons, hors coût complet du processus.
