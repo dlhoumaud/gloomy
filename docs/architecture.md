@@ -13,7 +13,7 @@ configuration + dataset entrée|cible
   -> sauvegarde GLOOMY_MODEL
 ```
 
-En mode `inference`, le modèle existant et son normaliseur sont chargés, puis les sorties sont écrites une par ligne. En mode entraînement, le runtime lit le dataset complet en mémoire et normalise ses entrées en place : il ne conserve plus une seconde copie intégrale des `TrainingSample`. Le parsing reste toutefois chargé en mémoire et ne traite pas encore le fichier en flux.
+En mode `inference`, le modèle existant et son normaliseur sont chargés, puis les sorties sont écrites une par ligne. En mode entraînement ou apprentissage en ligne, un lecteur valide le fichier ligne par ligne sans conserver le dataset complet. Le runtime relit le fichier pour calculer les statistiques Welford si le modèle est neuf, puis pour alimenter le replay et l'entraînement. Il conserve uniquement le mini-batch courant, l'exemple en cours et la mémoire configurée. La calibration int16/int8 ajoute une passe qui calcule ses bornes sans stocker les exemples.
 
 Le CLI historique (`./bin/gloomy "..."`) est une démonstration séparée : il crée un réseau à poids aléatoires et, pour plusieurs prédictions, reconstruit le réseau avec de nouveaux poids à chaque étape. Il ne charge pas le modèle configuré et ne constitue pas un entraînement autorégressif.
 
@@ -37,7 +37,7 @@ Augmenter la largeur ou le nombre de couches accroît la capacité, le nombre de
 
 Le `LearningEngine` gère les mini-batches, l'entraînement depuis une mémoire et l'ajout d'observations avant replay. Le runtime `online_learning` connecte cette boucle à un `EveryNScheduler`. Les stratégies FIFO, Reservoir, Prioritized, Novelty et Hybrid partagent l'interface `LearningMemory`.
 
-`LearningEngine::train()` parcourt les mini-batches dans le dataset sans les recopier dans un vecteur temporaire. L'entraînement depuis une mémoire reçoit un batch indexé de copies réutilisées par l'engine. Le runtime conserve toujours le dataset complet pendant l'apprentissage; normaliser en place supprime son doublon, mais le parsing en flux et l'entraînement à mémoire bornée restent à concevoir.
+Le runtime construit des mini-batches de taille maximale `batch_size` et appelle `LearningEngine::trainBatch()`; il n'alloue pas de vecteur par epoch pour tout le dataset. L'entraînement depuis une mémoire reçoit un batch indexé de copies réutilisées par l'engine. En mode `training`, les exemples sont aussi ajoutés au replay configuré avant les epochs, comme auparavant; la taille conservée est limitée par la capacité de cette mémoire.
 
 `NeuralNetwork::forwardRef()` expose par référence les sorties mises en cache et réutilisées par les couches; `backwardRef()` réutilise les buffers de gradients par couche. `LearningEngine` utilise aussi `gradientInto()` et conserve son buffer de gradient de perte entre les exemples. Pour l'inférence, `forwardInferenceRef()` ne remplit pas les caches requis pour la rétropropagation et le runtime normalise dans un buffer fourni. Les API historiques `forward()` et `backward()` restent disponibles et renvoient des copies indépendantes. Les buffers d'activations/gradients sont réutilisés, mais restent des vecteurs dynamiques séparés. Les poids et gradients de poids restent stockés en vecteurs imbriqués, car l'API mutable `weights()[i][j]` est utilisée par les optimiseurs, la sérialisation et les consommateurs existants; un stockage contigu demanderait une migration d'API coordonnée.
 

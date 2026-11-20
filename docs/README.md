@@ -2,7 +2,7 @@
 
 Gloomy est un moteur expérimental Dense en C++17. Le runtime configuré est le chemin d'entraînement batch/online et d'inférence sur modèle sauvegardé. Le CLI historique reste une démonstration : il reconstruit le réseau entre prédictions et ne représente pas un modèle autorégressif entraîné.
 
-Le flux configuré est : lecture des exemples `entrée | cible`, normalisation des entrées, entraînement ou replay mémoire, sauvegarde `GLOOMY_MODEL`; en inférence, chargement du modèle, normalisation de l'entrée et émission des sorties. Le dataset configuré est chargé en mémoire; le traitement en flux et les budgets stricts de RAM restent à faire.
+Le runtime configuré lit les exemples `entrée | cible` par passes successives : validation des dimensions, calcul des statistiques, puis apprentissage par mini-batches ou replay en ligne. Il ne conserve pas le dataset entier en mémoire; l'usage dépend du mini-batch, du replay configuré, du modèle et d'une ligne en cours de lecture. Les modes entraînement relisent le fichier à chaque passe/epoch, et le calibrage int16/int8 ajoute une passe de bornes. La sauvegarde utilise `GLOOMY_MODEL`.
 
 ## Entrées rapides
 

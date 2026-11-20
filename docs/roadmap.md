@@ -23,8 +23,8 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 
 ## 3. Réduire les coûts du pipeline de données et de mémoire
 
-- parsing incrémental et entraînement à mémoire bornée; le runtime normalise maintenant son dataset en place et le calibrage int16/int8 calcule les bornes sans vecteurs aplatis temporaires ;
-- étudier un parsing incrémental et un pipeline borné en mémoire ;
+- le runtime lit maintenant le dataset ligne par ligne et entraîne par mini-batches; les passes de statistiques/calibration relisent le fichier sans le conserver en mémoire ;
+- mesurer la RAM du pipeline complet, notamment le replay, les poids/états d'optimiseur, les buffers par échantillon et les structures de conteneurs ;
 - proposer des limites mémoire en octets, en tenant compte des métadonnées, paramètres de quantification et allocations ;
 - mesurer les compromis des stratégies de replay et des formats compacts sur des données représentatives.
 

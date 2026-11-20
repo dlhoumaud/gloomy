@@ -3,11 +3,13 @@
 #include "headers/FIFOMemory.h"
 #include "headers/GloomyModelSerialization.h"
 #include "headers/HybridMemory.h"
+#include "headers/Int8Quantization.h"
 #include "headers/LearningEngine.h"
 #include "headers/LossFunction.h"
 #include "headers/MomentumOptimizer.h"
 #include "headers/NoveltyMemory.h"
 #include "headers/PrioritizedMemory.h"
+#include "headers/Quantization.h"
 #include "headers/QuantizedFIFOMemory.h"
 #include "headers/QuantizedInt8FIFOMemory.h"
 #include "headers/ReservoirMemory.h"
@@ -24,6 +26,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -217,13 +220,19 @@ std::vector<double> parseVector(const std::string& text, const std::string& cont
     return values;
 }
 
-std::vector<TrainingSample> readDataset(const std::string& path) {
+struct DatasetInfo {
+    size_t input_dimensions = 0;
+    size_t target_dimensions = 0;
+    size_t sample_count = 0;
+};
+
+template <typename SampleHandler>
+DatasetInfo forEachDatasetSample(const std::string& path, SampleHandler handle_sample) {
     std::ifstream file(path);
     if (!file) throw std::runtime_error("Unable to open dataset: " + path);
-    std::vector<TrainingSample> samples;
+    DatasetInfo info;
     std::string line;
     size_t line_number = 0;
-    size_t input_dimensions = 0, target_dimensions = 0;
     while (std::getline(file, line)) {
         ++line_number;
         line = trim(line);
@@ -236,13 +245,17 @@ std::vector<TrainingSample> readDataset(const std::string& path) {
         sample.target = parseVector(trim(line.substr(separator + 1)), "Dataset targets");
         if (sample.input.size() > 1'000'000 || sample.target.size() > 1'000'000)
             throw std::invalid_argument("Dataset dimensions exceed the supported limit");
-        if (!input_dimensions) { input_dimensions = sample.input.size(); target_dimensions = sample.target.size(); }
-        if (sample.input.size() != input_dimensions || sample.target.size() != target_dimensions)
+        if (!info.input_dimensions) {
+            info.input_dimensions = sample.input.size();
+            info.target_dimensions = sample.target.size();
+        }
+        if (sample.input.size() != info.input_dimensions || sample.target.size() != info.target_dimensions)
             throw std::invalid_argument("Dataset dimensions must be consistent (line " + std::to_string(line_number) + ")");
-        samples.push_back(std::move(sample));
+        handle_sample(sample);
+        ++info.sample_count;
     }
-    if (samples.empty()) throw std::invalid_argument("Dataset contains no samples");
-    return samples;
+    if (info.sample_count == 0) throw std::invalid_argument("Dataset contains no samples");
+    return info;
 }
 
 void initializeNetwork(NeuralNetwork& network, const RuntimeConfig& c, size_t input_size, size_t target_size) {
@@ -264,15 +277,16 @@ std::unique_ptr<Optimizer> createOptimizer(const RuntimeConfig& c) {
 
 std::unique_ptr<LearningMemory> createMemory(
     const RuntimeConfig& c,
-    const std::vector<TrainingSample>& calibration_samples
+    const QuantizationParameters& input_quantization,
+    const QuantizationParameters& target_quantization
 ) {
     if (c.precision == "int16") {
         return std::make_unique<QuantizedFIFOMemory>(
-            c.memory_capacity, TrainingSampleQuantizer::calibrate(calibration_samples));
+            c.memory_capacity, TrainingSampleQuantizer(input_quantization, target_quantization));
     }
     if (c.precision == "int8") {
         return std::make_unique<QuantizedInt8FIFOMemory>(
-            c.memory_capacity, Int8TrainingSampleQuantizer::calibrate(calibration_samples));
+            c.memory_capacity, Int8TrainingSampleQuantizer(input_quantization, target_quantization));
     }
     if (c.memory_strategy == "fifo") return std::make_unique<FIFOMemory>(c.memory_capacity);
     if (c.memory_strategy == "reservoir") return std::make_unique<ReservoirMemory>(c.memory_capacity, c.seed);
@@ -292,14 +306,23 @@ int run(const RuntimeConfig& config) {
     validateConfig(config);
     std::srand(config.seed);
     std::vector<double> inference_input;
-    std::vector<TrainingSample> dataset;
+    DatasetInfo dataset_info;
     if (config.runtime == "inference") {
         inference_input = parseVector(config.input, "input");
         if (inference_input.size() > 1'000'000) throw std::invalid_argument("Input dimension exceeds the supported limit");
     }
-    else dataset = readDataset(config.dataset_path);
-    const size_t input_size = config.runtime == "inference" ? inference_input.size() : dataset.front().input.size();
-    const size_t target_size = config.runtime == "inference" ? 1 : dataset.front().target.size();
+    else dataset_info = forEachDatasetSample(config.dataset_path, [](TrainingSample&) {});
+    auto for_each_dataset_sample = [&](auto&& handle_sample) {
+        const DatasetInfo pass_info = forEachDatasetSample(config.dataset_path, handle_sample);
+        if (pass_info.input_dimensions != dataset_info.input_dimensions ||
+            pass_info.target_dimensions != dataset_info.target_dimensions ||
+            pass_info.sample_count != dataset_info.sample_count) {
+            throw std::runtime_error("Dataset changed while the runtime was processing it");
+        }
+        return pass_info;
+    };
+    const size_t input_size = config.runtime == "inference" ? inference_input.size() : dataset_info.input_dimensions;
+    const size_t target_size = config.runtime == "inference" ? 1 : dataset_info.target_dimensions;
 
     NeuralNetwork network;
     StreamingNormalizer normalizer(input_size);
@@ -319,7 +342,9 @@ int run(const RuntimeConfig& config) {
     } else {
         if (config.runtime == "inference") throw std::runtime_error("Model file does not exist: " + config.model_path);
         initializeNetwork(network, config, input_size, target_size);
-        for (const TrainingSample& sample : dataset) normalizer.update(sample.input);
+        for_each_dataset_sample([&](TrainingSample& sample) {
+            normalizer.update(sample.input);
+        });
     }
 
     if (config.runtime == "inference") {
@@ -330,24 +355,73 @@ int run(const RuntimeConfig& config) {
         return 0;
     }
 
-    for (TrainingSample& sample : dataset) sample.input = normalizer.normalize(sample.input);
-    if (!memory) memory = createMemory(config, dataset);
+    QuantizationParameters input_quantization{1.0, 0};
+    QuantizationParameters target_quantization{1.0, 0};
+    if (!memory && config.precision != "float64") {
+        double input_minimum = std::numeric_limits<double>::infinity();
+        double input_maximum = -std::numeric_limits<double>::infinity();
+        double target_minimum = std::numeric_limits<double>::infinity();
+        double target_maximum = -std::numeric_limits<double>::infinity();
+        std::vector<double> normalized_input;
+        for_each_dataset_sample([&](TrainingSample& sample) {
+            normalizer.normalizeInto(sample.input, normalized_input);
+            for (double value : normalized_input) {
+                input_minimum = std::min(input_minimum, value);
+                input_maximum = std::max(input_maximum, value);
+            }
+            for (double value : sample.target) {
+                target_minimum = std::min(target_minimum, value);
+                target_maximum = std::max(target_maximum, value);
+            }
+        });
+        if (config.precision == "int16") {
+            input_quantization = Int16Quantizer::calibrateRange(input_minimum, input_maximum);
+            target_quantization = Int16Quantizer::calibrateRange(target_minimum, target_maximum);
+        } else {
+            input_quantization = Int8Quantizer::calibrateRange(input_minimum, input_maximum);
+            target_quantization = Int8Quantizer::calibrateRange(target_minimum, target_maximum);
+        }
+    }
+    if (!memory) memory = createMemory(config, input_quantization, target_quantization);
     auto loss = createLoss(config);
     LearningEngine engine(network, *loss, *optimizer);
 
     double final_loss = 0.0;
     if (config.runtime == "training") {
-        for (const TrainingSample& sample : dataset) memory->add(sample);
-        final_loss = engine.train(dataset, config.epochs, config.batch_size);
+        for_each_dataset_sample([&](TrainingSample& sample) {
+            normalizer.normalizeInto(sample.input, sample.input);
+            memory->add(sample);
+        });
+        std::vector<TrainingSample> batch;
+        batch.reserve(std::min(config.batch_size, dataset_info.sample_count));
+        for (size_t epoch = 0; epoch < config.epochs; ++epoch) {
+            double epoch_loss = 0.0;
+            size_t processed_samples = 0;
+            auto train_batch = [&]() {
+                const size_t batch_count = batch.size();
+                epoch_loss += engine.trainBatch(batch) * static_cast<double>(batch_count);
+                processed_samples += batch_count;
+                batch.clear();
+            };
+            for_each_dataset_sample([&](TrainingSample& sample) {
+                normalizer.normalizeInto(sample.input, sample.input);
+                batch.push_back(std::move(sample));
+                if (batch.size() == config.batch_size) train_batch();
+            });
+            if (!batch.empty()) train_batch();
+            final_loss = epoch_loss / static_cast<double>(processed_samples);
+        }
     } else {
         EveryNScheduler scheduler(config.train_every);
         double accumulated = 0.0;
-        for (const TrainingSample& sample : dataset)
+        for_each_dataset_sample([&](TrainingSample& sample) {
+            normalizer.normalizeInto(sample.input, sample.input);
             accumulated += engine.learn(*memory, sample, config.batch_size, scheduler);
-        final_loss = accumulated / static_cast<double>(dataset.size());
+        });
+        final_loss = accumulated / static_cast<double>(dataset_info.sample_count);
     }
     GloomyModelSerialization::save(config.model_path, network, normalizer, *optimizer, memory.get());
-    std::cerr << "loss=" << final_loss << " samples=" << dataset.size() << '\n';
+    std::cerr << "loss=" << final_loss << " samples=" << dataset_info.sample_count << '\n';
     return 0;
 }
 }

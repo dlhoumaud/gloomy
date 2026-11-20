@@ -16,6 +16,7 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - buffers d'inférence, de gradient de perte et d'échantillons replay réutilisables; softmax calculé en place et déquantification/quantification écrivable dans des buffers existants ;
 - runtime d'entraînement qui normalise les entrées du dataset en place au lieu de conserver un second dataset normalisé ;
 - calibrage des mémoires quantifiées qui calcule directement les bornes min/max sans copier tout le dataset dans des vecteurs temporaires ;
+- lecture ligne par ligne du dataset et entraînement par mini-batches, avec passes supplémentaires de statistiques/calibration au lieu de garder le dataset complet en RAM ;
 - schedulers `EverySample`, `EveryN` et `OnHighError`.
 
 ### Mémoire et normalisation
