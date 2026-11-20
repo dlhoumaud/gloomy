@@ -13,6 +13,8 @@ make
 
 Les modes sont `training`, `online_learning` et `inference`. Voir [configurations et limites](configurations.md) pour les clés prises en charge, le format dataset et les options de surcharge.
 
+Des exemples exécutables avec leurs datasets, configurations et commandes se trouvent dans [examples](examples/README.md). L'exemple de régression linéaire entraîne `y = 2x + 1`, sauvegarde le checkpoint, puis lance des prédictions.
+
 Le CLI historique `./bin/gloomy "10.5 11.0 12.3" -c 1 -l 2 -n 8 -a tanh` est décrit dans [architecture](architecture.md); ses limites sont distinctes du runtime configuré.
 
 ## Guides

@@ -54,6 +54,10 @@ Le format `GLOOMY_MODEL` sert à la reprise et inclut obligatoirement une sectio
 
 Les benchmarks sont indicatifs et ne représentent pas des données applicatives ni une mesure sur matériel embarqué. La portée et les limites sont décrites dans [benchmark](docs/benchmark.md).
 
+### Exemples documentés
+
+- ajout d'exemples exécutables pour les régressions scalaire et vectorielle, le replay FIFO int8 et l'apprentissage en ligne multi-régime avec mémoire Hybrid.
+
 ## Comportement conservé du CLI historique
 
 Le CLI de démonstration accepte une séquence de valeurs et construit un réseau neuf. Lors de prédictions successives, il reconstruit le réseau avec de nouveaux poids; ce chemin ne correspond pas au runtime configuré ni à une boucle autorégressive entraînée.
