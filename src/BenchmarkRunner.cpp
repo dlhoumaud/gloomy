@@ -85,18 +85,19 @@ std::unique_ptr<LearningMemory> makeMemory(
     const std::string& name,
     const std::string& precision,
     size_t capacity,
-    const std::vector<TrainingSample>& calibration
+    const std::vector<TrainingSample>& calibration,
+    std::uint32_t seed
 ) {
     if (name == "fifo" && precision == "int16")
         return std::make_unique<QuantizedFIFOMemory>(capacity, TrainingSampleQuantizer::calibrate(calibration));
     if (name == "fifo" && precision == "int8")
         return std::make_unique<QuantizedInt8FIFOMemory>(capacity, Int8TrainingSampleQuantizer::calibrate(calibration));
     if (name == "fifo") return std::make_unique<FIFOMemory>(capacity);
-    if (name == "reservoir") return std::make_unique<ReservoirMemory>(capacity, 1234u);
-    if (name == "prioritized") return std::make_unique<PrioritizedMemory>(capacity, 0.6, 1234u);
+    if (name == "reservoir") return std::make_unique<ReservoirMemory>(capacity, seed);
+    if (name == "prioritized") return std::make_unique<PrioritizedMemory>(capacity, 0.6, seed);
     if (name == "novelty") return std::make_unique<NoveltyMemory>(capacity, 0.000025);
     HybridMemoryRatios ratios{0.2, 0.2, 0.2, 0.4};
-    return std::make_unique<HybridMemory>(capacity, ratios, 0.000025, 1234u);
+    return std::make_unique<HybridMemory>(capacity, ratios, 0.000025, seed);
 }
 
 double datasetLoss(NeuralNetwork& network, const LossFunction& loss, const std::vector<TrainingSample>& data) {
@@ -365,7 +366,7 @@ void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
             if (strategy.first != "no_replay") {
                 std::vector<TrainingSample> calibration = regime_a;
                 calibration.insert(calibration.end(), regime_b.begin(), regime_b.end());
-                memory = makeMemory(strategy.first, "float64", 64, calibration);
+                memory = makeMemory(strategy.first, "float64", 64, calibration, seed);
             }
             auto trainPhase = [&](const std::vector<TrainingSample>& phase) {
                 if (!memory) {
@@ -469,7 +470,7 @@ int main() {
                         NeuralNetwork network = makeNetwork();
                         auto optimizer = makeOptimizer(optimizer_name);
                         auto loss = makeLoss(loss_name);
-                        auto memory = makeMemory(variant.first, variant.second, capacity, training);
+                        auto memory = makeMemory(variant.first, variant.second, capacity, training, seed);
                         LearningEngine engine(network, *loss, *optimizer);
                         EveryNScheduler scheduler(train_every);
                         const auto start = std::chrono::steady_clock::now();

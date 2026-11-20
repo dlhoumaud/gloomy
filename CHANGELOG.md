@@ -29,13 +29,14 @@ Les vecteurs et métadonnées des autres stratégies mémoire, ainsi que les poi
 - sérialisation versionnée des échantillons, réseau, normalisation et optimiseur ;
 - format `GLOOMY_MODEL` avec sections réseau, normalisation, optimiseur et mémoire optionnelle ;
 - persistance des stratégies mémoire intégrées, des états RNG des stratégies aléatoires prises en charge et des paramètres des mémoires quantifiées.
+- en inférence, le chargeur vérifie le checksum global mais saute la désérialisation de la section mémoire lorsque l'appelant ne demande pas à la restaurer.
 
 Le format `GLOOMY_MODEL` sert à la reprise et inclut obligatoirement une section optimiseur; un artefact inference-only minimal n'est pas encore disponible.
 
 ### Benchmarks et métriques
 
 - métriques MAE, RMSE et forgetting ;
-- benchmark synthétique comparant stratégies mémoire, capacités, pertes, optimiseurs et précisions de mémoire sur trois seeds ;
+- benchmark synthétique comparant stratégies mémoire, capacités, pertes, optimiseurs et précisions de mémoire sur trois seeds, transmis aussi aux générateurs aléatoires des mémoires ;
 - baseline « dernière valeur », expériences A → B et A → B → A, et export CSV des résultats, du forgetting et du drift.
 
 Les benchmarks sont indicatifs et ne représentent pas des données applicatives ni une mesure sur matériel embarqué. La portée et les limites sont décrites dans [benchmark](docs/benchmark.md).

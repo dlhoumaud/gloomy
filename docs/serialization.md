@@ -57,7 +57,7 @@ GloomyModelSerialization::load("model.gloomy", network, normalizer, optimizer, &
 
 FIFO, Reservoir, Prioritized, Novelty, Hybrid, FIFO int16 et FIFO int8 sont pris en charge. Reservoir, Prioritized et Hybrid sauvegardent l'état de leur générateur pseudo-aléatoire. Les mémoires quantifiées préservent leurs paramètres de calibration et les valeurs entières encodées. Les implémentations personnalisées de `LearningMemory` ne sont pas encore sérialisables.
 
-Le chargement vérifie le checksum, la version, les sections, le type d'optimiseur et la cohérence des dimensions. Il prépare le réseau, le normaliseur et la mémoire avant de remplacer ces objets, puis restaure l'état d'optimiseur compatible. Une normalisation sans observation ne peut pas être sauvegardée.
+Le chargement vérifie le checksum global, la version, les limites et l'unicité des sections, le type d'optimiseur et la cohérence des dimensions. Si l'appelant ne fournit pas de sortie `LearningMemory`, le chargeur saute la désérialisation de cette section après validation du checksum et de ses limites; c'est le chemin utilisé en inférence. Sinon, il prépare aussi la mémoire avant de remplacer les objets cibles, puis restaure l'état d'optimiseur compatible. Une normalisation sans observation ne peut pas être sauvegardée.
 
 Le format est conçu comme checkpoint de reprise, pas comme artefact d'inférence minimal : la section `OPTIMIZER` est requise même en mode inference, et le lecteur reçoit une instance du type d'optimiseur correspondant. Une mémoire peut être omise à la sauvegarde; lorsqu'elle est présente, elle peut être chargée pour une reprise d'entraînement. Un format allégé sans état d'entraînement reste à concevoir.
 

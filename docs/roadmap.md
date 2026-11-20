@@ -6,10 +6,12 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 
 ## 1. Définir les objectifs et le protocole de mesure
 
-- préciser les workloads représentatifs, les dimensions d'entrée/sortie et la cible matérielle ;
-- fixer des seuils mesurables de qualité, latence, débit et mémoire ;
+- utiliser comme baseline provisoire le workload Dense `1 -> 8 -> 1` : régression synthétique, `400` exemples d'entraînement, `80` de validation, batch/replay `8`, capacités mémoire `32/64/128/256`, trois seeds ;
+- utiliser A → B → A comme workload de rétention : `40` observations par régime, dix passages par phase, `50` updates par phase et capacité mémoire `64` ;
+- préciser les workloads applicatifs, dimensions d'entrée/sortie et la cible matérielle avant de fixer des seuils de qualité, latence, débit et RAM ;
 - profiler séparément inférence, entraînement, replay, copies et allocations avant de choisir une optimisation ;
-- ajouter des mesures de percentiles de latence, pic RSS et coûts sur cible lorsque le matériel sera défini ;
+- ajouter une mesure isolée de `forward()` et des percentiles de latence; la mesure actuelle `inference_time_us` inclut évaluation, perte et métriques ;
+- mesurer le pic RSS, les allocations et les coûts sur cible lorsque le matériel sera défini ;
 - conserver les métriques brutes et des baselines comparables plutôt qu'un score composite opaque.
 
 ## 2. Réduire la latence et le coût CPU

@@ -8,6 +8,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <set>
 #include <unordered_map>
 #include <utility>
 
@@ -191,13 +192,23 @@ void GloomyModelSerialization::load(
     if (version != format_version) throw std::runtime_error("Unsupported GLOOMY_MODEL version");
     if (!count || count > maximum_sections) throw std::runtime_error("GLOOMY_MODEL section count is invalid");
     std::unordered_map<std::uint32_t, std::string> sections;
+    std::set<std::uint32_t> section_ids;
     for (std::uint32_t index = 0; index < count; ++index) {
         std::uint32_t id = 0; std::uint64_t size = 0; read(in, &id, sizeof(id)); read(in, &size, sizeof(size));
         if (size > maximum_section_size || size > std::numeric_limits<size_t>::max())
             throw std::runtime_error("GLOOMY_MODEL section size is invalid");
-        std::string bytes(static_cast<size_t>(size), '\0'); if (size) read(in, bytes.data(), bytes.size());
-        if (id >= network_section && id <= memory_section && !sections.emplace(id, std::move(bytes)).second)
-            throw std::runtime_error("Duplicate GLOOMY_MODEL section");
+        if (!section_ids.insert(id).second) throw std::runtime_error("Duplicate GLOOMY_MODEL section");
+        const bool supported_section = id >= network_section && id <= optimizer_section;
+        const bool requested_memory = id == memory_section && memory != nullptr;
+        if (supported_section || requested_memory) {
+            std::string bytes(static_cast<size_t>(size), '\0');
+            if (size) read(in, bytes.data(), bytes.size());
+            sections.emplace(id, std::move(bytes));
+        } else {
+            in.ignore(static_cast<std::streamsize>(size));
+            if (static_cast<std::uint64_t>(in.gcount()) != size)
+                throw std::runtime_error("Invalid or truncated GLOOMY_MODEL section");
+        }
     }
     if (in.peek() != std::char_traits<char>::eof()) throw std::runtime_error("Unexpected GLOOMY_MODEL data");
     if (!sections.count(network_section) || !sections.count(normalizer_section) || !sections.count(optimizer_section))
