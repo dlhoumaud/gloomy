@@ -474,7 +474,7 @@ std::vector<TrainingSample> makeConceptRegime(bool regime_a) {
     return samples;
 }
 
-double datasetMae(NeuralNetwork& network, const std::vector<TrainingSample>& data) {
+double progressiveRegimeMae(NeuralNetwork& network, const std::vector<TrainingSample>& data) {
     double total = 0.0;
     for (const auto& sample : data) {
         const auto prediction = network.forward(sample.input);
@@ -495,6 +495,123 @@ double datasetRmse(NeuralNetwork& network, const std::vector<TrainingSample>& da
         }
     }
     return std::sqrt(squared_error / static_cast<double>(value_count));
+}
+
+struct ProgressiveDriftRow {
+    std::string strategy;
+    std::string stage;
+    std::uint32_t seed = 0;
+    double regime_a_mae = 0.0;
+    double regime_b_mae = 0.0;
+    double regime_c_mae = 0.0;
+    double stage_time_ms = 0.0;
+    size_t updates = 0;
+    size_t memory_bytes = 0;
+};
+
+std::vector<TrainingSample> makeDriftRegime(size_t regime) {
+    const double slopes[] = {1.5, -1.2, 0.6};
+    const double offsets[] = {0.2, 0.1, -0.3};
+    std::vector<TrainingSample> samples;
+    samples.reserve(40);
+    for (size_t index = 0; index < 40; ++index) {
+        const double x = -1.0 + 2.0 * static_cast<double>(index) / 39.0;
+        samples.push_back({{x}, {slopes[regime] * x + offsets[regime]}});
+    }
+    return samples;
+}
+
+std::vector<TrainingSample> interpolateDrift(
+    const std::vector<TrainingSample>& from,
+    const std::vector<TrainingSample>& to
+) {
+    std::vector<TrainingSample> samples;
+    samples.reserve(from.size());
+    for (size_t index = 0; index < from.size(); ++index) {
+        const double fraction = static_cast<double>(index + 1) / static_cast<double>(from.size());
+        const double target = from[index].target.front() * (1.0 - fraction) +
+            to[index].target.front() * fraction;
+        samples.push_back({from[index].input, {target}});
+    }
+    return samples;
+}
+
+double datasetMae(NeuralNetwork& network, const std::vector<TrainingSample>& data) {
+    double total = 0.0;
+    for (const auto& sample : data)
+        total += Metrics::regression(network.forward(sample.input), sample.target).mae;
+    return total / static_cast<double>(data.size());
+}
+
+std::vector<ProgressiveDriftRow> runProgressiveDriftExperiment() {
+    const auto regime_a = makeDriftRegime(0);
+    const auto regime_b = makeDriftRegime(1);
+    const auto regime_c = makeDriftRegime(2);
+    const std::vector<std::pair<std::string, std::vector<TrainingSample>>> stages = {
+        {"regime_a", regime_a},
+        {"drift_a_to_b", interpolateDrift(regime_a, regime_b)},
+        {"regime_b", regime_b},
+        {"drift_b_to_c", interpolateDrift(regime_b, regime_c)},
+        {"regime_c", regime_c},
+        {"return_to_a", regime_a}
+    };
+    const std::vector<std::string> strategies = {
+        "no_replay", "fifo", "reservoir", "prioritized", "novelty", "hybrid"
+    };
+    std::vector<ProgressiveDriftRow> results;
+    MSELoss loss;
+    for (std::uint32_t seed : seeds) {
+        for (const std::string& strategy : strategies) {
+            std::srand(seed);
+            NeuralNetwork network = makeNetwork();
+            SGDOptimizer optimizer(0.01);
+            LearningEngine engine(network, loss, optimizer);
+            std::unique_ptr<LearningMemory> memory;
+            if (strategy != "no_replay") {
+                std::vector<TrainingSample> calibration = regime_a;
+                calibration.insert(calibration.end(), regime_b.begin(), regime_b.end());
+                calibration.insert(calibration.end(), regime_c.begin(), regime_c.end());
+                memory = makeMemory(strategy, "float64", 64, calibration, seed);
+            }
+            EveryNScheduler scheduler(train_every);
+            for (const auto& stage : stages) {
+                const auto start = std::chrono::steady_clock::now();
+                if (memory) {
+                    for (size_t epoch = 0; epoch < 10; ++epoch)
+                        for (const TrainingSample& sample : stage.second)
+                            engine.learn(*memory, sample, replay_batch, scheduler);
+                } else {
+                    engine.train(stage.second, 10, replay_batch);
+                }
+                const auto end = std::chrono::steady_clock::now();
+                ProgressiveDriftRow row;
+                row.strategy = strategy;
+                row.stage = stage.first;
+                row.seed = seed;
+                row.regime_a_mae = progressiveRegimeMae(network, regime_a);
+                row.regime_b_mae = progressiveRegimeMae(network, regime_b);
+                row.regime_c_mae = progressiveRegimeMae(network, regime_c);
+                row.stage_time_ms = std::chrono::duration<double, std::milli>(end - start).count();
+                row.updates = (stage.second.size() * 10 + train_every - 1) / train_every;
+                row.memory_bytes = network.allocatedBytes() + optimizer.allocatedBytes() + engine.allocatedBytes();
+                if (memory) row.memory_bytes += memory->allocatedBytes();
+                results.push_back(row);
+            }
+        }
+    }
+    return results;
+}
+
+void writeProgressiveDriftCsv(const std::vector<ProgressiveDriftRow>& rows) {
+    std::ofstream stream("benchmark_progressive_drift.csv", std::ios::trunc);
+    if (!stream) throw std::runtime_error("Unable to write benchmark_progressive_drift.csv");
+    stream << "strategy,stage,seed,regime_a_mae,regime_b_mae,regime_c_mae,stage_time_ms,updates,memory_bytes\n"
+           << std::setprecision(17);
+    for (const ProgressiveDriftRow& row : rows)
+        stream << row.strategy << ',' << row.stage << ',' << row.seed << ','
+               << row.regime_a_mae << ',' << row.regime_b_mae << ',' << row.regime_c_mae << ','
+               << row.stage_time_ms << ',' << row.updates << ',' << row.memory_bytes << '\n';
+    if (!stream) throw std::runtime_error("Unable to write benchmark_progressive_drift.csv");
 }
 
 void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
@@ -572,6 +689,8 @@ void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
 int main() {
     benchmarkModelArtifacts();
     const auto profile_results = profileCoreOperations();
+    const auto progressive_drift_results = runProgressiveDriftExperiment();
+    writeProgressiveDriftCsv(progressive_drift_results);
     const auto training = makeDataset(training_count, 0);
     const auto validation = makeDataset(validation_count, training_count);
     const double baseline_mae = lastValueBaselineMae(validation);

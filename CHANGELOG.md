@@ -50,7 +50,8 @@ Le format `GLOOMY_MODEL` sert à la reprise et inclut obligatoirement une sectio
 - benchmark synthétique comparant stratégies mémoire, capacités, pertes, optimiseurs et précisions de mémoire sur trois seeds, transmis aussi aux générateurs aléatoires des mémoires ;
 - baseline « dernière valeur », expériences A → B et A → B → A, et export CSV des résultats, du forgetting et du drift.
 - export du pic RSS dans le profil d'opérations `benchmark_profile.csv` ;
-- comparaison de taille et de temps de chargement des artefacts dans `benchmark_artifacts.csv`.
+- comparaison de taille et de temps de chargement des artefacts dans `benchmark_artifacts.csv` ;
+- comparaison de six stratégies mémoire sur trois régimes et transitions progressives dans `benchmark_progressive_drift.csv`.
 
 Les benchmarks sont indicatifs et ne représentent pas des données applicatives ni une mesure sur matériel embarqué. La portée et les limites sont décrites dans [benchmark](docs/benchmark.md).
 

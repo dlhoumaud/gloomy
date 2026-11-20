@@ -31,9 +31,8 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 ## 5. Renforcer l'évaluation et le continual learning
 
 - élargir le benchmark au-delà des fonctions synthétiques, avec séparation temporelle ou expérimentale adaptée ;
-- tester des dérives progressives, plusieurs régimes et des workloads représentatifs ;
+- ajouter des workloads applicatifs représentatifs avec séparation temporelle ou expérimentale adaptée ;
 - étudier la correction du biais d'échantillonnage Prioritized Replay ;
-- faire évoluer Hybrid vers une politique explicitement évaluée utilisant les signaux d'importance réellement disponibles ;
 - généraliser les tests mathématiques : gradients sur activations/couches, stabilité et reproductibilité.
 
 ## 6. Valider sur une cible embarquée
