@@ -9,6 +9,7 @@ double trainBatchSamples(
     NeuralNetwork& network,
     const LossFunction& loss,
     Optimizer& optimizer,
+    std::vector<double>& gradient_buffer,
     size_t sample_count,
     SampleAt sample_at
 ) {
@@ -22,7 +23,8 @@ double trainBatchSamples(
         const TrainingSample& sample = sample_at(index);
         const std::vector<double>& prediction = network.forwardRef(sample.input);
         total_loss += loss.compute(prediction, sample.target);
-        network.backwardRef(loss.gradient(prediction, sample.target));
+        loss.gradientInto(prediction, sample.target, gradient_buffer);
+        network.backwardRef(gradient_buffer);
     }
     optimizer.update(network.layers(), 1.0 / static_cast<double>(sample_count));
     return total_loss / static_cast<double>(sample_count);
@@ -37,7 +39,7 @@ LearningEngine::LearningEngine(
     : network(network), loss(loss), optimizer(optimizer) {}
 
 double LearningEngine::trainBatch(const std::vector<TrainingSample>& batch) {
-    return trainBatchSamples(network, loss, optimizer, batch.size(),
+    return trainBatchSamples(network, loss, optimizer, gradient_buffer, batch.size(),
         [&batch](size_t index) -> const TrainingSample& { return batch[index]; });
 }
 
@@ -49,7 +51,7 @@ double LearningEngine::trainBatchRange(
     if (offset > samples.size() || count > samples.size() - offset) {
         throw std::out_of_range("Training batch range is out of bounds");
     }
-    return trainBatchSamples(network, loss, optimizer, count,
+    return trainBatchSamples(network, loss, optimizer, gradient_buffer, count,
         [&samples, offset](size_t index) -> const TrainingSample& { return samples[offset + index]; });
 }
 
@@ -59,22 +61,21 @@ double LearningEngine::trainFromMemory(LearningMemory& memory, size_t batch_size
     }
 
     memory.advanceAges();
-    const std::vector<MemoryEntry> entries = memory.sampleIndexed(batch_size);
-    const double batch_loss = trainBatchSamples(network, loss, optimizer, entries.size(),
-        [&entries](size_t index) -> const TrainingSample& { return entries[index].sample; });
+    memory.sampleIndexedInto(batch_size, replay_entries);
+    const double batch_loss = trainBatchSamples(network, loss, optimizer, gradient_buffer, replay_entries.size(),
+        [this](size_t index) -> const TrainingSample& { return replay_entries[index].sample; });
     ImportanceScorer scorer;
-    for (const MemoryEntry& entry : entries) {
-        TrainingSample updated_sample = entry.sample;
-        const std::vector<double>& prediction = network.forwardRef(updated_sample.input);
-        updated_sample.error = 0.0;
+    for (MemoryEntry& entry : replay_entries) {
+        const std::vector<double>& prediction = network.forwardRef(entry.sample.input);
+        entry.sample.error = 0.0;
         for (size_t index = 0; index < prediction.size(); ++index) {
-            updated_sample.error = std::max(
-                updated_sample.error,
-                std::abs(prediction[index] - updated_sample.target[index])
+            entry.sample.error = std::max(
+                entry.sample.error,
+                std::abs(prediction[index] - entry.sample.target[index])
             );
         }
-        updated_sample.priority = scorer.score({updated_sample.error});
-        memory.update(entry.index, updated_sample);
+        entry.sample.priority = scorer.score({entry.sample.error});
+        memory.update(entry.index, entry.sample);
     }
     return batch_loss;
 }

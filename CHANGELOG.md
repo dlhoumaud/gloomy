@@ -13,6 +13,7 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - parcours des mini-batches du dataset sans créer un vecteur de batch temporaire ;
 - accès interne par référence aux sorties de propagation avant pour éviter leurs copies pendant l'entraînement, tout en conservant l'API `forward()` par valeur ;
 - réutilisation des buffers de gradient des couches pendant la rétropropagation d'entraînement, avec conservation de l'API `backward()` par valeur ;
+- buffers d'inférence, de gradient de perte et d'échantillons replay réutilisables; softmax calculé en place et déquantification/quantification écrivable dans des buffers existants ;
 - schedulers `EverySample`, `EveryN` et `OnHighError`.
 
 ### Mémoire et normalisation

@@ -21,6 +21,7 @@ public:
     void addLayer(int input_size, int output_size);
     std::vector<double> forward(const std::vector<double>& inputs);
     const std::vector<double>& forwardRef(const std::vector<double>& inputs);
+    const std::vector<double>& forwardInferenceRef(const std::vector<double>& inputs);
     std::vector<double> backward(const std::vector<double>& gradient_output);
     const std::vector<double>& backwardRef(const std::vector<double>& gradient_output);
     void zeroGradients();
@@ -31,6 +32,7 @@ public:
 
 private:
     std::vector<DenseLayer> layers_data;
+    const std::vector<double>& forwardImpl(const std::vector<double>& inputs, bool cache_inputs);
 };
 
 #endif // NEURAL_NETWORK_H

@@ -38,10 +38,18 @@ Int8QuantizedVector Int8Quantizer::quantize(
     const std::vector<double>& values,
     const QuantizationParameters& parameters
 ) {
+    Int8QuantizedVector result;
+    quantizeInto(values, parameters, result);
+    return result;
+}
+
+void Int8Quantizer::quantizeInto(const std::vector<double>& values,
+    const QuantizationParameters& parameters, Int8QuantizedVector& result) {
     validateParameters(parameters);
-    Int8QuantizedVector result{{}, parameters};
-    result.values.reserve(values.size());
-    for (double value : values) {
+    result.parameters = parameters;
+    result.values.resize(values.size());
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double value = values[index];
         if (!std::isfinite(value)) {
             throw std::invalid_argument("Quantization values must be finite");
         }
@@ -50,20 +58,21 @@ Int8QuantizedVector Int8Quantizer::quantize(
             int8_min,
             int8_max
         );
-        result.values.push_back(static_cast<std::int8_t>(quantized));
+        result.values[index] = static_cast<std::int8_t>(quantized);
     }
-    return result;
 }
 
 std::vector<double> Int8Quantizer::dequantize(const Int8QuantizedVector& quantized) {
-    validateParameters(quantized.parameters);
     std::vector<double> result;
-    result.reserve(quantized.values.size());
-    for (std::int8_t value : quantized.values) {
-        result.push_back(
-            (static_cast<double>(value) - quantized.parameters.zero_point) *
-            quantized.parameters.scale
-        );
-    }
+    dequantizeInto(quantized, result);
     return result;
+}
+
+void Int8Quantizer::dequantizeInto(const Int8QuantizedVector& quantized, std::vector<double>& output) {
+    validateParameters(quantized.parameters);
+    output.resize(quantized.values.size());
+    for (size_t index = 0; index < quantized.values.size(); ++index) {
+        output[index] = (static_cast<double>(quantized.values[index]) - quantized.parameters.zero_point) *
+            quantized.parameters.scale;
+    }
 }

@@ -10,6 +10,7 @@ public:
 
     void update(const std::vector<double>& values);
     std::vector<double> normalize(const std::vector<double>& values) const;
+    void normalizeInto(const std::vector<double>& values, std::vector<double>& output) const;
     void clear();
     void restore(
         size_t count,

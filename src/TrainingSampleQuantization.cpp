@@ -33,26 +33,35 @@ TrainingSampleQuantizer TrainingSampleQuantizer::calibrate(
 QuantizedTrainingSample TrainingSampleQuantizer::encode(
     const TrainingSample& sample
 ) const {
-    return {
-        Int16Quantizer::quantize(sample.input, input_parameters),
-        Int16Quantizer::quantize(sample.target, target_parameters),
-        sample.priority,
-        sample.error,
-        sample.novelty,
-        sample.rarity,
-        sample.recency,
-        sample.diversity,
-        sample.age,
-        sample.usage_count
-    };
+    QuantizedTrainingSample result;
+    encodeInto(sample, result);
+    return result;
+}
+
+void TrainingSampleQuantizer::encodeInto(const TrainingSample& sample, QuantizedTrainingSample& output) const {
+    Int16Quantizer::quantizeInto(sample.input, input_parameters, output.input);
+    Int16Quantizer::quantizeInto(sample.target, target_parameters, output.target);
+    output.priority = sample.priority;
+    output.error = sample.error;
+    output.novelty = sample.novelty;
+    output.rarity = sample.rarity;
+    output.recency = sample.recency;
+    output.diversity = sample.diversity;
+    output.age = sample.age;
+    output.usage_count = sample.usage_count;
 }
 
 TrainingSample TrainingSampleQuantizer::decode(
     const QuantizedTrainingSample& sample
 ) const {
     TrainingSample result;
-    result.input = Int16Quantizer::dequantize(sample.input);
-    result.target = Int16Quantizer::dequantize(sample.target);
+    decodeInto(sample, result);
+    return result;
+}
+
+void TrainingSampleQuantizer::decodeInto(const QuantizedTrainingSample& sample, TrainingSample& result) const {
+    Int16Quantizer::dequantizeInto(sample.input, result.input);
+    Int16Quantizer::dequantizeInto(sample.target, result.target);
     result.priority = sample.priority;
     result.error = sample.error;
     result.novelty = sample.novelty;
@@ -61,7 +70,6 @@ TrainingSample TrainingSampleQuantizer::decode(
     result.diversity = sample.diversity;
     result.age = sample.age;
     result.usage_count = sample.usage_count;
-    return result;
 }
 
 const QuantizationParameters& TrainingSampleQuantizer::inputParameters() const {

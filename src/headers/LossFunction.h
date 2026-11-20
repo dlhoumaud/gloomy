@@ -16,6 +16,12 @@ public:
         const std::vector<double>& prediction,
         const std::vector<double>& target
     ) const = 0;
+
+    virtual void gradientInto(
+        const std::vector<double>& prediction,
+        const std::vector<double>& target,
+        std::vector<double>& output
+    ) const;
 };
 
 class MSELoss final : public LossFunction {
@@ -29,6 +35,8 @@ public:
         const std::vector<double>& prediction,
         const std::vector<double>& target
     ) const override;
+    void gradientInto(const std::vector<double>& prediction, const std::vector<double>& target,
+        std::vector<double>& output) const override;
 };
 
 class MAELoss final : public LossFunction {
@@ -42,6 +50,8 @@ public:
         const std::vector<double>& prediction,
         const std::vector<double>& target
     ) const override;
+    void gradientInto(const std::vector<double>& prediction, const std::vector<double>& target,
+        std::vector<double>& output) const override;
 };
 
 class HuberLoss final : public LossFunction {
@@ -57,6 +67,8 @@ public:
         const std::vector<double>& prediction,
         const std::vector<double>& target
     ) const override;
+    void gradientInto(const std::vector<double>& prediction, const std::vector<double>& target,
+        std::vector<double>& output) const override;
 
     double delta() const;
 

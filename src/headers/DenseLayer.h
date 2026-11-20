@@ -19,6 +19,7 @@ public:
     void set_post_algorithm(std::string algo);
     std::vector<double> forward(const std::vector<double>& inputs);
     const std::vector<double>& forwardRef(const std::vector<double>& inputs);
+    const std::vector<double>& forwardInferenceRef(const std::vector<double>& inputs);
     std::vector<double> backward(const std::vector<double>& gradient_output);
     const std::vector<double>& backwardRef(const std::vector<double>& gradient_output);
     void zeroGradients();
@@ -45,13 +46,15 @@ private:
     std::string algorithm = "none";
     std::string post_algorithm = "none";
 
+    const std::vector<double>& forwardImpl(const std::vector<double>& inputs, bool cache_inputs);
+
     static double sigmoid(double x);
     static double relu(double x);
     static double tanhActivation(double x);
     static double tanhDerivative(double x);
     static double leakyRelu(double x, double alpha = 0.01);
     static double activationDerivative(const std::string& algorithm, double x);
-    static std::vector<double> softmax(const std::vector<double> &inputs);
+    static void softmax(std::vector<double>& values);
 };
 
 #endif // DENSE_LAYER_H

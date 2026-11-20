@@ -29,20 +29,25 @@ void StreamingNormalizer::update(const std::vector<double>& values) {
 }
 
 std::vector<double> StreamingNormalizer::normalize(const std::vector<double>& values) const {
+    std::vector<double> normalized;
+    normalizeInto(values, normalized);
+    return normalized;
+}
+
+void StreamingNormalizer::normalizeInto(const std::vector<double>& values, std::vector<double>& output) const {
     validate(values);
     if (value_count == 0) {
         throw std::logic_error("Cannot normalize without statistics");
     }
 
-    std::vector<double> normalized(values.size(), 0.0);
+    output.resize(values.size());
     for (size_t index = 0; index < values.size(); ++index) {
         const double variance_value = moments[index] / static_cast<double>(value_count);
         const double standard_deviation = std::sqrt(variance_value);
-        normalized[index] = standard_deviation > 0.0
+        output[index] = standard_deviation > 0.0
             ? (values[index] - means[index]) / standard_deviation
             : 0.0;
     }
-    return normalized;
 }
 
 void StreamingNormalizer::clear() {

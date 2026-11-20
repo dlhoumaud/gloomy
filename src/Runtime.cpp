@@ -323,7 +323,9 @@ int run(const RuntimeConfig& config) {
     }
 
     if (config.runtime == "inference") {
-        const std::vector<double> prediction = network.forward(normalizer.normalize(inference_input));
+        std::vector<double> normalized_input;
+        normalizer.normalizeInto(inference_input, normalized_input);
+        const std::vector<double>& prediction = network.forwardInferenceRef(normalized_input);
         for (double value : prediction) std::cout << value << '\n';
         return 0;
     }

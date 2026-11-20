@@ -48,30 +48,40 @@ QuantizedVector Int16Quantizer::quantize(
     const std::vector<double>& values,
     const QuantizationParameters& parameters
 ) {
-    validateParameters(parameters);
-    QuantizedVector result{{}, parameters};
-    result.values.reserve(values.size());
+    QuantizedVector result;
+    quantizeInto(values, parameters, result);
+    return result;
+}
 
-    for (double value : values) {
+void Int16Quantizer::quantizeInto(const std::vector<double>& values,
+    const QuantizationParameters& parameters, QuantizedVector& result) {
+    validateParameters(parameters);
+    result.parameters = parameters;
+    result.values.resize(values.size());
+
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double value = values[index];
         if (!std::isfinite(value)) {
             throw std::invalid_argument("Quantization values must be finite");
         }
         const double raw = std::round(value / parameters.scale + parameters.zero_point);
         const double clamped = std::clamp(raw, int16_min, int16_max);
-        result.values.push_back(static_cast<std::int16_t>(clamped));
+        result.values[index] = static_cast<std::int16_t>(clamped);
     }
-    return result;
 }
 
 std::vector<double> Int16Quantizer::dequantize(const QuantizedVector& quantized) {
-    validateParameters(quantized.parameters);
     std::vector<double> result;
-    result.reserve(quantized.values.size());
-    for (std::int16_t value : quantized.values) {
-        result.push_back(
-            (static_cast<double>(value) - quantized.parameters.zero_point) *
-            quantized.parameters.scale
-        );
-    }
+    dequantizeInto(quantized, result);
     return result;
+}
+
+void Int16Quantizer::dequantizeInto(const QuantizedVector& quantized, std::vector<double>& output) {
+    validateParameters(quantized.parameters);
+    output.resize(quantized.values.size());
+    for (size_t index = 0; index < quantized.values.size(); ++index) {
+        output[index] =
+            (static_cast<double>(quantized.values[index]) - quantized.parameters.zero_point) *
+            quantized.parameters.scale;
+    }
 }

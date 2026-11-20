@@ -40,17 +40,22 @@ std::vector<TrainingSample> FIFOMemory::sample(size_t batch_size) {
 }
 
 std::vector<MemoryEntry> FIFOMemory::sampleIndexed(size_t batch_size) {
+    std::vector<MemoryEntry> result;
+    sampleIndexedInto(batch_size, result);
+    return result;
+}
+
+void FIFOMemory::sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) {
     if (batch_size == 0) {
         throw std::invalid_argument("Sample batch size must be positive");
     }
     const size_t count = std::min(batch_size, samples.size());
-    std::vector<MemoryEntry> result;
-    result.reserve(count);
+    output.resize(count);
     for (size_t index = 0; index < count; ++index) {
         ++samples[index].usage_count;
-        result.push_back({index, samples[index]});
+        output[index].index = index;
+        output[index].sample = samples[index];
     }
-    return result;
 }
 
 void FIFOMemory::update(size_t index, const TrainingSample& sample) {

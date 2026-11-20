@@ -16,6 +16,14 @@ void validateInputs(
 }
 }
 
+void LossFunction::gradientInto(
+    const std::vector<double>& prediction,
+    const std::vector<double>& target,
+    std::vector<double>& output
+) const {
+    output = gradient(prediction, target);
+}
+
 double MSELoss::compute(
     const std::vector<double>& prediction,
     const std::vector<double>& target
@@ -37,13 +45,19 @@ std::vector<double> MSELoss::gradient(
 ) const {
     validateInputs(prediction, target);
 
-    const double scale = 2.0 / static_cast<double>(prediction.size());
-    std::vector<double> result(prediction.size());
-    for (size_t index = 0; index < prediction.size(); ++index) {
-        result[index] = scale * (prediction[index] - target[index]);
-    }
-
+    std::vector<double> result;
+    gradientInto(prediction, target, result);
     return result;
+}
+
+void MSELoss::gradientInto(const std::vector<double>& prediction,
+    const std::vector<double>& target, std::vector<double>& output) const {
+    validateInputs(prediction, target);
+    const double scale = 2.0 / static_cast<double>(prediction.size());
+    output.resize(prediction.size());
+    for (size_t index = 0; index < prediction.size(); ++index) {
+        output[index] = scale * (prediction[index] - target[index]);
+    }
 }
 
 double MAELoss::compute(
@@ -63,13 +77,20 @@ std::vector<double> MAELoss::gradient(
     const std::vector<double>& target
 ) const {
     validateInputs(prediction, target);
+    std::vector<double> result;
+    gradientInto(prediction, target, result);
+    return result;
+}
+
+void MAELoss::gradientInto(const std::vector<double>& prediction,
+    const std::vector<double>& target, std::vector<double>& output) const {
+    validateInputs(prediction, target);
     const double scale = 1.0 / static_cast<double>(prediction.size());
-    std::vector<double> result(prediction.size(), 0.0);
+    output.resize(prediction.size());
     for (size_t index = 0; index < prediction.size(); ++index) {
         const double error = prediction[index] - target[index];
-        result[index] = error > 0.0 ? scale : (error < 0.0 ? -scale : 0.0);
+        output[index] = error > 0.0 ? scale : (error < 0.0 ? -scale : 0.0);
     }
-    return result;
 }
 
 HuberLoss::HuberLoss(double delta)
@@ -99,18 +120,25 @@ std::vector<double> HuberLoss::gradient(
     const std::vector<double>& target
 ) const {
     validateInputs(prediction, target);
+    std::vector<double> result;
+    gradientInto(prediction, target, result);
+    return result;
+}
+
+void HuberLoss::gradientInto(const std::vector<double>& prediction,
+    const std::vector<double>& target, std::vector<double>& output) const {
+    validateInputs(prediction, target);
     const double scale = 1.0 / static_cast<double>(prediction.size());
-    std::vector<double> result(prediction.size(), 0.0);
+    output.resize(prediction.size());
     for (size_t index = 0; index < prediction.size(); ++index) {
         const double error = prediction[index] - target[index];
         const double absolute_error = std::abs(error);
         if (absolute_error <= threshold) {
-            result[index] = scale * error;
+            output[index] = scale * error;
         } else {
-            result[index] = scale * threshold * (error > 0.0 ? 1.0 : -1.0);
+            output[index] = scale * threshold * (error > 0.0 ? 1.0 : -1.0);
         }
     }
-    return result;
 }
 
 double HuberLoss::delta() const {

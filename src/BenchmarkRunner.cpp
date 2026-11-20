@@ -109,11 +109,20 @@ std::vector<BenchmarkProfileResult> profileCoreOperations() {
     const auto samples = makeDataset(replay_batch, 0);
     FIFOMemory memory(64);
     for (size_t index = 0; index < 64; ++index) memory.add(samples[index % samples.size()]);
+    std::vector<double> gradient_buffer;
 
     std::vector<BenchmarkProfileResult> results;
     results.push_back(profileOperation(workload, "forward", 10000, [&]() {
         const auto output = network.forward(samples.front().input);
         profile_sink += output.front();
+    }));
+    results.push_back(profileOperation(workload, "forward_inference", 10000, [&]() {
+        const auto& output = network.forwardInferenceRef(samples.front().input);
+        profile_sink += output.front();
+    }));
+    results.push_back(profileOperation(workload, "loss_gradient", 10000, [&]() {
+        loss->gradientInto(network.forwardRef(samples.front().input), samples.front().target, gradient_buffer);
+        profile_sink += gradient_buffer.front();
     }));
     results.push_back(profileOperation(workload, "train_batch_update", 1000, [&]() {
         profile_sink += engine.trainBatch(samples);

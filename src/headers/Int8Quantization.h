@@ -17,7 +17,10 @@ public:
         const std::vector<double>& values,
         const QuantizationParameters& parameters
     );
+    static void quantizeInto(const std::vector<double>& values,
+        const QuantizationParameters& parameters, Int8QuantizedVector& output);
     static std::vector<double> dequantize(const Int8QuantizedVector& quantized);
+    static void dequantizeInto(const Int8QuantizedVector& quantized, std::vector<double>& output);
 };
 
 #endif // INT8_QUANTIZATION_H

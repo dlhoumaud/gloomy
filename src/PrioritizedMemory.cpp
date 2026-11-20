@@ -79,30 +79,36 @@ std::vector<TrainingSample> PrioritizedMemory::sample(size_t batch_size) {
 }
 
 std::vector<MemoryEntry> PrioritizedMemory::sampleIndexed(size_t batch_size) {
+    std::vector<MemoryEntry> result;
+    sampleIndexedInto(batch_size, result);
+    return result;
+}
+
+void PrioritizedMemory::sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) {
     if (batch_size == 0) {
         throw std::invalid_argument("Sample batch size must be positive");
     }
-    std::vector<size_t> indices(samples.size());
-    for (size_t index = 0; index < indices.size(); ++index) {
-        indices[index] = index;
+    sampling_indices.resize(samples.size());
+    for (size_t index = 0; index < sampling_indices.size(); ++index) {
+        sampling_indices[index] = index;
     }
     const size_t count = std::min(batch_size, samples.size());
-    std::vector<MemoryEntry> result;
-    result.reserve(count);
+    output.resize(count);
     for (size_t selection = 0; selection < count; ++selection) {
-        std::vector<double> weights;
-        weights.reserve(indices.size());
-        for (size_t index : indices) {
-            weights.push_back(std::pow(std::max(samples[index].priority, minimum_priority), priority_exponent));
+        sampling_weights.resize(sampling_indices.size());
+        for (size_t index = 0; index < sampling_indices.size(); ++index) {
+            const size_t sample_index = sampling_indices[index];
+            sampling_weights[index] = std::pow(
+                std::max(samples[sample_index].priority, minimum_priority), priority_exponent);
         }
-        std::discrete_distribution<size_t> distribution(weights.begin(), weights.end());
+        std::discrete_distribution<size_t> distribution(sampling_weights.begin(), sampling_weights.end());
         const size_t position = distribution(generator);
-        const size_t selected = indices[position];
+        const size_t selected = sampling_indices[position];
         ++samples[selected].usage_count;
-        result.push_back({selected, samples[selected]});
-        indices.erase(indices.begin() + position);
+        output[selection].index = selected;
+        output[selection].sample = samples[selected];
+        sampling_indices.erase(sampling_indices.begin() + position);
     }
-    return result;
 }
 
 void PrioritizedMemory::update(size_t index, const TrainingSample& sample) {

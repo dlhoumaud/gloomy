@@ -46,6 +46,8 @@ private:
     NeuralNetwork& network;
     const LossFunction& loss;
     Optimizer& optimizer;
+    std::vector<double> gradient_buffer;
+    std::vector<MemoryEntry> replay_entries;
 };
 
 #endif // LEARNING_ENGINE_H

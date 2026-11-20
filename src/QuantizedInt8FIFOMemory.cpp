@@ -53,33 +53,39 @@ std::vector<TrainingSample> QuantizedInt8FIFOMemory::sample(size_t batch_size) {
 }
 
 std::vector<MemoryEntry> QuantizedInt8FIFOMemory::sampleIndexed(size_t batch_size) {
+    std::vector<MemoryEntry> result;
+    sampleIndexedInto(batch_size, result);
+    return result;
+}
+
+void QuantizedInt8FIFOMemory::sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) {
     if (batch_size == 0) {
         throw std::invalid_argument("Sample batch size must be positive");
     }
     const size_t count = std::min(batch_size, samples.size());
-    std::vector<MemoryEntry> result;
-    result.reserve(count);
+    output.resize(count);
     for (size_t index = 0; index < count; ++index) {
-        TrainingSample decoded = sample_quantizer.decode(samples[index]);
+        TrainingSample& decoded = output[index].sample;
+        sample_quantizer.decodeInto(samples[index], decoded);
         ++decoded.usage_count;
-        samples[index] = sample_quantizer.encode(decoded);
-        result.push_back({index, decoded});
+        sample_quantizer.encodeInto(decoded, samples[index]);
+        output[index].index = index;
     }
-    return result;
 }
 
 void QuantizedInt8FIFOMemory::update(size_t index, const TrainingSample& sample) {
     if (index >= samples.size()) {
         throw std::out_of_range("Memory sample index is out of range");
     }
-    samples[index] = sample_quantizer.encode(sample);
+    sample_quantizer.encodeInto(sample, samples[index]);
 }
 
 void QuantizedInt8FIFOMemory::advanceAges() {
+    TrainingSample decoded;
     for (Int8QuantizedTrainingSample& stored : samples) {
-        TrainingSample decoded = sample_quantizer.decode(stored);
+        sample_quantizer.decodeInto(stored, decoded);
         ++decoded.age;
-        stored = sample_quantizer.encode(decoded);
+        sample_quantizer.encodeInto(decoded, stored);
     }
 }
 

@@ -26,6 +26,7 @@ public:
     void remove(size_t index) override;
     std::vector<TrainingSample> sample(size_t batch_size) override;
     std::vector<MemoryEntry> sampleIndexed(size_t batch_size) override;
+    void sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) override;
     void update(size_t index, const TrainingSample& sample) override;
     void advanceAges() override;
     size_t size() const override;
@@ -68,6 +69,7 @@ private:
     double distance_threshold;
     std::uint64_t seen_samples = 0;
     std::mt19937 generator;
+    std::vector<size_t> sampling_indices;
     std::vector<StoredSample> samples;
 };
 

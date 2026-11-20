@@ -30,7 +30,9 @@ public:
     );
 
     QuantizedTrainingSample encode(const TrainingSample& sample) const;
+    void encodeInto(const TrainingSample& sample, QuantizedTrainingSample& output) const;
     TrainingSample decode(const QuantizedTrainingSample& sample) const;
+    void decodeInto(const QuantizedTrainingSample& sample, TrainingSample& output) const;
 
     const QuantizationParameters& inputParameters() const;
     const QuantizationParameters& targetParameters() const;

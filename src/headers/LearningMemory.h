@@ -18,6 +18,9 @@ public:
     virtual void remove(size_t index) = 0;
     virtual std::vector<TrainingSample> sample(size_t batch_size) = 0;
     virtual std::vector<MemoryEntry> sampleIndexed(size_t batch_size) = 0;
+    virtual void sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) {
+        output = sampleIndexed(batch_size);
+    }
     virtual void update(size_t index, const TrainingSample& sample) = 0;
     virtual void advanceAges() = 0;
     virtual size_t size() const = 0;

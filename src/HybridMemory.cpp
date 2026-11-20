@@ -95,20 +95,26 @@ std::vector<TrainingSample> HybridMemory::sample(size_t batch_size) {
 }
 
 std::vector<MemoryEntry> HybridMemory::sampleIndexed(size_t batch_size) {
+    std::vector<MemoryEntry> result;
+    sampleIndexedInto(batch_size, result);
+    return result;
+}
+
+void HybridMemory::sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) {
     if (batch_size == 0) {
         throw std::invalid_argument("Sample batch size must be positive");
     }
-    std::vector<size_t> indices(samples.size());
-    std::iota(indices.begin(), indices.end(), 0);
-    std::shuffle(indices.begin(), indices.end(), generator);
+    sampling_indices.resize(samples.size());
+    std::iota(sampling_indices.begin(), sampling_indices.end(), 0);
+    std::shuffle(sampling_indices.begin(), sampling_indices.end(), generator);
     const size_t count = std::min(batch_size, samples.size());
-    std::vector<MemoryEntry> result;
-    result.reserve(count);
+    output.resize(count);
     for (size_t index = 0; index < count; ++index) {
-        ++samples[indices[index]].sample.usage_count;
-        result.push_back({indices[index], samples[indices[index]].sample});
+        const size_t selected = sampling_indices[index];
+        ++samples[selected].sample.usage_count;
+        output[index].index = selected;
+        output[index].sample = samples[selected].sample;
     }
-    return result;
 }
 
 void HybridMemory::update(size_t index, const TrainingSample& sample) {

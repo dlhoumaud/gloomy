@@ -53,22 +53,28 @@ std::vector<TrainingSample> ReservoirMemory::sample(size_t batch_size) {
 }
 
 std::vector<MemoryEntry> ReservoirMemory::sampleIndexed(size_t batch_size) {
+    std::vector<MemoryEntry> result;
+    sampleIndexedInto(batch_size, result);
+    return result;
+}
+
+void ReservoirMemory::sampleIndexedInto(size_t batch_size, std::vector<MemoryEntry>& output) {
     if (batch_size == 0) {
         throw std::invalid_argument("Sample batch size must be positive");
     }
-    std::vector<size_t> indices(samples.size());
-    for (size_t index = 0; index < indices.size(); ++index) {
-        indices[index] = index;
+    sampling_indices.resize(samples.size());
+    for (size_t index = 0; index < sampling_indices.size(); ++index) {
+        sampling_indices[index] = index;
     }
-    std::shuffle(indices.begin(), indices.end(), generator);
+    std::shuffle(sampling_indices.begin(), sampling_indices.end(), generator);
     const size_t count = std::min(batch_size, samples.size());
-    std::vector<MemoryEntry> result;
-    result.reserve(count);
+    output.resize(count);
     for (size_t index = 0; index < count; ++index) {
-        ++samples[indices[index]].usage_count;
-        result.push_back({indices[index], samples[indices[index]]});
+        const size_t selected = sampling_indices[index];
+        ++samples[selected].usage_count;
+        output[index].index = selected;
+        output[index].sample = samples[selected];
     }
-    return result;
 }
 
 void ReservoirMemory::update(size_t index, const TrainingSample& sample) {

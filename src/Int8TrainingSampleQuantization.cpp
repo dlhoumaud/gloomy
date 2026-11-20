@@ -29,18 +29,33 @@ Int8TrainingSampleQuantizer Int8TrainingSampleQuantizer::calibrate(
 }
 
 Int8QuantizedTrainingSample Int8TrainingSampleQuantizer::encode(const TrainingSample& sample) const {
-    return {
-        Int8Quantizer::quantize(sample.input, input_parameters),
-        Int8Quantizer::quantize(sample.target, target_parameters),
-        sample.priority, sample.error, sample.novelty, sample.rarity,
-        sample.recency, sample.diversity, sample.age, sample.usage_count
-    };
+    Int8QuantizedTrainingSample result;
+    encodeInto(sample, result);
+    return result;
+}
+
+void Int8TrainingSampleQuantizer::encodeInto(const TrainingSample& sample, Int8QuantizedTrainingSample& output) const {
+    Int8Quantizer::quantizeInto(sample.input, input_parameters, output.input);
+    Int8Quantizer::quantizeInto(sample.target, target_parameters, output.target);
+    output.priority = sample.priority;
+    output.error = sample.error;
+    output.novelty = sample.novelty;
+    output.rarity = sample.rarity;
+    output.recency = sample.recency;
+    output.diversity = sample.diversity;
+    output.age = sample.age;
+    output.usage_count = sample.usage_count;
 }
 
 TrainingSample Int8TrainingSampleQuantizer::decode(const Int8QuantizedTrainingSample& sample) const {
     TrainingSample result;
-    result.input = Int8Quantizer::dequantize(sample.input);
-    result.target = Int8Quantizer::dequantize(sample.target);
+    decodeInto(sample, result);
+    return result;
+}
+
+void Int8TrainingSampleQuantizer::decodeInto(const Int8QuantizedTrainingSample& sample, TrainingSample& result) const {
+    Int8Quantizer::dequantizeInto(sample.input, result.input);
+    Int8Quantizer::dequantizeInto(sample.target, result.target);
     result.priority = sample.priority;
     result.error = sample.error;
     result.novelty = sample.novelty;
@@ -49,7 +64,6 @@ TrainingSample Int8TrainingSampleQuantizer::decode(const Int8QuantizedTrainingSa
     result.diversity = sample.diversity;
     result.age = sample.age;
     result.usage_count = sample.usage_count;
-    return result;
 }
 
 const QuantizationParameters& Int8TrainingSampleQuantizer::inputParameters() const {

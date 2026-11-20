@@ -21,7 +21,10 @@ public:
         const std::vector<double>& values,
         const QuantizationParameters& parameters
     );
+    static void quantizeInto(const std::vector<double>& values,
+        const QuantizationParameters& parameters, QuantizedVector& output);
     static std::vector<double> dequantize(const QuantizedVector& quantized);
+    static void dequantizeInto(const QuantizedVector& quantized, std::vector<double>& output);
 };
 
 #endif // QUANTIZATION_H

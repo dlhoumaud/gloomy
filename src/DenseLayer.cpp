@@ -47,11 +47,19 @@ std::vector<double> DenseLayer::forward(const std::vector<double>& inputs) {
 }
 
 const std::vector<double>& DenseLayer::forwardRef(const std::vector<double>& inputs) {
+    return forwardImpl(inputs, true);
+}
+
+const std::vector<double>& DenseLayer::forwardInferenceRef(const std::vector<double>& inputs) {
+    return forwardImpl(inputs, false);
+}
+
+const std::vector<double>& DenseLayer::forwardImpl(const std::vector<double>& inputs, bool cache_inputs) {
     if (inputs.size() != weights_data.size()) {
         throw std::invalid_argument("Input size does not match layer size");
     }
 
-    this->inputs = inputs;
+    if (cache_inputs) this->inputs = inputs;
     preActivations.assign(bias_data.size(), 0.0);
     outputs.assign(bias_data.size(), 0.0);
 
@@ -79,10 +87,10 @@ const std::vector<double>& DenseLayer::forwardRef(const std::vector<double>& inp
     }
 
     if (this->post_algorithm == "softmax") {
-        outputs = softmax(outputs);
+        softmax(outputs);
     }
 
-    has_forward_cache = true;
+    has_forward_cache = cache_inputs;
     return outputs;
 }
 
@@ -214,25 +222,20 @@ double DenseLayer::activationDerivative(const std::string& activation, double x)
 }
 
 // Fonction Softmax
-std::vector<double> DenseLayer::softmax(const std::vector<double> &inputs) {
-    if (inputs.empty()) {
-        return {};
-    }
+void DenseLayer::softmax(std::vector<double>& values) {
+    if (values.empty()) return;
 
-    const double max_input = *std::max_element(inputs.begin(), inputs.end());
-    std::vector<double> exp_values(inputs.size());
+    const double max_input = *std::max_element(values.begin(), values.end());
     double sum = 0.0;
 
     // Soustraire le maximum evite les debordements pour les grandes valeurs.
-    for (size_t i = 0; i < inputs.size(); ++i) {
-        exp_values[i] = std::exp(inputs[i] - max_input);
-        sum += exp_values[i];
+    for (double& value : values) {
+        value = std::exp(value - max_input);
+        sum += value;
     }
 
     // Normalisation des exponentielles pour obtenir les probabilités
-    for (size_t i = 0; i < exp_values.size(); ++i) {
-        exp_values[i] /= sum;
+    for (double& value : values) {
+        value /= sum;
     }
-
-    return exp_values;
 }

@@ -30,7 +30,9 @@ public:
     );
 
     Int8QuantizedTrainingSample encode(const TrainingSample& sample) const;
+    void encodeInto(const TrainingSample& sample, Int8QuantizedTrainingSample& output) const;
     TrainingSample decode(const Int8QuantizedTrainingSample& sample) const;
+    void decodeInto(const Int8QuantizedTrainingSample& sample, TrainingSample& output) const;
 
     const QuantizationParameters& inputParameters() const;
     const QuantizationParameters& targetParameters() const;
