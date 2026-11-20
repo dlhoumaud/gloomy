@@ -52,7 +52,8 @@ Le format `GLOOMY_MODEL` sert à la reprise et inclut obligatoirement une sectio
 - export du pic RSS dans le profil d'opérations `benchmark_profile.csv` ;
 - comparaison de taille et de temps de chargement des artefacts dans `benchmark_artifacts.csv` ;
 - comparaison de six stratégies mémoire sur trois régimes et transitions progressives dans `benchmark_progressive_drift.csv` ;
-- profil local étendu à un réseau multi-sortie `3 → 16 → 16 → 2`, avec RSS, allocations et latence sur la machine de référence.
+- profil local étendu à un réseau multi-sortie `3 → 16 → 16 → 2`, avec RSS, allocations et latence sur la machine de référence ;
+- comparaison avant/après des optimisations sur mêmes données, trois seeds, architecture, 50 updates, qualité de validation et mesures mémoire via `make benchmark-comparison`.
 
 Les benchmarks sont indicatifs et ne représentent pas des données applicatives ni une mesure sur matériel embarqué. La portée et les limites sont décrites dans [benchmark](docs/benchmark.md).
 

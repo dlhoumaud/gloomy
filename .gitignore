@@ -8,3 +8,4 @@ benchmark_drift.csv
 benchmark_profile.csv
 benchmark_artifacts.csv
 benchmark_progressive_drift.csv
+benchmark_optimization_comparison.csv

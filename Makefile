@@ -1,6 +1,7 @@
 # Nom de l'exécutable
 TARGET = bin/gloomy
 BENCHMARK_TARGET = bin/benchmark
+COMPARISON_SCRIPT = scripts/benchmark_optimization_comparison.sh
 BENCHMARK_SRC = src/BenchmarkRunner.cpp src/GloomyModelSerialization.cpp src/LearningMemorySerialization.cpp src/Normalization.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/LossFunction.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp
 
 # Cible de test de la fonction de perte
@@ -30,6 +31,9 @@ all: $(TARGET)
 
 benchmark: $(BENCHMARK_TARGET)
 	./$(BENCHMARK_TARGET)
+
+benchmark-comparison:
+	bash $(COMPARISON_SCRIPT)
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
