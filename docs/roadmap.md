@@ -310,7 +310,7 @@ La première campagne est implémentée : capacités `32/64/128/256`, Novelty et
 4. Raccorder le chargement, l'entraînement et l'inférence au CLI — version initiale disponible avec `-f/--config`.
 5. Étendre les benchmarks aux capacités et stratégies restantes — matrice initiale ajoutée pour capacités 32/64/128/256, stratégies intégrées, trois pertes, trois optimiseurs, trois seeds et baseline dernière valeur.
 6. Étendre les expériences de concept drift — protocole A -> B -> A à trois seeds et six stratégies ajouté ; dérives progressives et plus de deux régimes restent à étudier.
-7. Optimiser les allocations et la représentation mémoire.
+7. Optimiser les allocations et la représentation mémoire — première réduction des copies temporaires dans les mini-batches de `LearningEngine` ; buffers contigus et allocations des couches restent à étudier.
 8. Préparer le runtime embarqué et la quantification des poids.
 
 ## 5. Limites connues à ne pas oublier

@@ -37,6 +37,12 @@ public:
     );
 
 private:
+    double trainBatchRange(
+        const std::vector<TrainingSample>& samples,
+        size_t offset,
+        size_t count
+    );
+
     NeuralNetwork& network;
     const LossFunction& loss;
     Optimizer& optimizer;

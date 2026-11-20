@@ -3,6 +3,32 @@
 #include <cmath>
 #include <stdexcept>
 
+namespace {
+template <typename SampleAt>
+double trainBatchSamples(
+    NeuralNetwork& network,
+    const LossFunction& loss,
+    Optimizer& optimizer,
+    size_t sample_count,
+    SampleAt sample_at
+) {
+    if (sample_count == 0) {
+        throw std::invalid_argument("Training batch cannot be empty");
+    }
+
+    network.zeroGradients();
+    double total_loss = 0.0;
+    for (size_t index = 0; index < sample_count; ++index) {
+        const TrainingSample& sample = sample_at(index);
+        const std::vector<double> prediction = network.forward(sample.input);
+        total_loss += loss.compute(prediction, sample.target);
+        network.backward(loss.gradient(prediction, sample.target));
+    }
+    optimizer.update(network.layers(), 1.0 / static_cast<double>(sample_count));
+    return total_loss / static_cast<double>(sample_count);
+}
+}
+
 LearningEngine::LearningEngine(
     NeuralNetwork& network,
     const LossFunction& loss,
@@ -11,20 +37,20 @@ LearningEngine::LearningEngine(
     : network(network), loss(loss), optimizer(optimizer) {}
 
 double LearningEngine::trainBatch(const std::vector<TrainingSample>& batch) {
-    if (batch.empty()) {
-        throw std::invalid_argument("Training batch cannot be empty");
-    }
+    return trainBatchSamples(network, loss, optimizer, batch.size(),
+        [&batch](size_t index) -> const TrainingSample& { return batch[index]; });
+}
 
-    network.zeroGradients();
-    double total_loss = 0.0;
-    for (const TrainingSample& sample : batch) {
-        const std::vector<double> prediction = network.forward(sample.input);
-        total_loss += loss.compute(prediction, sample.target);
-        network.backward(loss.gradient(prediction, sample.target));
+double LearningEngine::trainBatchRange(
+    const std::vector<TrainingSample>& samples,
+    size_t offset,
+    size_t count
+) {
+    if (offset > samples.size() || count > samples.size() - offset) {
+        throw std::out_of_range("Training batch range is out of bounds");
     }
-
-    optimizer.update(network.layers(), 1.0 / static_cast<double>(batch.size()));
-    return total_loss / static_cast<double>(batch.size());
+    return trainBatchSamples(network, loss, optimizer, count,
+        [&samples, offset](size_t index) -> const TrainingSample& { return samples[offset + index]; });
 }
 
 double LearningEngine::trainFromMemory(LearningMemory& memory, size_t batch_size) {
@@ -34,13 +60,8 @@ double LearningEngine::trainFromMemory(LearningMemory& memory, size_t batch_size
 
     memory.advanceAges();
     const std::vector<MemoryEntry> entries = memory.sampleIndexed(batch_size);
-    std::vector<TrainingSample> batch;
-    batch.reserve(entries.size());
-    for (const MemoryEntry& entry : entries) {
-        batch.push_back(entry.sample);
-    }
-
-    const double batch_loss = trainBatch(batch);
+    const double batch_loss = trainBatchSamples(network, loss, optimizer, entries.size(),
+        [&entries](size_t index) -> const TrainingSample& { return entries[index].sample; });
     ImportanceScorer scorer;
     for (const MemoryEntry& entry : entries) {
         TrainingSample updated_sample = entry.sample;
@@ -119,11 +140,8 @@ double LearningEngine::train(
         while (processed_samples < samples.size()) {
             const size_t remaining = samples.size() - processed_samples;
             const size_t current_batch_size = remaining < batch_size ? remaining : batch_size;
-            const std::vector<TrainingSample> batch(
-                samples.begin() + processed_samples,
-                samples.begin() + processed_samples + current_batch_size
-            );
-            epoch_loss += trainBatch(batch) * static_cast<double>(current_batch_size);
+            epoch_loss += trainBatchRange(samples, processed_samples, current_batch_size) *
+                static_cast<double>(current_batch_size);
             processed_samples += current_batch_size;
         }
         epoch_loss /= static_cast<double>(samples.size());

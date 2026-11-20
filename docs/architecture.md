@@ -22,7 +22,9 @@ Le nombre de paramètres des couches cachées dépend de la taille de la séquen
 
 ## Limites actuelles
 
-Les classes C++ d'entraînement savent recevoir des cibles, calculer une perte, propager les gradients et mettre à jour les paramètres avec SGD. Le CLI ne propose toutefois pas encore de commande pour charger un dataset et entraîner un modèle.
+Les classes C++ d'entraînement savent recevoir des cibles, calculer une perte, propager les gradients et mettre à jour les paramètres avec les optimiseurs disponibles. Le CLI configuré charge un dataset en paires entrée/cible et prend en charge l'entraînement batch et le replay online.
+
+`LearningEngine::train()` parcourt maintenant les mini-batches directement dans le dataset, sans copier les exemples dans un vecteur temporaire. L'entraînement depuis une mémoire évite aussi une seconde copie après l'échantillonnage.
 
 Une mémoire FIFO bornée existe également comme composant indépendant, mais elle n'est pas encore orchestrée automatiquement par le `LearningEngine`.
 
