@@ -17,4 +17,8 @@ struct TrainingSample {
     std::size_t usage_count = 0;
 };
 
+inline std::size_t trainingSampleDynamicBytes(const TrainingSample& sample) {
+    return (sample.input.capacity() + sample.target.capacity()) * sizeof(double);
+}
+
 #endif // TRAINING_SAMPLE_H

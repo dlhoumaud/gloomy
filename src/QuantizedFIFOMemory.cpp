@@ -114,3 +114,12 @@ size_t QuantizedFIFOMemory::bytesPerSample() const {
 size_t QuantizedFIFOMemory::memoryUsedBytes() const {
     return samples.size() * bytesPerSample();
 }
+
+size_t QuantizedFIFOMemory::allocatedBytes() const {
+    size_t bytes = sizeof(*this) + samples.capacity() * sizeof(QuantizedTrainingSample);
+    for (const QuantizedTrainingSample& sample : samples) {
+        bytes += sample.input.values.capacity() * sizeof(std::int16_t);
+        bytes += sample.target.values.capacity() * sizeof(std::int16_t);
+    }
+    return bytes;
+}

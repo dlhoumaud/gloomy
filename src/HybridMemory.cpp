@@ -138,6 +138,15 @@ size_t HybridMemory::capacity() const {
     return memory_capacity;
 }
 
+size_t HybridMemory::allocatedBytes() const {
+    size_t bytes = sizeof(*this) + samples.capacity() * sizeof(StoredSample) +
+        sampling_indices.capacity() * sizeof(size_t);
+    for (const StoredSample& stored : samples) {
+        bytes += trainingSampleDynamicBytes(stored.sample);
+    }
+    return bytes;
+}
+
 void HybridMemory::clear() {
     samples.clear();
     seen_samples = 0;

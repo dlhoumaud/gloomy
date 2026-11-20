@@ -47,7 +47,7 @@ Les stratégies mémoire intégrées peuvent remplir un tableau `MemoryEntry` fo
 
 Le calibrage des mémoires FIFO int16/int8 parcourt directement les entrées et cibles pour calculer leurs bornes min/max; il ne crée pas de vecteurs aplatis supplémentaires proportionnels à la taille du dataset.
 
-La capacité mémoire est généralement exprimée en nombre d'échantillons, pas en budget d'octets strict. Les mémoires FIFO int16/int8 exposent une estimation des octets occupés par les échantillons, hors coût complet du processus.
+La capacité mémoire est généralement exprimée en nombre d'échantillons, pas en budget d'octets strict. `LearningMemory::allocatedBytes()` estime les allocations conservées pour les stratégies intégrées, y compris capacités des vecteurs et buffers de sélection; les implémentations externes qui n'ont pas cette mesure renvoient zéro (inconnu). L'estimation n'inclut pas les frais de l'allocateur ni toute la mémoire du processus.
 
 ## Priorité d'optimisation machine
 

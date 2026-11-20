@@ -58,13 +58,14 @@ Les résultats int8 doivent être comparés sur les mêmes valeurs de calibratio
 `QuantizedFIFOMemory` utilise le codec int16 pour stocker `input` et `target` tout en conservant les métadonnées d'apprentissage. Elle expose :
 
 - `bytesPerSample()` : estimation de la taille d'un échantillon ;
-- `memoryUsedBytes()` : occupation des échantillons actuellement stockés ;
+- `memoryUsedBytes()` : taille logique des échantillons encodés actuellement stockés ;
+- `allocatedBytes()` : estimation des allocations conservées, capacités des conteneurs comprises ;
 - `capacity()` : nombre maximal d'échantillons.
 
-Les paramètres `scale` et `zero_point` ne sont pas dupliqués par échantillon. Ils sont conservés dans la sérialisation de la mémoire incluse dans `GLOOMY_MODEL`. `memoryUsedBytes()` estime l'espace des échantillons encodés et leurs métadonnées; il ne représente pas le pic RSS ni l'ensemble des allocations du processus.
+Les paramètres `scale` et `zero_point` ne sont pas dupliqués par échantillon. Ils sont conservés dans la sérialisation de la mémoire incluse dans `GLOOMY_MODEL`. `memoryUsedBytes()` mesure la taille logique des valeurs encodées et métadonnées; `allocatedBytes()` inclut les capacités réservées et l'objet mémoire. Aucune de ces valeurs ne représente le pic RSS ni toutes les allocations du processus.
 
 ## Mémoire FIFO int8
 
-`QuantizedInt8FIFOMemory` applique le même principe avec 1 octet par valeur quantifiée. Elle expose également `bytesPerSample()` et `memoryUsedBytes()`, ce qui permet de comparer directement les budgets int16 et int8 pour une même capacité.
+`QuantizedInt8FIFOMemory` applique le même principe avec 1 octet par valeur quantifiée. Elle expose également `bytesPerSample()`, `memoryUsedBytes()` et `allocatedBytes()`, ce qui permet de comparer taille logique et allocations retenues pour int16/int8.
 
 Le gain mémoire concerne uniquement les valeurs des vecteurs `input` et `target`; les métadonnées restent en précision native. La perte de précision doit être mesurée après déquantification avant de choisir int8 pour un entraînement online. Dans le runtime configuré, les précisions int16/int8 sont réservées à la stratégie FIFO.

@@ -17,6 +17,8 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - runtime d'entraînement qui normalise les entrées du dataset en place au lieu de conserver un second dataset normalisé ;
 - calibrage des mémoires quantifiées qui calcule directement les bornes min/max sans copier tout le dataset dans des vecteurs temporaires ;
 - lecture ligne par ligne du dataset et entraînement par mini-batches, avec passes supplémentaires de statistiques/calibration au lieu de garder le dataset complet en RAM ;
+- estimation de la mémoire allouée par les stratégies de replay intégrées, incluant les capacités des conteneurs et leurs buffers de sélection ;
+- estimation des allocations conservées pour les stratégies mémoire intégrées, utilisée par les lignes `memory_used_bytes` du benchmark ;
 - schedulers `EverySample`, `EveryN` et `OnHighError`.
 
 ### Mémoire et normalisation

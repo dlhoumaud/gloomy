@@ -132,6 +132,12 @@ size_t PrioritizedMemory::capacity() const {
     return memory_capacity;
 }
 
+size_t PrioritizedMemory::allocatedBytes() const {
+    return sizeof(*this) + trainingSamplesAllocatedBytes(samples) +
+        sampling_indices.capacity() * sizeof(size_t) +
+        sampling_weights.capacity() * sizeof(double);
+}
+
 void PrioritizedMemory::clear() {
     samples.clear();
 }

@@ -22,6 +22,7 @@ public:
 
     size_t bytesPerSample() const;
     size_t memoryUsedBytes() const;
+    size_t allocatedBytes() const override;
 
 private:
     friend class LearningMemorySerialization;

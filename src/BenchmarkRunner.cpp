@@ -183,8 +183,7 @@ size_t parameterBytes(const NeuralNetwork& network) {
 }
 
 size_t sampleBytes(const TrainingSample& sample) {
-    return (sample.input.size() + sample.target.size()) * sizeof(double) +
-        6 * sizeof(double) + 2 * sizeof(std::size_t);
+    return sizeof(sample) + trainingSampleDynamicBytes(sample);
 }
 
 std::unique_ptr<LearningMemory> makeMemory(
@@ -414,7 +413,7 @@ void runForgettingExperiment(std::vector<BenchmarkResult>& results) {
         row.precision = "float64"; row.optimizer = "sgd"; row.loss = "mse";
         row.seed = 1234; row.validation_loss = after; row.forgetting = Metrics::forgetting(before, after);
         row.samples_stored = memory.size(); row.parameter_updates = 160 * ((regime_a.size() + replay_batch - 1) / replay_batch) + 20;
-        row.memory_used_bytes = memory.size() * sampleBytes(regime_a.front()) + parameterBytes(network);
+        row.memory_used_bytes = memory.allocatedBytes() + parameterBytes(network);
         results.push_back(row);
     }
 }
@@ -514,7 +513,7 @@ void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
             row.samples_stored = memory ? memory->size() : 0;
             row.parameter_updates = 3 * 10 * ((regime_a.size() + train_every - 1) / train_every);
             row.memory_used_bytes = parameterBytes(network) + optimizerStateBytes(optimizer);
-            if (memory) row.memory_used_bytes += memory->size() * sampleBytes(regime_a.front());
+            if (memory) row.memory_used_bytes += memory->allocatedBytes();
             seed_runs.push_back(row);
         }
     }
@@ -586,11 +585,7 @@ int main() {
                         const auto end = std::chrono::steady_clock::now();
                         const size_t updates = (training.size() + train_every - 1) / train_every;
                         const double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
-                        size_t memory_bytes = memory->size() * sampleBytes(training.front());
-                        if (const auto* quantized = dynamic_cast<const QuantizedFIFOMemory*>(memory.get()))
-                            memory_bytes = quantized->memoryUsedBytes();
-                        if (const auto* quantized = dynamic_cast<const QuantizedInt8FIFOMemory*>(memory.get()))
-                            memory_bytes = quantized->memoryUsedBytes();
+                        const size_t memory_bytes = memory->allocatedBytes();
                         BenchmarkResult row = evaluate(network, *optimizer, *loss, validation,
                             variant.first, variant.second, optimizer_name, loss_name, static_cast<int>(seed),
                             capacity, datasetLoss(network, *loss, training), elapsed_ms,

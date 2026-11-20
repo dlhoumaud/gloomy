@@ -48,7 +48,7 @@ Ces deux stratégies peuvent maintenant être transmises au même `LearningEngin
 
 La capacité est limitée en nombre de `TrainingSample`, pas en octets. Les mémoires non quantifiées utilisent des vecteurs `double` de tailles variables; le budget RAM réel, notamment les allocations et métadonnées de conteneurs, n'est pas strictement contrôlé.
 
-`QuantizedFIFOMemory` constitue une exception expérimentale : ses vecteurs `input` et `target` sont stockés en `int16` après calibration et la classe expose `memoryUsedBytes()`. Les autres stratégies utilisent encore leur représentation `double` native.
+`QuantizedFIFOMemory` constitue une exception expérimentale : ses vecteurs `input` et `target` sont stockés en `int16` après calibration. `memoryUsedBytes()` donne la taille logique des échantillons encodés; `allocatedBytes()` estime les allocations retenues. Les autres stratégies utilisent encore leur représentation `double` native, avec la même estimation `allocatedBytes()`.
 
 `QuantizedInt8FIFOMemory` fournit maintenant la variante int8, avec la même politique FIFO et le même contrat de replay. Elle réduit davantage les octets par valeur, au prix d'une erreur de quantification potentiellement supérieure.
 

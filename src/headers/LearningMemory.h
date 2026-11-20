@@ -10,6 +10,12 @@ struct MemoryEntry {
     TrainingSample sample;
 };
 
+inline size_t trainingSamplesAllocatedBytes(const std::vector<TrainingSample>& samples) {
+    size_t bytes = samples.capacity() * sizeof(TrainingSample);
+    for (const TrainingSample& sample : samples) bytes += trainingSampleDynamicBytes(sample);
+    return bytes;
+}
+
 class LearningMemory {
 public:
     virtual ~LearningMemory() = default;
@@ -25,6 +31,8 @@ public:
     virtual void advanceAges() = 0;
     virtual size_t size() const = 0;
     virtual size_t capacity() const = 0;
+    // Estimates retained allocations when supported; zero means unknown.
+    virtual size_t allocatedBytes() const { return 0; }
     virtual void clear() = 0;
 };
 

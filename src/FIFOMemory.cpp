@@ -79,6 +79,10 @@ size_t FIFOMemory::capacity() const {
     return memory_capacity;
 }
 
+size_t FIFOMemory::allocatedBytes() const {
+    return sizeof(*this) + trainingSamplesAllocatedBytes(samples);
+}
+
 void FIFOMemory::clear() {
     samples.clear();
 }

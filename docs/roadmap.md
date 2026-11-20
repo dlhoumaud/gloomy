@@ -9,22 +9,19 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 - utiliser comme baseline provisoire le workload Dense `1 -> 8 -> 1` : régression synthétique, `400` exemples d'entraînement, `80` de validation, batch/replay `8`, capacités mémoire `32/64/128/256`, trois seeds ;
 - utiliser A → B → A comme workload de rétention : `40` observations par régime, dix passages par phase, `50` updates par phase et capacité mémoire `64` ;
 - préciser les workloads applicatifs, dimensions d'entrée/sortie et la cible matérielle avant de fixer des seuils de qualité, latence, débit et RAM ;
-- profiler séparément `forward()`, update batch, replay mémoire et copie de mini-batch avec latence moyenne/p50/p95 et allocations C++ sur le workload Dense `1 -> 8 -> 1` ; consulter `benchmark_profile.csv` ;
 - compléter le profil par des workloads applicatifs et une mesure sur cible ; la mesure globale `inference_time_us` inclut toujours évaluation, perte et métriques ;
 - mesurer le pic RSS, les allocations et les coûts sur cible lorsque le matériel sera défini ;
 - conserver les métriques brutes et des baselines comparables plutôt qu'un score composite opaque.
 
 ## 2. Réduire la latence et le coût CPU
 
-- buffers d'activations et de gradients réutilisés sur les chemins d'inférence, d'entraînement et de replay; le profil actuel indique zéro allocation C++ récurrente pour l'inférence sans cache, l'update batch et le replay FIFO après échauffement ;
 - stockage contigu des poids et gradients de poids à réévaluer avec une migration coordonnée de l'API `weights()[i][j]`, actuellement exposée aux optimiseurs, à la sérialisation et aux consommateurs existants ;
 - comparer les optimisations sur les mêmes données, seeds, architecture et nombre d'updates ;
 - ne retenir un gain de vitesse qu'avec son impact mesuré sur la qualité et la mémoire.
 
 ## 3. Réduire les coûts du pipeline de données et de mémoire
 
-- le runtime lit maintenant le dataset ligne par ligne et entraîne par mini-batches; les passes de statistiques/calibration relisent le fichier sans le conserver en mémoire ;
-- mesurer la RAM du pipeline complet, notamment le replay, les poids/états d'optimiseur, les buffers par échantillon et les structures de conteneurs ;
+- compléter la mesure mémoire avec les buffers transitoires du `LearningEngine` et le pic RSS du runtime ;
 - proposer des limites mémoire en octets, en tenant compte des métadonnées, paramètres de quantification et allocations ;
 - mesurer les compromis des stratégies de replay et des formats compacts sur des données représentatives.
 

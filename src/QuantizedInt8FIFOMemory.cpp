@@ -100,3 +100,12 @@ size_t QuantizedInt8FIFOMemory::bytesPerSample() const {
 size_t QuantizedInt8FIFOMemory::memoryUsedBytes() const {
     return samples.size() * bytesPerSample();
 }
+
+size_t QuantizedInt8FIFOMemory::allocatedBytes() const {
+    size_t bytes = sizeof(*this) + samples.capacity() * sizeof(Int8QuantizedTrainingSample);
+    for (const Int8QuantizedTrainingSample& sample : samples) {
+        bytes += sample.input.values.capacity() * sizeof(std::int8_t);
+        bytes += sample.target.values.capacity() * sizeof(std::int8_t);
+    }
+    return bytes;
+}

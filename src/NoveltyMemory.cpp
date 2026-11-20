@@ -109,6 +109,10 @@ size_t NoveltyMemory::capacity() const {
     return memory_capacity;
 }
 
+size_t NoveltyMemory::allocatedBytes() const {
+    return sizeof(*this) + trainingSamplesAllocatedBytes(samples);
+}
+
 void NoveltyMemory::clear() {
     samples.clear();
 }

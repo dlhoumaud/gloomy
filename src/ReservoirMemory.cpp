@@ -98,6 +98,11 @@ size_t ReservoirMemory::capacity() const {
     return memory_capacity;
 }
 
+size_t ReservoirMemory::allocatedBytes() const {
+    return sizeof(*this) + trainingSamplesAllocatedBytes(samples) +
+        sampling_indices.capacity() * sizeof(size_t);
+}
+
 void ReservoirMemory::clear() {
     samples.clear();
     seen_samples = 0;

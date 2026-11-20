@@ -23,6 +23,7 @@ public:
     void advanceAges() override;
     size_t size() const override;
     size_t capacity() const override;
+    size_t allocatedBytes() const override;
     void clear() override;
 
     double alpha() const;
