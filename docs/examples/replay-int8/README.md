@@ -12,4 +12,4 @@ mkdir -p artifacts/examples
 ./bin/gloomy -f docs/examples/replay-int8/inference.config
 ```
 
-La première phase crée le checkpoint et la mémoire. La deuxième réutilise le même `model_path`, restaure le replay et apprend sur un second lot d'exemples. `precision=int8` ne convertit pas les poids du réseau. Les fichiers de données illustrent la progression `y = 2x + 1`.
+La première phase entraîne le modèle par mini-batches et crée le checkpoint avec la mémoire. La deuxième réutilise le même `model_path`, restaure le replay, puis poursuit l'apprentissage en ligne sur de nouveaux exemples de la même relation `y = 2x + 1`. La valeur d'entrée reste dans la plage de calibration de la mémoire. `precision=int8` ne convertit pas les poids du réseau.

@@ -21,7 +21,7 @@ La configuration est dans [`training.config`](training.config). Elle choisit un 
 ./bin/gloomy -f docs/examples/regression-lineaire/training.config
 ```
 
-Le checkpoint est écrit dans `artifacts/model-lineaire.gloomy`. Une nouvelle exécution avec le même chemin reprend ce checkpoint et poursuit l'entraînement. Pour repartir de zéro, supprimez ou changez ce fichier.
+Le checkpoint est écrit dans `artifacts/examples/regression-lineaire.gloomy`. Une nouvelle exécution avec le même chemin reprend ce checkpoint et poursuit l'entraînement. Pour repartir de zéro, supprimez ou changez ce fichier.
 
 ## 3. Prédire des valeurs
 
