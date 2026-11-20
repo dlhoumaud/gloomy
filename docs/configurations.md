@@ -71,9 +71,11 @@ Les modes disponibles sont `training`, `online_learning` et `inference`. Le mode
 
 Pour un nouveau modèle d'entraînement, les statistiques d'entrée sont calculées sur toutes les entrées du dataset fourni. Il n'y a pas de validation/test automatique : fournissez uniquement les données d'entraînement et évaluez séparément. Lorsqu'un `model_path` existe en mode entraînement, le réseau, le normaliseur et l'optimiseur sont chargés depuis ce modèle; les paramètres d'architecture de la configuration ne reconstruisent pas le réseau, et l'état de l'optimiseur sauvegardé remplace ses hyperparamètres. La mémoire est restaurée si elle est présente; dans ce cas, ses paramètres remplacent ceux utilisés pour créer une mémoire depuis la configuration.
 
-Pour l'inférence, configurer `runtime=inference` et `input=1.0 2.0 3.0`. Le modèle existant est chargé depuis `model_path`, l'entrée est normalisée avec ses statistiques sauvegardées, et les sorties sont écrites une par ligne. La section mémoire n'est pas désérialisée ni restaurée en mode inference; le checksum global du fichier est tout de même vérifié. Le type `optimizer` de la configuration doit correspondre à celui enregistré dans le modèle, même si l'optimiseur n'est pas utilisé pour calculer la prédiction.
+Pour l'inférence, configurer `runtime=inference` et `input=1.0 2.0 3.0`. Le runtime détecte le format du fichier `model_path`. Avec `GLOOMY_INFER`, il charge uniquement réseau et normalisation, sans dépendre du type d'optimiseur. Avec un checkpoint `GLOOMY_MODEL`, il vérifie toujours le type d'optimiseur et le checksum, mais saute la désérialisation de la mémoire.
 
-Seules les options `--runtime`, `--model`, `--data`, `--input`, `--epochs` et `--batch-size` peuvent surcharger le fichier :
+Pour produire l'artefact allégé pendant l'entraînement, renseigner `inference_model_path=deployment.infer` ou utiliser `--export-inference deployment.infer`. Il est enregistré en plus du checkpoint de reprise et son chemin doit être différent de `model_path`.
+
+Les options `--runtime`, `--model`, `--data`, `--input`, `--epochs`, `--batch-size` et `--export-inference` peuvent surcharger le fichier :
 
 ```bash
 ./bin/gloomy -f gloomy.config --runtime inference --input "1.0 2.0 3.0"

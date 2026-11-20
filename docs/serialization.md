@@ -59,7 +59,18 @@ FIFO, Reservoir, Prioritized, Novelty, Hybrid, FIFO int16 et FIFO int8 sont pris
 
 Le chargement vérifie le checksum global, la version, les limites et l'unicité des sections, le type d'optimiseur et la cohérence des dimensions. Si l'appelant ne fournit pas de sortie `LearningMemory`, le chargeur saute la désérialisation de cette section après validation du checksum et de ses limites; c'est le chemin utilisé en inférence. Sinon, il prépare aussi la mémoire avant de remplacer les objets cibles, puis restaure l'état d'optimiseur compatible. Une normalisation sans observation ne peut pas être sauvegardée.
 
-Le format est conçu comme checkpoint de reprise, pas comme artefact d'inférence minimal : la section `OPTIMIZER` est requise même en mode inference, et le lecteur reçoit une instance du type d'optimiseur correspondant. Une mémoire peut être omise à la sauvegarde; lorsqu'elle est présente, elle peut être chargée pour une reprise d'entraînement. Un format allégé sans état d'entraînement reste à concevoir.
+`GLOOMY_MODEL` est conçu comme checkpoint de reprise, pas comme artefact d'inférence minimal : la section `OPTIMIZER` est requise même en mode inference, et le lecteur reçoit une instance du type d'optimiseur correspondant. Une mémoire peut être omise à la sauvegarde; lorsqu'elle est présente, elle peut être chargée pour une reprise d'entraînement.
+
+### Artefact dédié à l'inférence
+
+`GLOOMY_INFER` est un format distinct contenant uniquement les sections `NETWORK` et `NORMALIZATION`, avec version, tailles bornées et checksum. Il exclut l'optimiseur, la mémoire de replay et leur état aléatoire. Utiliser `saveInference` et `loadInference` lorsque le modèle doit uniquement produire des prédictions :
+
+```cpp
+GloomyModelSerialization::saveInference("model.infer", network, normalizer);
+GloomyModelSerialization::loadInference("model.infer", network, normalizer);
+```
+
+Le runtime détecte automatiquement le format à partir du magic. Un artefact d'inférence ne peut pas servir à reprendre l'entraînement. Après un entraînement, `inference_model_path=deployment.infer` ou l'option `--export-inference deployment.infer` génère cet artefact en plus du checkpoint `model_path`. Le format est versionné indépendamment du checkpoint de reprise.
 
 ## Réseau neuronal
 

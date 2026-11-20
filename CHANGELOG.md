@@ -39,16 +39,18 @@ Les vecteurs et métadonnées des autres stratégies mémoire, ainsi que les poi
 - persistance des stratégies mémoire intégrées, des états RNG des stratégies aléatoires prises en charge et des paramètres des mémoires quantifiées.
 - en inférence, le chargeur vérifie le checksum global mais saute la désérialisation de la section mémoire lorsque l'appelant ne demande pas à la restaurer.
 - estimation des allocations du réseau, de l'optimiseur et du moteur d'apprentissage, ainsi qu'un budget optionnel `memory_budget_bytes` pour ajuster la capacité du replay ;
-- rapport runtime du pic RSS fourni par le système d'exploitation.
+- rapport runtime du pic RSS fourni par le système d'exploitation ;
+- artefact `GLOOMY_INFER` versionné avec réseau et normalisation uniquement, détecté automatiquement par le runtime et exportable en complément du checkpoint d'entraînement.
 
-Le format `GLOOMY_MODEL` sert à la reprise et inclut obligatoirement une section optimiseur; un artefact inference-only minimal n'est pas encore disponible.
+Le format `GLOOMY_MODEL` sert à la reprise et inclut obligatoirement une section optimiseur; `GLOOMY_INFER` est réservé au déploiement d'inférence.
 
 ### Benchmarks et métriques
 
 - métriques MAE, RMSE et forgetting ;
 - benchmark synthétique comparant stratégies mémoire, capacités, pertes, optimiseurs et précisions de mémoire sur trois seeds, transmis aussi aux générateurs aléatoires des mémoires ;
 - baseline « dernière valeur », expériences A → B et A → B → A, et export CSV des résultats, du forgetting et du drift.
-- export du pic RSS dans le profil d'opérations `benchmark_profile.csv`.
+- export du pic RSS dans le profil d'opérations `benchmark_profile.csv` ;
+- comparaison de taille et de temps de chargement des artefacts dans `benchmark_artifacts.csv`.
 
 Les benchmarks sont indicatifs et ne représentent pas des données applicatives ni une mesure sur matériel embarqué. La portée et les limites sont décrites dans [benchmark](docs/benchmark.md).
 

@@ -1,6 +1,7 @@
 #include "headers/AdamOptimizer.h"
 #include "headers/Benchmark.h"
 #include "headers/FIFOMemory.h"
+#include "headers/GloomyModelSerialization.h"
 #include "headers/HybridMemory.h"
 #include "headers/LearningEngine.h"
 #include "headers/LearningMemory.h"
@@ -17,6 +18,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <map>
 #include <memory>
 #include <new>
@@ -65,6 +69,56 @@ std::vector<TrainingSample> makeDataset(size_t count, size_t start);
 NeuralNetwork makeNetwork();
 std::unique_ptr<Optimizer> makeOptimizer(const std::string& name);
 std::unique_ptr<LossFunction> makeLoss(const std::string& name);
+
+void benchmarkModelArtifacts() {
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path base = std::filesystem::temp_directory_path() /
+        ("gloomy_artifact_benchmark_" + std::to_string(nonce));
+    const std::string checkpoint_path = base.string() + ".gloomy";
+    const std::string inference_path = base.string() + ".infer";
+    struct Cleanup {
+        std::string first;
+        std::string second;
+        ~Cleanup() {
+            std::error_code error;
+            std::filesystem::remove(first, error);
+            std::filesystem::remove(second, error);
+        }
+    } cleanup{checkpoint_path, inference_path};
+
+    NeuralNetwork network = makeNetwork();
+    StreamingNormalizer normalizer(1);
+    for (double value : {-1.0, 0.0, 1.0}) normalizer.update({value});
+    auto optimizer = makeOptimizer("adam");
+    optimizer->update(network.layers());
+    GloomyModelSerialization::save(checkpoint_path, network, normalizer, *optimizer);
+    GloomyModelSerialization::saveInference(inference_path, network, normalizer);
+
+    constexpr size_t iterations = 100;
+    auto mean_load_us = [&](bool inference_only) {
+        NeuralNetwork restored_network;
+        StreamingNormalizer restored_normalizer(1);
+        auto restored_optimizer = makeOptimizer("adam");
+        const auto start = std::chrono::steady_clock::now();
+        for (size_t index = 0; index < iterations; ++index) {
+            if (inference_only)
+                GloomyModelSerialization::loadInference(inference_path, restored_network, restored_normalizer);
+            else
+                GloomyModelSerialization::load(checkpoint_path, restored_network, restored_normalizer, *restored_optimizer);
+            profile_sink += restored_network.layers().back().bias().front();
+        }
+        const auto end = std::chrono::steady_clock::now();
+        return std::chrono::duration<double, std::micro>(end - start).count() / iterations;
+    };
+    const double checkpoint_load_us = mean_load_us(false);
+    const double inference_load_us = mean_load_us(true);
+    std::ofstream csv("benchmark_artifacts.csv", std::ios::trunc);
+    if (!csv) throw std::runtime_error("Unable to write benchmark_artifacts.csv");
+    csv << "artifact,file_size_bytes,load_mean_us,iterations\n" << std::setprecision(17)
+        << "training_checkpoint," << std::filesystem::file_size(checkpoint_path) << ',' << checkpoint_load_us << ',' << iterations << '\n'
+        << "inference_only," << std::filesystem::file_size(inference_path) << ',' << inference_load_us << ',' << iterations << '\n';
+    if (!csv) throw std::runtime_error("Unable to write benchmark_artifacts.csv");
+}
 
 template <typename Operation>
 BenchmarkProfileResult profileOperation(
@@ -516,6 +570,7 @@ void runConceptDriftExperiment(std::vector<BenchmarkResult>& results) {
 }
 
 int main() {
+    benchmarkModelArtifacts();
     const auto profile_results = profileCoreOperations();
     const auto training = makeDataset(training_count, 0);
     const auto validation = makeDataset(validation_count, training_count);

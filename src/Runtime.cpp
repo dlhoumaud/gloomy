@@ -34,6 +34,7 @@ namespace {
 struct RuntimeConfig {
     std::string runtime = "inference";
     std::string model_path = "model.gloomy";
+    std::string inference_model_path;
     std::string dataset_path;
     std::string input;
     std::string activation = "tanh";
@@ -90,6 +91,7 @@ size_t parseSize(const std::string& text, const std::string& key) {
 void applyValue(RuntimeConfig& config, const std::string& key, const std::string& value) {
     if (key == "runtime") config.runtime = value;
     else if (key == "model_path") config.model_path = value;
+    else if (key == "inference_model_path") config.inference_model_path = value;
     else if (key == "dataset_path") config.dataset_path = value;
     else if (key == "input") config.input = value;
     else if (key == "activation") config.activation = value;
@@ -162,13 +164,14 @@ RuntimeConfig readConfig(const std::string& path, int argc, char* argv[]) {
     for (int index = 3; index < argc; ++index) {
         const std::string option = argv[index];
         if (option == "--help" || option == "-h") {
-            std::cout << "Usage: gloomy -f CONFIG [--runtime MODE] [--model PATH] [--data PATH] [--input VALUES] [--memory-budget-bytes N]\n";
+            std::cout << "Usage: gloomy -f CONFIG [--runtime MODE] [--model PATH] [--data PATH] [--input VALUES] [--memory-budget-bytes N] [--export-inference PATH]\n";
             std::exit(0);
         }
         if (index + 1 >= argc) throw std::invalid_argument("Missing value for option: " + option);
         const std::string value = argv[++index];
         if (option == "--runtime") applyValue(config, "runtime", value);
         else if (option == "--model") applyValue(config, "model_path", value);
+        else if (option == "--export-inference") applyValue(config, "inference_model_path", value);
         else if (option == "--data") applyValue(config, "dataset_path", value);
         else if (option == "--input") applyValue(config, "input", value);
         else if (option == "--epochs") applyValue(config, "epochs", value);
@@ -183,6 +186,8 @@ void validateConfig(const RuntimeConfig& c) {
     if (c.runtime != "inference" && c.runtime != "training" && c.runtime != "online_learning")
         throw std::invalid_argument("runtime must be inference, training or online_learning");
     if (c.model_path.empty()) throw std::invalid_argument("model_path cannot be empty");
+    if (!c.inference_model_path.empty() && c.inference_model_path == c.model_path)
+        throw std::invalid_argument("inference_model_path must differ from model_path");
     if (c.hidden_layers > 1024 || c.neurons > 1'000'000 || c.memory_capacity > 10'000'000)
         throw std::invalid_argument("Architecture or memory capacity exceeds supported limits");
     const std::vector<std::string> activations = {"none", "sigmoid", "relu", "leaky_relu", "tanh"};
@@ -383,14 +388,20 @@ int run(const RuntimeConfig& config) {
     const bool exists = static_cast<bool>(std::ifstream(config.model_path, std::ios::binary));
 
     if (exists) {
-        std::unique_ptr<LearningMemory> restored_memory;
-        GloomyModelSerialization::load(config.model_path, network, normalizer, *optimizer,
-            config.runtime == "inference" ? nullptr : &restored_memory);
+        if (GloomyModelSerialization::isInferenceArtifact(config.model_path)) {
+            if (config.runtime != "inference")
+                throw std::invalid_argument("Inference-only artifact cannot be used for training");
+            GloomyModelSerialization::loadInference(config.model_path, network, normalizer);
+        } else {
+            std::unique_ptr<LearningMemory> restored_memory;
+            GloomyModelSerialization::load(config.model_path, network, normalizer, *optimizer,
+                config.runtime == "inference" ? nullptr : &restored_memory);
+            memory = std::move(restored_memory);
+        }
         if (network.layers().front().weights().size() != input_size)
             throw std::invalid_argument("Input dimensions do not match the saved model");
         if (config.runtime != "inference" && network.layers().back().bias().size() != target_size)
             throw std::invalid_argument("Target dimensions do not match the saved model");
-        memory = std::move(restored_memory);
     } else {
         if (config.runtime == "inference") throw std::runtime_error("Model file does not exist: " + config.model_path);
         initializeNetwork(network, config, input_size, target_size);
@@ -483,6 +494,8 @@ int run(const RuntimeConfig& config) {
         final_loss = accumulated / static_cast<double>(dataset_info.sample_count);
     }
     GloomyModelSerialization::save(config.model_path, network, normalizer, *optimizer, memory.get());
+    if (!config.inference_model_path.empty())
+        GloomyModelSerialization::saveInference(config.inference_model_path, network, normalizer);
     const size_t retained_bytes = network.allocatedBytes() + optimizer->allocatedBytes() +
         engine.allocatedBytes() + memory->allocatedBytes();
     std::cerr << "loss=" << final_loss << " samples=" << dataset_info.sample_count

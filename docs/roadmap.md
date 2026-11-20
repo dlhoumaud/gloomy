@@ -22,20 +22,13 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 
 - mesurer les compromis des stratégies de replay et des formats compacts sur des données représentatives.
 
-## 4. Séparer les formats de persistance
-
-- concevoir un artefact inference-only minimal, distinct du checkpoint de reprise d'entraînement ;
-- définir les données strictement nécessaires à l'inférence, le versionnement et la compatibilité ;
-- mesurer taille, temps de chargement et latence du runtime d'inférence compact ;
-- garder l'état de l'optimiseur, la mémoire de replay et l'état aléatoire dans le format de reprise lorsque nécessaire.
-
-## 5. Évaluer les précisions réduites
+## 4. Évaluer les précisions réduites
 
 - comparer int8/int16 sur des jeux de données représentatifs, avec erreurs après déquantification et métriques de tâche ;
 - étudier ensuite la quantification des poids et du calcul, qui nécessite un protocole distinct ;
 - mesurer qualité, latence, mémoire et coût de conversion ensemble avant de choisir un format.
 
-## 6. Renforcer l'évaluation et le continual learning
+## 5. Renforcer l'évaluation et le continual learning
 
 - élargir le benchmark au-delà des fonctions synthétiques, avec séparation temporelle ou expérimentale adaptée ;
 - tester des dérives progressives, plusieurs régimes et des workloads représentatifs ;
@@ -43,12 +36,12 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 - faire évoluer Hybrid vers une politique explicitement évaluée utilisant les signaux d'importance réellement disponibles ;
 - généraliser les tests mathématiques : gradients sur activations/couches, stabilité et reproductibilité.
 
-## 7. Valider sur une cible embarquée
+## 6. Valider sur une cible embarquée
 
 - choisir une cible concrète avant de déclarer un gain embarqué ;
 - mesurer latence, RAM, Flash et énergie sur l'appareil ;
 - valider compilation, compatibilité numérique et résultats sur cette cible.
 
-## 8. Clarifier les métadonnées du dépôt
+## 7. Clarifier les métadonnées du dépôt
 
 - confirmer la licence du projet et ajouter le fichier légal correspondant si nécessaire; le README historique annonçait MIT, mais aucun fichier `LICENSE` n'est présent.

@@ -14,6 +14,7 @@
 
 namespace {
 constexpr char magic[] = "GLOOMY_MODEL";
+constexpr char inference_magic[] = "GLOOMY_INFER";
 constexpr std::uint32_t format_version = 1;
 constexpr std::uint32_t network_section = 1;
 constexpr std::uint32_t normalizer_section = 2;
@@ -144,6 +145,90 @@ void deserializeOptimizer(const std::string& bytes, Optimizer& optimizer, const 
     optimizer.readCheckpoint(in, layers);
     if (in.peek() != std::char_traits<char>::eof()) throw std::runtime_error("Unexpected optimizer section data");
 }
+}
+
+bool GloomyModelSerialization::isInferenceArtifact(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("Unable to open model file for reading");
+    char header[sizeof(inference_magic) - 1]{};
+    file.read(header, sizeof(header));
+    return file.gcount() == static_cast<std::streamsize>(sizeof(header)) &&
+        std::string(header, sizeof(header)) == std::string(inference_magic, sizeof(inference_magic) - 1);
+}
+
+void GloomyModelSerialization::saveInference(
+    const std::string& path,
+    const NeuralNetwork& network,
+    const StreamingNormalizer& normalizer
+) {
+    if (network.layers().empty() ||
+        normalizer.dimensions() != network.layers().front().weights().size())
+        throw std::invalid_argument("Inference artifact normalizer dimensions do not match network input");
+    std::ostringstream payload(std::ios::binary);
+    write(payload, inference_magic, sizeof(inference_magic) - 1);
+    write(payload, &format_version, sizeof(format_version));
+    const std::uint32_t section_count = 2;
+    write(payload, &section_count, sizeof(section_count));
+    writeSection(payload, network_section, serializeNetwork(network));
+    writeSection(payload, normalizer_section, serializeNormalizer(normalizer));
+    const std::string bytes = payload.str();
+    const std::uint64_t hash = checksum(bytes);
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) throw std::runtime_error("Unable to open inference artifact for writing");
+    write(file, bytes.data(), bytes.size());
+    write(file, &hash, sizeof(hash));
+}
+
+void GloomyModelSerialization::loadInference(
+    const std::string& path,
+    NeuralNetwork& network,
+    StreamingNormalizer& normalizer
+) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("Unable to open inference artifact for reading");
+    const std::string file_bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    constexpr size_t minimum_size = sizeof(inference_magic) - 1 + sizeof(format_version) +
+        sizeof(std::uint32_t) + sizeof(std::uint64_t);
+    if (file_bytes.size() < minimum_size) throw std::runtime_error("Inference artifact is truncated");
+    const size_t payload_size = file_bytes.size() - sizeof(std::uint64_t);
+    std::uint64_t stored_hash = 0;
+    std::memcpy(&stored_hash, file_bytes.data() + payload_size, sizeof(stored_hash));
+    const std::string payload = file_bytes.substr(0, payload_size);
+    if (checksum(payload) != stored_hash) throw std::runtime_error("Inference artifact checksum mismatch");
+    std::istringstream in(payload, std::ios::binary);
+    char file_magic[sizeof(inference_magic) - 1];
+    read(in, file_magic, sizeof(file_magic));
+    if (std::string(file_magic, sizeof(file_magic)) != std::string(inference_magic, sizeof(inference_magic) - 1))
+        throw std::runtime_error("Invalid inference artifact magic");
+    std::uint32_t version = 0, count = 0;
+    read(in, &version, sizeof(version));
+    read(in, &count, sizeof(count));
+    if (version != format_version) throw std::runtime_error("Unsupported inference artifact version");
+    if (count != 2) throw std::runtime_error("Inference artifact section count is invalid");
+    std::unordered_map<std::uint32_t, std::string> sections;
+    for (std::uint32_t index = 0; index < count; ++index) {
+        std::uint32_t id = 0;
+        std::uint64_t size = 0;
+        read(in, &id, sizeof(id));
+        read(in, &size, sizeof(size));
+        if (size > maximum_section_size || size > std::numeric_limits<size_t>::max())
+            throw std::runtime_error("Inference artifact section size is invalid");
+        if (id != network_section && id != normalizer_section)
+            throw std::runtime_error("Unexpected inference artifact section");
+        if (sections.count(id)) throw std::runtime_error("Duplicate inference artifact section");
+        std::string bytes(static_cast<size_t>(size), '\0');
+        if (size) read(in, bytes.data(), bytes.size());
+        sections.emplace(id, std::move(bytes));
+    }
+    if (in.peek() != std::char_traits<char>::eof() || !sections.count(network_section) ||
+        !sections.count(normalizer_section))
+        throw std::runtime_error("Inference artifact sections are invalid");
+    NeuralNetwork restored_network = deserializeNetwork(sections.at(network_section));
+    StreamingNormalizer restored_normalizer = deserializeNormalizer(sections.at(normalizer_section));
+    if (restored_normalizer.dimensions() != restored_network.layers().front().weights().size())
+        throw std::runtime_error("Inference artifact normalizer dimensions do not match network input");
+    network = std::move(restored_network);
+    normalizer = std::move(restored_normalizer);
 }
 
 void GloomyModelSerialization::save(

@@ -10,6 +10,17 @@
 
 class GloomyModelSerialization {
 public:
+    static void saveInference(
+        const std::string& path,
+        const NeuralNetwork& network,
+        const StreamingNormalizer& normalizer
+    );
+    static void loadInference(
+        const std::string& path,
+        NeuralNetwork& network,
+        StreamingNormalizer& normalizer
+    );
+    static bool isInferenceArtifact(const std::string& path);
     static void save(
         const std::string& path,
         const NeuralNetwork& network,
