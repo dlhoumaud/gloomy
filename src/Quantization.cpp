@@ -26,16 +26,24 @@ QuantizationParameters Int16Quantizer::calibrate(const std::vector<double>& valu
         throw std::invalid_argument("Quantization values must be finite");
     }
 
-    const double range = *bounds.second - *bounds.first;
+    return calibrateRange(*bounds.first, *bounds.second);
+}
+
+QuantizationParameters Int16Quantizer::calibrateRange(double minimum, double maximum) {
+    if (!std::isfinite(minimum) || !std::isfinite(maximum) || minimum > maximum) {
+        throw std::invalid_argument("Quantization range must be finite and ordered");
+    }
+    const double range = maximum - minimum;
+    if (!std::isfinite(range)) throw std::invalid_argument("Quantization range is too large");
     if (range == 0.0) {
         const double scale = std::max(
-            std::abs(*bounds.first) / int16_max,
+            std::abs(minimum) / int16_max,
             minimum_scale
         );
         return {scale, 0};
     }
     const double scale = std::max(range / (int16_max - int16_min), minimum_scale);
-    const double zero_point_value = int16_min - (*bounds.first / scale);
+    const double zero_point_value = int16_min - (minimum / scale);
     const double clamped_zero_point = std::clamp(
         std::round(zero_point_value),
         int16_min,

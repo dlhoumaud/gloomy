@@ -13,6 +13,7 @@ struct Int8QuantizedVector {
 class Int8Quantizer {
 public:
     static QuantizationParameters calibrate(const std::vector<double>& values);
+    static QuantizationParameters calibrateRange(double minimum, double maximum);
     static Int8QuantizedVector quantize(
         const std::vector<double>& values,
         const QuantizationParameters& parameters

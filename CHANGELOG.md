@@ -14,6 +14,8 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - accès interne par référence aux sorties de propagation avant pour éviter leurs copies pendant l'entraînement, tout en conservant l'API `forward()` par valeur ;
 - réutilisation des buffers de gradient des couches pendant la rétropropagation d'entraînement, avec conservation de l'API `backward()` par valeur ;
 - buffers d'inférence, de gradient de perte et d'échantillons replay réutilisables; softmax calculé en place et déquantification/quantification écrivable dans des buffers existants ;
+- runtime d'entraînement qui normalise les entrées du dataset en place au lieu de conserver un second dataset normalisé ;
+- calibrage des mémoires quantifiées qui calcule directement les bornes min/max sans copier tout le dataset dans des vecteurs temporaires ;
 - schedulers `EverySample`, `EveryN` et `OnHighError`.
 
 ### Mémoire et normalisation

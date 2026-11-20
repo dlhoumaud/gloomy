@@ -1,4 +1,7 @@
 #include "headers/TrainingSampleQuantization.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 TrainingSampleQuantizer::TrainingSampleQuantizer(
@@ -14,19 +17,29 @@ TrainingSampleQuantizer TrainingSampleQuantizer::calibrate(
         throw std::invalid_argument("Cannot calibrate an empty sample set");
     }
 
-    std::vector<double> inputs;
-    std::vector<double> targets;
+    double input_minimum = std::numeric_limits<double>::infinity();
+    double input_maximum = -std::numeric_limits<double>::infinity();
+    double target_minimum = std::numeric_limits<double>::infinity();
+    double target_maximum = -std::numeric_limits<double>::infinity();
     for (const TrainingSample& sample : samples) {
-        inputs.insert(inputs.end(), sample.input.begin(), sample.input.end());
-        targets.insert(targets.end(), sample.target.begin(), sample.target.end());
+        for (double value : sample.input) {
+            if (!std::isfinite(value)) throw std::invalid_argument("Quantization values must be finite");
+            input_minimum = std::min(input_minimum, value);
+            input_maximum = std::max(input_maximum, value);
+        }
+        for (double value : sample.target) {
+            if (!std::isfinite(value)) throw std::invalid_argument("Quantization values must be finite");
+            target_minimum = std::min(target_minimum, value);
+            target_maximum = std::max(target_maximum, value);
+        }
     }
-    if (inputs.empty() || targets.empty()) {
+    if (!std::isfinite(input_minimum) || !std::isfinite(target_minimum)) {
         throw std::invalid_argument("Training samples must contain input and target values");
     }
 
     return TrainingSampleQuantizer(
-        Int16Quantizer::calibrate(inputs),
-        Int16Quantizer::calibrate(targets)
+        Int16Quantizer::calibrateRange(input_minimum, input_maximum),
+        Int16Quantizer::calibrateRange(target_minimum, target_maximum)
     );
 }
 

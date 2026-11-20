@@ -17,6 +17,7 @@ struct QuantizedVector {
 class Int16Quantizer {
 public:
     static QuantizationParameters calibrate(const std::vector<double>& values);
+    static QuantizationParameters calibrateRange(double minimum, double maximum);
     static QuantizedVector quantize(
         const std::vector<double>& values,
         const QuantizationParameters& parameters

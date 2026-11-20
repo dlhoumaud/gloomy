@@ -23,13 +23,21 @@ QuantizationParameters Int8Quantizer::calibrate(const std::vector<double>& value
     if (!std::isfinite(*bounds.first) || !std::isfinite(*bounds.second)) {
         throw std::invalid_argument("Quantization values must be finite");
     }
-    const double range = *bounds.second - *bounds.first;
+    return calibrateRange(*bounds.first, *bounds.second);
+}
+
+QuantizationParameters Int8Quantizer::calibrateRange(double minimum, double maximum) {
+    if (!std::isfinite(minimum) || !std::isfinite(maximum) || minimum > maximum) {
+        throw std::invalid_argument("Quantization range must be finite and ordered");
+    }
+    const double range = maximum - minimum;
+    if (!std::isfinite(range)) throw std::invalid_argument("Quantization range is too large");
     if (range == 0.0) {
-        return {std::max(std::abs(*bounds.first) / int8_max, minimum_scale), 0};
+        return {std::max(std::abs(minimum) / int8_max, minimum_scale), 0};
     }
     const double scale = std::max(range / (int8_max - int8_min), minimum_scale);
     const double zero_point = std::clamp(
-        std::round(int8_min - *bounds.first / scale), int8_min, int8_max
+        std::round(int8_min - minimum / scale), int8_min, int8_max
     );
     return {scale, static_cast<std::int16_t>(zero_point)};
 }

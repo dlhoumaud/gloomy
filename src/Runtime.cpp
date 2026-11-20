@@ -330,25 +330,24 @@ int run(const RuntimeConfig& config) {
         return 0;
     }
 
-    std::vector<TrainingSample> normalized_samples = dataset;
-    for (TrainingSample& sample : normalized_samples) sample.input = normalizer.normalize(sample.input);
-    if (!memory) memory = createMemory(config, normalized_samples);
+    for (TrainingSample& sample : dataset) sample.input = normalizer.normalize(sample.input);
+    if (!memory) memory = createMemory(config, dataset);
     auto loss = createLoss(config);
     LearningEngine engine(network, *loss, *optimizer);
 
     double final_loss = 0.0;
     if (config.runtime == "training") {
-        for (const TrainingSample& sample : normalized_samples) memory->add(sample);
-        final_loss = engine.train(normalized_samples, config.epochs, config.batch_size);
+        for (const TrainingSample& sample : dataset) memory->add(sample);
+        final_loss = engine.train(dataset, config.epochs, config.batch_size);
     } else {
         EveryNScheduler scheduler(config.train_every);
         double accumulated = 0.0;
-        for (const TrainingSample& sample : normalized_samples)
+        for (const TrainingSample& sample : dataset)
             accumulated += engine.learn(*memory, sample, config.batch_size, scheduler);
-        final_loss = accumulated / static_cast<double>(normalized_samples.size());
+        final_loss = accumulated / static_cast<double>(dataset.size());
     }
     GloomyModelSerialization::save(config.model_path, network, normalizer, *optimizer, memory.get());
-    std::cerr << "loss=" << final_loss << " samples=" << normalized_samples.size() << '\n';
+    std::cerr << "loss=" << final_loss << " samples=" << dataset.size() << '\n';
     return 0;
 }
 }

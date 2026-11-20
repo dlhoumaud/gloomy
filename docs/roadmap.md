@@ -23,7 +23,7 @@ La priorité retenue pour la suite est la latence et le coût CPU, en comparant 
 
 ## 3. Réduire les coûts du pipeline de données et de mémoire
 
-- éviter de conserver simultanément le dataset brut et une copie normalisée lorsqu'un traitement en flux est possible ;
+- parsing incrémental et entraînement à mémoire bornée; le runtime normalise maintenant son dataset en place et le calibrage int16/int8 calcule les bornes sans vecteurs aplatis temporaires ;
 - étudier un parsing incrémental et un pipeline borné en mémoire ;
 - proposer des limites mémoire en octets, en tenant compte des métadonnées, paramètres de quantification et allocations ;
 - mesurer les compromis des stratégies de replay et des formats compacts sur des données représentatives.
