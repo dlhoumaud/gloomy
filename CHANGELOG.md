@@ -32,6 +32,9 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - outil de préparation locale des corpus texte avec normalisation NFC, déduplication, splits déterministes et manifeste de provenance/empreintes ;
 - exemple de corpus fictif train/validation/test et documentation de l'évaluation, du profil local et des limites.
 - corpus applicatif local d'assistant documentaire Gloomy, avec splits fixes par fichier source, QA train/validation/test conditionnée par contexte, test équilibré oui/non et baseline majoritaire explicite, manifeste d'empreintes et provenance, benchmark multi-seed et test de reprise bit-à-bit sur les documents.
+- mesure de QA à choix fermé par log-vraisemblance des labels candidats, publiée séparément de la génération libre ;
+- liaison statique des exécutables Makefile afin qu'ils n'exigent pas de bibliothèques dynamiques à l'exécution.
+- tokenizer documenté et plafonné à huit occurrences par paire QA afin que des répétitions supplémentaires d'entraînement ne biaisent pas le vocabulaire BPE; l'essai à 32 répétitions a été rejeté sur les seules mesures de validation.
 
 Ce prototype de petite échelle n'a pas démontré la compréhension générale. Des corpus applicatifs autorisés, une évaluation plus robuste et un profil sur cible restent nécessaires.
 

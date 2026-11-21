@@ -6,11 +6,11 @@ La priorité absolue du projet est de développer puis valider un modèle de lan
 
 ## 1. Développer un véritable modèle de langage
 
-- étendre le premier cas d'usage d'assistant de documentation Gloomy à un corpus applicatif métier autorisé et plus représentatif; le corpus actuel ne contient que les documents du dépôt ;
-- compléter le prochain-token et le QA factuel avec des tâches de compréhension/génération métier, des références et des seuils établis avec les utilisateurs ;
-- améliorer capacité, robustesse et coût du Transformer causal en choisissant les changements sur validation, puis vérifier qu'ils ne dégradent pas le test tenu à l'écart ;
-- élargir les contrôles de stabilité et de reprise bit-à-bit aux nouvelles configurations et aux corpus métier;
-- reproduire les métriques publiées sur la cible matérielle de déploiement lorsqu'elle aura été définie; la mesure actuelle est une baseline CPU locale.
+- remplacer le corpus documentaire Gloomy, le seul domaine actuellement disponible, par un corpus métier autorisé fourni pour le domaine applicatif réel et fixer avec ses responsables les critères de réussite ;
+- dépasser de façon reproductible la baseline majoritaire QA de 50 % sur un jeu de validation/test plus robuste, sans dégrader les bits par octet; les variantes testées jusqu'ici n'ont pas établi ce gain ;
+- reproduire les mesures de référence sur le matériel de déploiement lorsqu'une cible applicative concrète sera définie; la campagne actuelle caractérise uniquement la baseline CPU locale.
+
+Le parcours documentaire local, les tâches contrôlées prochain-token/QA, la sélection sur validation, l'évaluation tenue à l'écart, les mesures multi-seed et la reprise déterministe sont implémentés et consignés dans le [journal des changements](../CHANGELOG.md). Les essais d'hyperparamètres et de supervision sont aussi documentés; les variantes qui dégradent la validation sont rejetées plutôt que présentées comme des améliorations. Le gain de qualité QA, les données/critères métier autorisés et la cible matérielle de déploiement restent ouverts : aucune baseline locale ne permet de les inventer ni de les certifier.
 
 ## 2. Définir les objectifs et le protocole de mesure
 

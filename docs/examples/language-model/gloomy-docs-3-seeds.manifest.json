@@ -1,13 +1,13 @@
 {
-  "format": "gloomy-language-benchmark-v3",
+  "format": "gloomy-language-benchmark-v5",
   "corpus_source": "First-party Gloomy repository documentation",
   "corpus_authorization": "Local training use requested by the project user; no redistribution license asserted",
   "corpus": {
     "train": {
       "path": "data/lm/gloomy-docs/train.txt",
       "documents": 9,
-      "bytes": 55059,
-      "sha256": "8ec1a228da068477b84f7f201a5cc5e5b8775418cdcff06982bc45bd776aeaa0"
+      "bytes": 55188,
+      "sha256": "0f402a96e320bb57f42f60f6fbb3bc96a4b1c5098ba8ee156727a9a4c13d9bd3"
     },
     "validation": {
       "path": "data/lm/gloomy-docs/validation.txt",
@@ -47,6 +47,7 @@
     "normalization": "NFC (Unicode 16.0.0); whitespace collapsed per source file",
     "split_strategy": "fixed source-file-level split; no source file crosses splits",
     "qa_train_oversampling_factor": 8,
+    "qa_tokenizer_repeat_cap": 8,
     "tasks": [
       {
         "name": "next-token prediction",
@@ -65,7 +66,8 @@
           "oui"
         ],
         "metrics": [
-          "accuracy",
+          "free_generation_accuracy",
+          "closed_set_accuracy",
           "token_f1",
           "generation_latency",
           "generation_tokens_per_second"
@@ -77,8 +79,8 @@
       "train": [
         {
           "path": "README.md",
-          "bytes": 3864,
-          "sha256": "95a8b17c40ac48630ab43c44344bae9ba36b78cf3bbfd5e3f5b93252fecb714e"
+          "bytes": 3993,
+          "sha256": "da1257267a0f40c23cb0e7f15beb45e52568d6c6ca4be30380a6e87cbca11f43"
         },
         {
           "path": "docs/architecture.md",
@@ -149,8 +151,8 @@
     "splits": {
       "train": {
         "documents": 9,
-        "bytes": 55059,
-        "sha256": "8ec1a228da068477b84f7f201a5cc5e5b8775418cdcff06982bc45bd776aeaa0"
+        "bytes": 55188,
+        "sha256": "0f402a96e320bb57f42f60f6fbb3bc96a4b1c5098ba8ee156727a9a4c13d9bd3"
       },
       "validation": {
         "documents": 2,
@@ -203,9 +205,12 @@
     "logical_cpus": 8,
     "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
     "binary": "/home/gloomshade/Documents/Projects/deep-learning/bin/gloomy",
-    "binary_sha256": "d8e6f9a3eb5a469ab8b86cf51220ba5997c434197df62b87352053370f8de4d2",
+    "binary_sha256": "baf7a30fb273d6968054c468663f7bf92d9ab59b1ef5a2fc6c4ba067a6cbf33e",
     "timer": "Python standard-library perf_counter",
     "rss_measurement": "Linux /proc/<pid>/status VmHWM sampled at 1 ms; may miss short peaks",
     "rss_unit": "KiB"
+  },
+  "quality_metrics": {
+    "test_bits_per_byte": "test cross-entropy sum in nats, including end-of-document targets, divided by ln(2) and normalized UTF-8 test-text bytes excluding line separators"
   }
 }

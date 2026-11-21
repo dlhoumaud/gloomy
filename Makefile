@@ -13,6 +13,7 @@ CXX = g++
 
 # Options de compilation
 CXXFLAGS = -Wall -O2 -std=c++17 -I./src/headers
+LDFLAGS = -static
 
 # Liste des fichiers source
 SRC = src/main.cpp src/Runtime.cpp src/LanguageRuntime.cpp src/TransformerLM.cpp src/TextTokenizer.cpp src/GloomyModelSerialization.cpp src/LearningMemorySerialization.cpp src/OptimizerSerialization.cpp src/LossFunction.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/Normalization.cpp src/NormalizationSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp src/TrainingSampleSerialization.cpp src/NetworkSerialization.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp
@@ -85,17 +86,17 @@ benchmark-language-model-docs: $(TARGET)
 		--heads 2 --layers 1 --batch-size 2 --epochs 3 --learning-rate 0.003
 
 # Règle pour construire l'exécutable
-$(TARGET): $(OBJ)
+$(TARGET): $(OBJ) Makefile
 	@mkdir -p $(TARGET_DIR)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJ)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $(TARGET) $(OBJ)
 
-$(BENCHMARK_TARGET): $(BENCHMARK_SRC)
+$(BENCHMARK_TARGET): $(BENCHMARK_SRC) Makefile
 	@mkdir -p $(TARGET_DIR)
-	$(CXX) $(CXXFLAGS) -o $(BENCHMARK_TARGET) $(BENCHMARK_SRC)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $(BENCHMARK_TARGET) $(BENCHMARK_SRC)
 
-$(TEST_TARGET): $(TEST_SRC)
+$(TEST_TARGET): $(TEST_SRC) Makefile
 	@mkdir -p $(TARGET_DIR)
-	$(CXX) $(CXXFLAGS) -o $(TEST_TARGET) $(TEST_SRC)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $(TEST_TARGET) $(TEST_SRC)
 
 # Règle pour compiler les fichiers .cpp en fichiers .o
 $(OBJ_DIR)/%.o: src/%.cpp

@@ -117,6 +117,7 @@ QA_VALIDATION = [
     ),
 ]
 QA_TRAIN_REPEATS = 8
+QA_TOKENIZER_REPEAT_CAP = 8
 QA_LABELS = {"oui", "non"}
 
 
@@ -243,6 +244,7 @@ def prepare(output_dir: Path) -> dict[str, object]:
         "normalization": f"NFC (Unicode {unicodedata.unidata_version}); whitespace collapsed per source file",
         "split_strategy": "fixed source-file-level split; no source file crosses splits",
         "qa_train_oversampling_factor": QA_TRAIN_REPEATS,
+        "qa_tokenizer_repeat_cap": QA_TOKENIZER_REPEAT_CAP,
         "tasks": [
             {
                 "name": "next-token prediction",
@@ -254,7 +256,13 @@ def prepare(output_dir: Path) -> dict[str, object]:
                 "split": "qa_train/qa_validation/qa_test",
                 "input": "question plus source-document context",
                 "labels": sorted(QA_LABELS),
-                "metrics": ["accuracy", "token_f1", "generation_latency", "generation_tokens_per_second"],
+                "metrics": [
+                    "free_generation_accuracy",
+                    "closed_set_accuracy",
+                    "token_f1",
+                    "generation_latency",
+                    "generation_tokens_per_second",
+                ],
                 "selection": "validation perplexity and QA accuracy; test is held out",
             },
         ],

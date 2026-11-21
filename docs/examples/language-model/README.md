@@ -10,12 +10,12 @@ Le dépôt ne contient pas de fichier `LICENSE`. L'utilisation locale des docume
 
 Les tâches sont :
 
-- prédiction du prochain token, mesurée par cross-entropy et perplexité ;
-- QA factuelle fermée conditionnée par un extrait source fourni dans le prompt, sous forme de verdict `oui`/`non` mesuré sur validation et test par exact match (accuracy) et F1 de tokens.
+- prédiction du prochain token, mesurée par cross-entropy, perplexité et bits par octet UTF-8 pour comparer les tokenizers ;
+- QA factuelle fermée conditionnée par un extrait source fourni dans le prompt, sous forme de verdict `oui`/`non`; le benchmark rapporte à la fois l'exact match de génération libre et une accuracy fermée qui compare la log-vraisemblance des labels candidats, ainsi que F1 de tokens.
 
 La cible de référence disponible est le Ryzen 3 5300U sous Linux x86_64. C'est une baseline locale, pas une cible embarquée déclarée.
 
-Le prototype ne récupère pas lui-même les passages pertinents : le contexte est déjà inclus dans le prompt de l'exemple QA. Les réponses train sont suréchantillonnées 8 fois (facteur consigné dans le manifeste) pour que le petit modèle voie assez de supervision; la sélection des hyperparamètres peut s'appuyer sur la perplexité et la QA de validation, jamais sur le test. La campagne mesure donc l'évaluation d'affirmations et la génération conditionnée, pas la recherche documentaire de bout en bout.
+Le prototype ne récupère pas lui-même les passages pertinents : le contexte est déjà inclus dans le prompt de l'exemple QA. Les séquences d'entraînement QA sont répétées 8 fois; le tokenizer BPE est plafonné au même facteur afin que des répétitions de gradient n'altèrent pas le vocabulaire. Les hyperparamètres peuvent être sélectionnés sur la perplexité et la QA de validation, jamais sur le test. La campagne mesure donc l'évaluation d'affirmations et la génération conditionnée, pas la recherche documentaire de bout en bout.
 
 Pour préparer, entraîner puis mesurer le modèle :
 
@@ -26,7 +26,7 @@ make benchmark-language-model-docs
 
 Le benchmark publie les résultats bruts trois seeds et leur manifeste dans [`gloomy-docs-3-seeds.csv`](gloomy-docs-3-seeds.csv) et [`gloomy-docs-3-seeds.manifest.json`](gloomy-docs-3-seeds.manifest.json). Les références de validation servent à contrôler la progression; le split test reste séparé. Le test coûteux de reprise bit-à-bit après une epoch sur tout le corpus documentaire est lancé séparément par `make test-language-model-docs-resume`; `make test` conserve des tests d'intégration rapides.
 
-Résultat de référence sur Ryzen 3 5300U (Linux x86_64, g++ 15.2.0) : vocabulaire 512, contexte 32, dimension 8, 1 couche, 2 têtes, batch 2, 3 epochs, taux d'apprentissage 0,003, seeds 42/43/44. Les 9/2/2 documents des splits train/validation/test font respectivement 55 059/4 311/4 636 octets; les SHA-256 sont dans le manifeste. La perplexité test est de 70,69 à 77,56 (moyenne 74,55). La QA validation obtient 3/6 pour chaque seed; sur test, les scores sont 3/6, 0/6 et 3/6, soit 33,3 % en moyenne contre 50 % pour la baseline majoritaire. Le prototype ne passe donc pas cette baseline et ne démontre pas de compréhension QA. L'entraînement prend 155,9–159,0 s par seed, le pic RSS mesuré 77 112–77 384 KiB, et les checkpoints 251 575–251 600 octets. La génération QA varie de 47,5 à 757,7 ms par exemple (20,0–42,2 tokens/s), en partie selon la longueur générée. Ces résultats sont une baseline étroite et reproductible, pas un seuil de qualité atteint.
+Résultat de référence sur Ryzen 3 5300U (Linux x86_64, g++ 15.2.0) : vocabulaire 512, contexte 32, dimension 8, 1 couche, 2 têtes, batch 2, 3 epochs, taux d'apprentissage 0,003, seeds 42/43/44. Les 9/2/2 documents des splits train/validation/test font respectivement 55 188/4 311/4 636 octets; les SHA-256 sont dans le manifeste. La perplexité test est de 72,89 à 77,01 (moyenne 74,72), soit 3,235–3,277 bits par octet UTF-8 (moyenne 3,254). La QA validation générative obtient 3/6, 2/6 et 2/6 (38,9 % en moyenne). Sur test, la génération libre obtient 3/6, 0/6 et 3/6 (33,3 % en moyenne); le choix fermé obtient 3/6 pour chaque seed (50 %), égal à la baseline majoritaire. Le modèle ne démontre donc pas une compréhension QA utile. Un essai à 32 répétitions QA a été rejeté sur validation : l'exact match génératif moyen tombe à 27,8 % sans gain QA test moyen; son petit gain bits/octet ne compense pas la baisse de validation QA. L'entraînement retenu prend 154,0–154,4 s par seed, le pic RSS mesuré est 75 632–75 636 KiB et les checkpoints font 251 575–251 600 octets. La génération libre prend 61,4–785,5 ms par exemple (27,1–40,7 tokens/s); évaluer les deux labels fermés prend 0,691–0,738 s pour six exemples. Ces mesures forment une baseline étroite et reproductible, pas un seuil de qualité atteint.
 
 Le corpus fictif décrit ci-dessous est conservé comme fixture minuscule pour les tests d'intégration rapides, pas comme corpus de validation applicative.
 
@@ -37,7 +37,7 @@ Le corpus fictif décrit ci-dessous est conservé comme fixture minuscule pour l
 - `test.txt` : textes non vus pour l'évaluation finale de perplexité.
 - `qa-train.txt` : paires d'instruction/réponse pour apprentissage supervisé; le masque exclut le prompt de la perte et n'apprend que la réponse.
 - `qa-validation.txt` : affirmations et réponses de référence basées exclusivement sur les documents de validation.
-- `qa-test.txt` : questions/réponses non vues, équilibrées `oui`/`non`, basées exclusivement sur les documents de test et évaluées par exact match glouton.
+- `qa-test.txt` : questions/réponses non vues, équilibrées `oui`/`non`, basées exclusivement sur les documents de test; l'exact match glouton et la sélection fermée par log-vraisemblance sont mesurés séparément.
 
 Ces phrases et exemples sont originaux, écrits pour le test logiciel du dépôt; aucune source tierce n'est utilisée. C'est un mini-corpus fictif autorisé pour valider la chaîne, pas un corpus applicatif représentatif. Les lignes sont des documents indépendants. Train, validation et test sont fixés et disjoints; les réponses QA de test sont justifiées uniquement par des documents du split test. Le manifeste d'exécution consigne la provenance déclarée, l'autorisation, les SHA-256, tailles, paramètres, seeds et la cible locale.
 
@@ -102,7 +102,7 @@ python3 scripts/benchmark_language_model.py \
   --heads 2 --layers 1 --batch-size 2 --epochs 1 --learning-rate 0.003
 ```
 
-Le résultat brut de cette commande est conservé dans [`results-3-seeds.csv`](results-3-seeds.csv); le JSON homonyme `.manifest.json` conserve les empreintes des données et le profil logiciel/matériel. Le CSV rapporte aussi la QA validation et test, leur baseline majoritaire d'entraînement, le temps/RSS d'entraînement et d'évaluation, les tokens/s d'évaluation, la latence QA moyenne et tokens/s de génération, les dimensions/taille/empreintes des splits et la taille du checkpoint. La cible est la machine CPU locale décrite par le manifeste, pas une cible embarquée. Le runner ne calcule aucun score composite.
+Le résultat brut de cette commande est conservé dans [`results-3-seeds.csv`](results-3-seeds.csv); le JSON homonyme `.manifest.json` conserve les empreintes des données et le profil logiciel/matériel. Le CSV rapporte aussi la QA validation et test (génération libre et choix fermé par score des labels), leur baseline majoritaire d'entraînement, le temps/RSS d'entraînement et d'évaluation, les tokens/s d'évaluation, la latence QA moyenne et tokens/s de génération, les dimensions/taille/empreintes des splits et la taille du checkpoint. La cross-entropy par token n'est pas directement comparable si le tokenizer change; `test_bits_per_byte` divise la somme des pertes (y compris les tokens EOS) par les octets UTF-8 du texte test normalisé, hors séparateurs de lignes. La cible est la machine CPU locale décrite par le manifeste, pas une cible embarquée. Le runner ne calcule aucun score composite.
 
 Un contrôle séparé de 50 epochs mémorise exactement 2 réponses sur les 3 prompts QA vus et atteint une cross-entropy train de 1,65. Sur les questions tenues à l'écart, il reste à 0/2 et la perplexité test est de 144,23. Les mesures brutes sont dans [`qa-overfit-diagnostic.csv`](qa-overfit-diagnostic.csv). Ce contrôle montre l'écart entre mémoriser quelques exemples et généraliser; il ne constitue pas un benchmark de qualité.
 

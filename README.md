@@ -14,7 +14,7 @@ Gloomy est un moteur expérimental C++17 avec un runtime Dense numérique et un 
 
 ## Prérequis et compilation
 
-Le projet utilise un compilateur C++17 (g++) et Make, sans dépendance C++ externe. Sur Debian/Ubuntu, installer les outils avec `sudo apt install g++ make`.
+Le projet utilise un compilateur C++17 (g++) et Make, sans dépendance C++ externe. Tous les exécutables sont liés statiquement (`-static`) afin de ne pas dépendre de bibliothèques dynamiques à l'exécution. Sur Debian/Ubuntu, installer les outils avec `sudo apt install g++ make`.
 
 ```bash
 git clone https://github.com/dlhoumaud/gloomy.git

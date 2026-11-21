@@ -118,6 +118,7 @@ def main() -> None:
         assert len(corpus_manifest["sources"]["validation"]) == 2
         assert len(corpus_manifest["sources"]["test"]) == 2
         assert corpus_manifest["qa"]["qa_train"]["documents"] == 64
+        assert corpus_manifest["qa_tokenizer_repeat_cap"] == 8
         assert corpus_manifest["qa"]["qa_validation"]["documents"] == 6
         assert corpus_manifest["qa"]["qa_test"]["documents"] == 6
         test_answers = [answer for _, answer in qa_pairs(docs_qa_test)]
@@ -148,12 +149,32 @@ def main() -> None:
             "lm", "evaluate", "--model", str(resumed),
             "--text", str(EXAMPLE / "test.txt"),
             "--qa", str(qa_test_path),
+            "--qa-label", "À l'aube.",
+            "--qa-label", "Dans une boîte bleue.",
         )
         assert "perplexity=" in evaluation.stdout
         assert "qa_exact_match=" in evaluation.stdout
         assert "qa_token_f1=" in evaluation.stdout
         assert "qa_generation_ms_per_example=" in evaluation.stdout
         assert "qa_generation_tokens_per_second=" in evaluation.stdout
+        assert "qa_closed_set_accuracy=" in evaluation.stdout
+        assert "qa_closed_set_total=2" in evaluation.stdout
+        invalid_closed_set = run(
+            "lm", "evaluate", "--model", str(resumed),
+            "--qa", str(qa_test_path),
+            "--qa-label", "À l'aube.",
+            "--qa-label", "À L'AUBE.",
+            expected=1,
+        )
+        assert "unique" in invalid_closed_set.stderr
+        missing_closed_label = run(
+            "lm", "evaluate", "--model", str(resumed),
+            "--qa", str(qa_test_path),
+            "--qa-label", "À l'aube.",
+            "--qa-label", "Un autre lieu.",
+            expected=1,
+        )
+        assert "not included" in missing_closed_label.stderr
 
         generation_args = (
             "lm", "generate", "--model", str(resumed),
@@ -187,15 +208,21 @@ def main() -> None:
                 "lm", "evaluate", "--model", str(docs_resumed),
                 "--text", str(corpus_dir / "test.txt"),
                 "--qa", str(docs_qa_test),
+                "--qa-label", "oui",
+                "--qa-label", "non",
             )
             assert "perplexity=" in docs_evaluation.stdout
             assert "qa_exact_match=" in docs_evaluation.stdout
             assert "qa_token_f1=" in docs_evaluation.stdout
+            assert "qa_closed_set_total=6" in docs_evaluation.stdout
             docs_validation_qa = run(
                 "lm", "evaluate", "--model", str(docs_resumed),
                 "--qa", str(docs_qa_validation),
+                "--qa-label", "oui",
+                "--qa-label", "non",
             )
             assert "qa_exact_match=" in docs_validation_qa.stdout
+            assert "qa_closed_set_total=6" in docs_validation_qa.stdout
 
     print("Language-model CLI tests passed.")
 

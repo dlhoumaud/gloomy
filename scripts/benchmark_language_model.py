@@ -6,6 +6,7 @@ import csv
 from collections import Counter
 import hashlib
 import json
+import math
 import platform
 import re
 import subprocess
@@ -194,12 +195,15 @@ def main() -> None:
         parser.error("seeds must be a non-empty comma-separated list without duplicates")
     if not args.corpus_source.strip() or not args.corpus_authorization.strip():
         parser.error("corpus source and authorization metadata must be non-empty")
+    if args.qa_allowed_label and len(set(args.qa_allowed_label)) < 2:
+        parser.error("closed-set QA evaluation requires at least two distinct --qa-allowed-label values")
     if not args.binary.is_file():
         parser.error(f"model executable not found: {args.binary}")
 
     train_records = records(args.train)
     validation_records = records(args.validation)
     test_records = records(args.test)
+    test_utf8_bytes = sum(len(record.encode("utf-8")) for record in test_records)
     try:
         qa_train, qa_validation, qa_test = validate_splits(
             train_records, validation_records, test_records, args.qa_train, args.qa,
@@ -248,7 +252,7 @@ def main() -> None:
             if metadata.get("sha256") != corpus[name]["sha256"]:
                 parser.error(f"source manifest SHA-256 mismatch for {name}")
     manifest = {
-        "format": "gloomy-language-benchmark-v3",
+        "format": "gloomy-language-benchmark-v5",
         "corpus_source": args.corpus_source,
         "corpus_authorization": args.corpus_authorization,
         "corpus": corpus,
@@ -276,16 +280,26 @@ def main() -> None:
             "rss_measurement": "Linux /proc/<pid>/status VmHWM sampled at 1 ms; may miss short peaks",
             "rss_unit": "KiB",
         },
+        "quality_metrics": {
+            "test_bits_per_byte": (
+                "test cross-entropy sum in nats, including end-of-document targets, "
+                "divided by ln(2) and normalized UTF-8 test-text bytes excluding line separators"
+            ),
+        },
     }
     columns = [
         "seed", "updates", "parameters", "train_cross_entropy",
         "validation_cross_entropy", "validation_perplexity", "test_cross_entropy",
-        "test_perplexity", "test_tokens", "test_eval_wall_seconds",
+        "test_perplexity", "test_tokens", "test_utf8_bytes",
+        "test_bits_per_byte", "test_eval_wall_seconds",
         "test_eval_max_rss_kib", "test_tokens_per_second", "qa_exact_match",
         "qa_token_f1", "qa_correct", "qa_total", "qa_generated_tokens",
         "qa_majority_baseline",
         "qa_validation_exact_match", "qa_validation_correct",
-        "qa_validation_total",
+        "qa_validation_total", "qa_closed_set_accuracy",
+        "qa_closed_set_correct", "qa_closed_set_total",
+        "qa_closed_set_seconds", "qa_validation_closed_set_accuracy",
+        "qa_validation_closed_set_correct", "qa_validation_closed_set_total",
         "qa_generation_seconds", "qa_generation_ms_per_example",
         "qa_generation_tokens_per_second",
         "train_wall_seconds", "train_max_rss_kib", "checkpoint_bytes",
@@ -326,6 +340,11 @@ def main() -> None:
                 [
                     str(args.binary.resolve()), "lm", "evaluate", "--model", str(model),
                     "--qa", str(args.qa),
+                    *[
+                        option
+                        for label in args.qa_allowed_label
+                        for option in ("--qa-label", label)
+                    ],
                 ]
             )
             qa = metrics(next(line for line in qa_output.splitlines() if line.startswith("qa_exact_match=")))
@@ -335,6 +354,11 @@ def main() -> None:
                     [
                         str(args.binary.resolve()), "lm", "evaluate", "--model", str(model),
                         "--qa", str(args.qa_validation),
+                        *[
+                            option
+                            for label in args.qa_allowed_label
+                            for option in ("--qa-label", label)
+                        ],
                     ]
                 )
                 qa_validation = metrics(
@@ -353,6 +377,11 @@ def main() -> None:
                 "test_cross_entropy": test["cross_entropy"],
                 "test_perplexity": test["perplexity"],
                 "test_tokens": test["tokens"],
+                "test_utf8_bytes": test_utf8_bytes,
+                "test_bits_per_byte": (
+                    float(test["cross_entropy"]) * float(test["tokens"])
+                    / (math.log(2) * test_utf8_bytes)
+                ),
                 "test_eval_wall_seconds": eval_seconds,
                 "test_eval_max_rss_kib": eval_rss,
                 "test_tokens_per_second": float(test["tokens"]) / eval_seconds if eval_seconds else 0,
@@ -367,6 +396,13 @@ def main() -> None:
                 "qa_validation_exact_match": qa_validation.get("qa_exact_match", ""),
                 "qa_validation_correct": qa_validation.get("correct", ""),
                 "qa_validation_total": qa_validation.get("total", ""),
+                "qa_closed_set_accuracy": qa.get("qa_closed_set_accuracy", ""),
+                "qa_closed_set_correct": qa.get("qa_closed_set_correct", ""),
+                "qa_closed_set_total": qa.get("qa_closed_set_total", ""),
+                "qa_closed_set_seconds": qa.get("qa_closed_set_seconds", ""),
+                "qa_validation_closed_set_accuracy": qa_validation.get("qa_closed_set_accuracy", ""),
+                "qa_validation_closed_set_correct": qa_validation.get("qa_closed_set_correct", ""),
+                "qa_validation_closed_set_total": qa_validation.get("qa_closed_set_total", ""),
                 "qa_generated_tokens": qa["generated_tokens"],
                 "qa_generation_seconds": qa["qa_generation_seconds"],
                 "qa_generation_ms_per_example": qa["qa_generation_ms_per_example"],
@@ -387,7 +423,7 @@ def main() -> None:
                 "compiler": compiler,
             })
     with args.output.open("w", encoding="utf-8", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=columns)
+        writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     manifest_path = args.output.with_suffix(".manifest.json")
