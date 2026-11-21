@@ -3,6 +3,7 @@
 
 import argparse
 import csv
+from collections import Counter
 import hashlib
 import json
 import platform
@@ -47,7 +48,9 @@ def validate_splits(
     test: list[str],
     qa_train_path: Path | None,
     qa_test_path: Path,
-) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    allowed_qa_labels: set[str] | None = None,
+    qa_validation_path: Path | None = None,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[tuple[str, str]]]:
     splits = [set(map(normalized_words, part)) for part in (train, validation, test)]
     if any(not part for part in (train, validation, test)):
         raise ValueError("train, validation, and test must each contain documents")
@@ -55,23 +58,54 @@ def validate_splits(
         raise ValueError("train, validation, and test documents must be disjoint")
 
     qa_train = qa_pairs(qa_train_path) if qa_train_path else []
+    qa_validation = qa_pairs(qa_validation_path) if qa_validation_path else []
     qa_test = qa_pairs(qa_test_path)
     if not qa_test:
         raise ValueError("QA test set must contain at least one pair")
     train_prompts = {normalized_words(prompt) for prompt, _ in qa_train}
+    validation_prompts = {normalized_words(prompt) for prompt, _ in qa_validation}
     test_prompts = {normalized_words(prompt) for prompt, _ in qa_test}
-    if train_prompts & test_prompts:
-        raise ValueError("QA train and test prompts must be disjoint")
+    if train_prompts & validation_prompts or train_prompts & test_prompts or validation_prompts & test_prompts:
+        raise ValueError("QA train, validation, and test prompts must be disjoint")
 
     train_and_validation = " ".join(normalized_words(doc) for part in (train, validation) for doc in part)
+    train_text = " ".join(normalized_words(doc) for doc in train)
+    validation_text = " ".join(normalized_words(doc) for doc in validation)
     test_text = " ".join(normalized_words(doc) for doc in test)
+    allowed_labels = {normalized_words(label) for label in (allowed_qa_labels or set())}
+    for prompt, answer in qa_validation:
+        normalized_answer = normalized_words(answer)
+        if "Contexte: " in prompt:
+            context = normalized_words(prompt.split("Contexte: ", 1)[1].split(" Réponse:", 1)[0])
+            if not context or context not in validation_text:
+                raise ValueError(f"QA validation context is not supported by a validation document: {prompt}")
+            if context in train_text or context in test_text:
+                raise ValueError(f"QA validation context leaks from train/test documents: {prompt}")
+        if normalized_answer in allowed_labels:
+            if "Contexte: " not in prompt:
+                raise ValueError(f"Closed QA labels require a source context: {prompt}")
+            continue
+        if normalized_answer not in validation_text:
+            raise ValueError(f"QA validation answer is not supported by a validation document: {prompt}")
+        if normalized_answer in train_text or normalized_answer in test_text:
+            raise ValueError(f"QA validation answer leaks from train/test documents: {prompt}")
     for prompt, answer in qa_test:
         normalized_answer = normalized_words(answer)
+        if "Contexte: " in prompt:
+            context = normalized_words(prompt.split("Contexte: ", 1)[1].split(" Réponse:", 1)[0])
+            if not context or context not in test_text:
+                raise ValueError(f"QA test context is not supported by a test document: {prompt}")
+            if context in train_and_validation:
+                raise ValueError(f"QA test context leaks from train/validation documents: {prompt}")
+        if normalized_answer in allowed_labels:
+            if "Contexte: " not in prompt:
+                raise ValueError(f"Closed QA labels require a source context: {prompt}")
+            continue
         if normalized_answer not in test_text:
             raise ValueError(f"QA test answer is not supported by a test document: {prompt}")
         if normalized_answer in train_and_validation:
             raise ValueError(f"QA test answer leaks from train/validation documents: {prompt}")
-    return qa_train, qa_test
+    return qa_train, qa_validation, qa_test
 
 
 def sha256(path: Path) -> str:
@@ -132,10 +166,18 @@ def main() -> None:
     parser.add_argument("--train", required=True, type=Path)
     parser.add_argument("--validation", required=True, type=Path)
     parser.add_argument("--qa-train", type=Path)
+    parser.add_argument("--qa-validation", type=Path)
     parser.add_argument("--test", required=True, type=Path)
     parser.add_argument("--qa", required=True, type=Path)
+    parser.add_argument(
+        "--qa-allowed-label",
+        action="append",
+        default=[],
+        help="Closed QA reference label that need not occur verbatim in source documents",
+    )
     parser.add_argument("--corpus-source", required=True, help="Corpus source or original fixture identifier")
     parser.add_argument("--corpus-authorization", required=True, help="License or authorization basis")
+    parser.add_argument("--source-manifest", type=Path, help="Optional manifest linking splits to source documents")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--seeds", default="42,43,44")
     parser.add_argument("--vocab", type=int, default=320)
@@ -159,8 +201,10 @@ def main() -> None:
     validation_records = records(args.validation)
     test_records = records(args.test)
     try:
-        qa_train, qa_test = validate_splits(
-            train_records, validation_records, test_records, args.qa_train, args.qa
+        qa_train, qa_validation, qa_test = validate_splits(
+            train_records, validation_records, test_records, args.qa_train, args.qa,
+            set(args.qa_allowed_label),
+            args.qa_validation,
         )
     except ValueError as error:
         parser.error(str(error))
@@ -176,6 +220,8 @@ def main() -> None:
     }
     if args.qa_train:
         paths["qa_train"] = args.qa_train
+    if args.qa_validation:
+        paths["qa_validation"] = args.qa_validation
     corpus = {
         name: {
             "path": str(path),
@@ -185,11 +231,28 @@ def main() -> None:
         }
         for name, path in paths.items()
     }
+    source_manifest = None
+    if args.source_manifest:
+        source_manifest = json.loads(args.source_manifest.read_text(encoding="utf-8"))
+        declared_splits = source_manifest.get("splits", {})
+        for name in ("train", "validation", "test"):
+            metadata = declared_splits.get(name, {})
+            if metadata.get("sha256") != corpus[name]["sha256"]:
+                parser.error(f"source manifest SHA-256 mismatch for {name} split")
+        qa_metadata = source_manifest.get("qa", {})
+        for name in ("qa_train", "qa_validation", "qa_test"):
+            path = paths.get(name)
+            if path is None:
+                continue
+            metadata = qa_metadata.get(name, {})
+            if metadata.get("sha256") != corpus[name]["sha256"]:
+                parser.error(f"source manifest SHA-256 mismatch for {name}")
     manifest = {
-        "format": "gloomy-language-benchmark-v2",
+        "format": "gloomy-language-benchmark-v3",
         "corpus_source": args.corpus_source,
         "corpus_authorization": args.corpus_authorization,
         "corpus": corpus,
+        "corpus_provenance": source_manifest,
         "seeds": seeds,
         "model": {
             "vocab": args.vocab,
@@ -220,6 +283,9 @@ def main() -> None:
         "test_perplexity", "test_tokens", "test_eval_wall_seconds",
         "test_eval_max_rss_kib", "test_tokens_per_second", "qa_exact_match",
         "qa_token_f1", "qa_correct", "qa_total", "qa_generated_tokens",
+        "qa_majority_baseline",
+        "qa_validation_exact_match", "qa_validation_correct",
+        "qa_validation_total",
         "qa_generation_seconds", "qa_generation_ms_per_example",
         "qa_generation_tokens_per_second",
         "train_wall_seconds", "train_max_rss_kib", "checkpoint_bytes",
@@ -263,6 +329,20 @@ def main() -> None:
                 ]
             )
             qa = metrics(next(line for line in qa_output.splitlines() if line.startswith("qa_exact_match=")))
+            qa_validation = {}
+            if args.qa_validation:
+                qa_validation_output, _, _ = timed(
+                    [
+                        str(args.binary.resolve()), "lm", "evaluate", "--model", str(model),
+                        "--qa", str(args.qa_validation),
+                    ]
+                )
+                qa_validation = metrics(
+                    next(line for line in qa_validation_output.splitlines() if line.startswith("qa_exact_match="))
+                )
+            qa_answer_counts = Counter(
+                normalized_words(answer) for _, answer in qa_train
+            )
             rows.append({
                 "seed": seed,
                 "updates": train["updates"],
@@ -280,6 +360,13 @@ def main() -> None:
                 "qa_token_f1": qa["qa_token_f1"],
                 "qa_correct": qa["correct"],
                 "qa_total": qa["total"],
+                "qa_majority_baseline": (
+                    max(qa_answer_counts.values()) / len(qa_train)
+                    if qa_train else 0
+                ),
+                "qa_validation_exact_match": qa_validation.get("qa_exact_match", ""),
+                "qa_validation_correct": qa_validation.get("correct", ""),
+                "qa_validation_total": qa_validation.get("total", ""),
                 "qa_generated_tokens": qa["generated_tokens"],
                 "qa_generation_seconds": qa["qa_generation_seconds"],
                 "qa_generation_ms_per_example": qa["qa_generation_ms_per_example"],

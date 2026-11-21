@@ -6,11 +6,11 @@ La priorité absolue du projet est de développer puis valider un modèle de lan
 
 ## 1. Développer un véritable modèle de langage
 
-- définir des corpus applicatifs autorisés à partir du domaine cible, puis remplacer le mini-corpus original de test logiciel, qui n'est pas représentatif d'une application ;
-- compléter les tâches contrôlées de prédiction du prochain token et QA factuelle par des tâches de compréhension/génération définies avec leurs références et critères ;
-- valider le Transformer causal sur ces données représentatives et améliorer sa robustesse/performance sans dégrader les mesures tenues à l'écart ;
-- mesurer perplexité, stabilité et tâches linguistiques sur les splits documentaires autorisés; vérifier la reprise bit-à-bit aux frontières d'epoch sur des corpus représentatifs ;
-- publier les données, tailles, empreintes, seeds, configuration, qualité, latence, débit et mémoire; reproduire ces mesures sur la cible matérielle applicative lorsqu'elle sera définie.
+- étendre le premier cas d'usage d'assistant de documentation Gloomy à un corpus applicatif métier autorisé et plus représentatif; le corpus actuel ne contient que les documents du dépôt ;
+- compléter le prochain-token et le QA factuel avec des tâches de compréhension/génération métier, des références et des seuils établis avec les utilisateurs ;
+- améliorer capacité, robustesse et coût du Transformer causal en choisissant les changements sur validation, puis vérifier qu'ils ne dégradent pas le test tenu à l'écart ;
+- élargir les contrôles de stabilité et de reprise bit-à-bit aux nouvelles configurations et aux corpus métier;
+- reproduire les métriques publiées sur la cible matérielle de déploiement lorsqu'elle aura été définie; la mesure actuelle est une baseline CPU locale.
 
 ## 2. Définir les objectifs et le protocole de mesure
 

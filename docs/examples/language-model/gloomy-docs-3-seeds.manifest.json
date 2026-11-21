@@ -1,0 +1,211 @@
+{
+  "format": "gloomy-language-benchmark-v3",
+  "corpus_source": "First-party Gloomy repository documentation",
+  "corpus_authorization": "Local training use requested by the project user; no redistribution license asserted",
+  "corpus": {
+    "train": {
+      "path": "data/lm/gloomy-docs/train.txt",
+      "documents": 9,
+      "bytes": 55059,
+      "sha256": "8ec1a228da068477b84f7f201a5cc5e5b8775418cdcff06982bc45bd776aeaa0"
+    },
+    "validation": {
+      "path": "data/lm/gloomy-docs/validation.txt",
+      "documents": 2,
+      "bytes": 4311,
+      "sha256": "7c87b98e1dc42dd32282802085b07253445e0f6db8d927909682d5d1b330bc29"
+    },
+    "test": {
+      "path": "data/lm/gloomy-docs/test.txt",
+      "documents": 2,
+      "bytes": 4636,
+      "sha256": "7c71653e90bd343b5c48b7b7a93949c0c246ce37d399d870957988ae9475e51c"
+    },
+    "qa_test": {
+      "path": "data/lm/gloomy-docs/qa-test.txt",
+      "documents": 6,
+      "bytes": 994,
+      "sha256": "753c1d973431c03365e9347375c06f15b584040e70dcd30c708b625afaba2497"
+    },
+    "qa_train": {
+      "path": "data/lm/gloomy-docs/qa-train.txt",
+      "documents": 64,
+      "bytes": 10320,
+      "sha256": "bd4b72428adf905b015fd350c2b1f51af84ae7033de8e06af9183b451201e603"
+    },
+    "qa_validation": {
+      "path": "data/lm/gloomy-docs/qa-validation.txt",
+      "documents": 6,
+      "bytes": 911,
+      "sha256": "6373b4052a50dd1cf179c0b8b5604d5f35554cb771ff93ca52a327a8e3927514"
+    }
+  },
+  "corpus_provenance": {
+    "format": "gloomy-project-documentation-corpus-v1",
+    "purpose": "French technical-documentation QA for the Gloomy project",
+    "authorization": "Local use of repository documentation was requested by the project user; the repository contains no separate LICENSE file, and this manifest does not assert a redistribution license.",
+    "normalization": "NFC (Unicode 16.0.0); whitespace collapsed per source file",
+    "split_strategy": "fixed source-file-level split; no source file crosses splits",
+    "qa_train_oversampling_factor": 8,
+    "tasks": [
+      {
+        "name": "next-token prediction",
+        "split": "test",
+        "metrics": [
+          "cross_entropy",
+          "perplexity"
+        ]
+      },
+      {
+        "name": "document-grounded answer generation",
+        "split": "qa_train/qa_validation/qa_test",
+        "input": "question plus source-document context",
+        "labels": [
+          "non",
+          "oui"
+        ],
+        "metrics": [
+          "accuracy",
+          "token_f1",
+          "generation_latency",
+          "generation_tokens_per_second"
+        ],
+        "selection": "validation perplexity and QA accuracy; test is held out"
+      }
+    ],
+    "sources": {
+      "train": [
+        {
+          "path": "README.md",
+          "bytes": 3864,
+          "sha256": "95a8b17c40ac48630ab43c44344bae9ba36b78cf3bbfd5e3f5b93252fecb714e"
+        },
+        {
+          "path": "docs/architecture.md",
+          "bytes": 6495,
+          "sha256": "3396c5de4431bcf4d62836ec571382abc87dc5743b07c2abd4dd682f7df6b2b6"
+        },
+        {
+          "path": "docs/benchmark.md",
+          "bytes": 11236,
+          "sha256": "6ecc33dd71b34714b46d1eac3b4ca6773a2e5bf59ccf279b3732a21399432a37"
+        },
+        {
+          "path": "docs/configurations.md",
+          "bytes": 7045,
+          "sha256": "fd722502c18587f578836e5294cc28d6062f027667ffeca78620df7c0e179dd6"
+        },
+        {
+          "path": "docs/losses.md",
+          "bytes": 1353,
+          "sha256": "9f61a67762e86dc8386a53a35e9f4768b4d676612d53120419a78c7fb8173059"
+        },
+        {
+          "path": "docs/memory.md",
+          "bytes": 10667,
+          "sha256": "40b8e29778fce9943652333a2a92fea5d5f91db3178e96db727335c45c5329b3"
+        },
+        {
+          "path": "docs/optimizers.md",
+          "bytes": 3242,
+          "sha256": "35cc41e79cd3eb1f51eebe9ada3d086dceade9a7e518c642b34d8bd757a57acb"
+        },
+        {
+          "path": "docs/quantization.md",
+          "bytes": 4767,
+          "sha256": "da327d4e3af19ec9f0a03ed65cc040051beaa6a1642388fdcef4d99966e1bb46"
+        },
+        {
+          "path": "docs/serialization.md",
+          "bytes": 6707,
+          "sha256": "44088137546c63d2a79141652532e632c6529026fd8efed336590ff025dfa058"
+        }
+      ],
+      "validation": [
+        {
+          "path": "docs/activations.md",
+          "bytes": 2892,
+          "sha256": "d429609386a5bb99db28b4ca8603a8002a57482e8fcdcfbcb2a2cc9638b40ca6"
+        },
+        {
+          "path": "docs/examples/README.md",
+          "bytes": 1443,
+          "sha256": "984bff626d637716751d819f95578b28de065b1df8d75dc78fa81900e3be2d6c"
+        }
+      ],
+      "test": [
+        {
+          "path": "docs/README.md",
+          "bytes": 2834,
+          "sha256": "5ca9783d945ea4532841e626ba3cb5801ec9c66f3be7fede2c861386e71b1a52"
+        },
+        {
+          "path": "docs/metrics.md",
+          "bytes": 1833,
+          "sha256": "adb0aa6bb8599eb91c59b2c6a4a23653c86e482b3019838d9ed1a94d8435fb54"
+        }
+      ]
+    },
+    "splits": {
+      "train": {
+        "documents": 9,
+        "bytes": 55059,
+        "sha256": "8ec1a228da068477b84f7f201a5cc5e5b8775418cdcff06982bc45bd776aeaa0"
+      },
+      "validation": {
+        "documents": 2,
+        "bytes": 4311,
+        "sha256": "7c87b98e1dc42dd32282802085b07253445e0f6db8d927909682d5d1b330bc29"
+      },
+      "test": {
+        "documents": 2,
+        "bytes": 4636,
+        "sha256": "7c71653e90bd343b5c48b7b7a93949c0c246ce37d399d870957988ae9475e51c"
+      }
+    },
+    "qa": {
+      "qa_train": {
+        "documents": 64,
+        "bytes": 10320,
+        "sha256": "bd4b72428adf905b015fd350c2b1f51af84ae7033de8e06af9183b451201e603"
+      },
+      "qa_validation": {
+        "documents": 6,
+        "bytes": 911,
+        "sha256": "6373b4052a50dd1cf179c0b8b5604d5f35554cb771ff93ca52a327a8e3927514"
+      },
+      "qa_test": {
+        "documents": 6,
+        "bytes": 994,
+        "sha256": "753c1d973431c03365e9347375c06f15b584040e70dcd30c708b625afaba2497"
+      }
+    }
+  },
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "model": {
+    "vocab": 512,
+    "context": 32,
+    "dimension": 8,
+    "heads": 2,
+    "layers": 1,
+    "batch_size": 2,
+    "epochs": 3,
+    "learning_rate": 0.003
+  },
+  "target": {
+    "os": "Linux-7.0.0-43-generic-x86_64-inconnu-with-glibc2.43",
+    "architecture": "x86_64",
+    "cpu_model": "AMD Ryzen 3 5300U with Radeon Graphics",
+    "logical_cpus": 8,
+    "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "binary": "/home/gloomshade/Documents/Projects/deep-learning/bin/gloomy",
+    "binary_sha256": "d8e6f9a3eb5a469ab8b86cf51220ba5997c434197df62b87352053370f8de4d2",
+    "timer": "Python standard-library perf_counter",
+    "rss_measurement": "Linux /proc/<pid>/status VmHWM sampled at 1 ms; may miss short peaks",
+    "rss_unit": "KiB"
+  }
+}

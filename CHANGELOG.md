@@ -31,6 +31,7 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - CLI `lm train`, `lm evaluate` et `lm generate`, incluant température, top-k, top-p, seed et exact match QA ;
 - outil de préparation locale des corpus texte avec normalisation NFC, déduplication, splits déterministes et manifeste de provenance/empreintes ;
 - exemple de corpus fictif train/validation/test et documentation de l'évaluation, du profil local et des limites.
+- corpus applicatif local d'assistant documentaire Gloomy, avec splits fixes par fichier source, QA train/validation/test conditionnée par contexte, test équilibré oui/non et baseline majoritaire explicite, manifeste d'empreintes et provenance, benchmark multi-seed et test de reprise bit-à-bit sur les documents.
 
 Ce prototype de petite échelle n'a pas démontré la compréhension générale. Des corpus applicatifs autorisés, une évaluation plus robuste et un profil sur cible restent nécessaires.
 

@@ -26,7 +26,7 @@ OBJ_DIR = src
 # Répertoire de l'exécutable
 TARGET_DIR = bin
 
-.PHONY: all benchmark benchmark-comparison test test-language-model language-model-example clean
+.PHONY: all benchmark benchmark-comparison test test-language-model test-language-model-docs-resume language-model-example language-model-docs-example benchmark-language-model-docs clean
 
 # Règle par défaut : construire l'exécutable
 all: $(TARGET)
@@ -43,6 +43,9 @@ test: $(TEST_TARGET) test-language-model
 test-language-model: $(TARGET)
 	python3 scripts/test_language_model.py
 
+test-language-model-docs-resume: $(TARGET)
+	GLOOMY_TEST_DOC_RESUME=1 python3 scripts/test_language_model.py
+
 language-model-example: $(TARGET)
 	mkdir -p artifacts
 	./$(TARGET) lm train \
@@ -52,6 +55,34 @@ language-model-example: $(TARGET)
 		--model artifacts/language-mini.gloomy \
 		--vocab 320 --context 32 --dimension 8 --heads 2 --layers 1 \
 		--batch-size 2 --epochs 1 --learning-rate 0.003 --seed 42
+
+language-model-docs-example: $(TARGET)
+	python3 scripts/prepare_gloomy_docs_corpus.py
+	mkdir -p artifacts
+	./$(TARGET) lm train \
+		--train data/lm/gloomy-docs/train.txt \
+		--validation data/lm/gloomy-docs/validation.txt \
+		--qa-train data/lm/gloomy-docs/qa-train.txt \
+		--model artifacts/gloomy-docs.gloomy \
+		--vocab 512 --context 32 --dimension 8 --heads 2 --layers 1 \
+		--batch-size 2 --epochs 3 --learning-rate 0.003 --seed 42
+
+benchmark-language-model-docs: $(TARGET)
+	python3 scripts/prepare_gloomy_docs_corpus.py
+	python3 scripts/benchmark_language_model.py \
+		--train data/lm/gloomy-docs/train.txt \
+		--validation data/lm/gloomy-docs/validation.txt \
+		--qa-train data/lm/gloomy-docs/qa-train.txt \
+		--qa-validation data/lm/gloomy-docs/qa-validation.txt \
+		--test data/lm/gloomy-docs/test.txt \
+		--qa data/lm/gloomy-docs/qa-test.txt \
+		--qa-allowed-label oui --qa-allowed-label non \
+		--corpus-source "First-party Gloomy repository documentation" \
+		--corpus-authorization "Local training use requested by the project user; no redistribution license asserted" \
+		--source-manifest data/lm/gloomy-docs/manifest.json \
+		--output docs/examples/language-model/gloomy-docs-3-seeds.csv \
+		--seeds 42,43,44 --vocab 512 --context 32 --dimension 8 \
+		--heads 2 --layers 1 --batch-size 2 --epochs 3 --learning-rate 0.003
 
 # Règle pour construire l'exécutable
 $(TARGET): $(OBJ)

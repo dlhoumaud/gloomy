@@ -41,7 +41,7 @@ Le format de configuration, le dataset et les options de surcharge sont décrits
 
 ## Prototype de langage
 
-Le chemin de langage est distinct du runtime Dense et utilise les sous-commandes `lm train`, `lm evaluate` et `lm generate`. Il s'agit d'un prototype CPU de petite échelle. Les corpus de démonstration sont fictifs; consulter le [protocole et les limites](docs/language-model-prototype.md) avant d'interpréter ses métriques.
+Le chemin de langage est distinct du runtime Dense et utilise les sous-commandes `lm train`, `lm evaluate` et `lm generate`. L'exemple applicatif local est un assistant français de documentation Gloomy, entraîné sur les documents du dépôt avec des splits fixes par fichier et un manifeste de provenance; `make language-model-docs-example` prépare ce corpus et entraîne le checkpoint. `make benchmark-language-model-docs` reproduit les mesures sur trois seeds. Le petit corpus fictif reste réservé aux tests rapides du pipeline. Ce modèle est un prototype CPU de petite échelle, pas un modèle généraliste ni un assistant validé pour d'autres domaines; consulter le [protocole et les limites](docs/language-model-prototype.md) avant d'interpréter ses métriques.
 
 ## Démonstration CLI historique
 
