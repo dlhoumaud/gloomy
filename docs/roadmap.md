@@ -2,19 +2,15 @@
 
 Cette roadmap ne liste que les travaux non terminés. Les fonctionnalités déjà livrées sont récapitulées dans le [journal des changements](../CHANGELOG.md); les descriptions techniques détaillées restent dans les guides.
 
-La priorité absolue du projet est de développer puis valider un modèle de langage capable d'apprendre à partir de textes, de suivre des consignes, de répondre à des questions et de générer du texte cohérent. Le GLOOMY actuel ne traite que des vecteurs numériques via des couches Dense; il n'est pas encore un modèle de langage. La réussite devra être évaluée sur des tâches et des corpus de test définis, pas seulement à partir de quelques exemples générés.
+La priorité absolue du projet est de développer puis valider un modèle de langage capable d'apprendre à partir de textes, de suivre des consignes, de répondre à des questions et de générer du texte cohérent. La réussite devra être évaluée sur des tâches et des corpus de test autorisés et définis, pas seulement à partir de quelques exemples générés.
 
 ## 1. Développer un véritable modèle de langage
 
-- définir les corpus d'entraînement, les tâches de compréhension et génération, les jeux de validation/test séparés et les ressources de calcul disponibles ;
-- construire un pipeline texte avec normalisation Unicode, tokenizer sous-mot versionné, vocabulaire, séquences de contexte et masques d'entraînement ;
-- implémenter une architecture séquentielle adaptée au langage, en priorité un Transformer causal avec embeddings, attention, connexions résiduelles et normalisation ;
-- entraîner à prédire le prochain token avec une perte cross-entropy, des batches, un optimiseur adapté, la reprise de checkpoints et un suivi de la perplexité ;
-- ajouter au CLI l'entraînement sur corpus, le prompt et la génération autoregressive avec options de décodage reproductibles ;
-- sauvegarder ensemble tokenizer, configuration, poids et état d'entraînement dans un format de modèle de langage versionné ;
-- évaluer les réponses et la génération sur des textes jamais vus, avec des métriques de langage et des tâches de compréhension, et publier les limites, la taille du modèle, les données et le coût de calcul.
-
-Le premier modèle expérimental devra valider toute la chaîne sur une petite échelle. La priorité de long terme reste un modèle de langage évalué sur la compréhension; un prototype qui ne fait que compléter des caractères ou mémoriser son corpus ne suffira pas.
+- définir des corpus applicatifs autorisés à partir du domaine cible, puis remplacer le mini-corpus original de test logiciel, qui n'est pas représentatif d'une application ;
+- compléter les tâches contrôlées de prédiction du prochain token et QA factuelle par des tâches de compréhension/génération définies avec leurs références et critères ;
+- valider le Transformer causal sur ces données représentatives et améliorer sa robustesse/performance sans dégrader les mesures tenues à l'écart ;
+- mesurer perplexité, stabilité et tâches linguistiques sur les splits documentaires autorisés; vérifier la reprise bit-à-bit aux frontières d'epoch sur des corpus représentatifs ;
+- publier les données, tailles, empreintes, seeds, configuration, qualité, latence, débit et mémoire; reproduire ces mesures sur la cible matérielle applicative lorsqu'elle sera définie.
 
 ## 2. Définir les objectifs et le protocole de mesure
 
@@ -47,3 +43,7 @@ Le premier modèle expérimental devra valider toute la chaîne sur une petite �
 ## 7. Clarifier les métadonnées du dépôt
 
 - confirmer la licence du projet et ajouter le fichier légal correspondant si nécessaire; le README historique annonçait MIT, mais aucun fichier `LICENSE` n'est présent.
+
+## Contrainte permanente
+
+L'exécutable Gloomy ne doit utiliser aucune bibliothèque qui ne puisse pas être liée statiquement au programme. Les scripts de développement peuvent utiliser la bibliothèque standard de leur interpréteur, mais ne sont pas des dépendances du binaire.

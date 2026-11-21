@@ -1,0 +1,2 @@
+epochs,updates,parameters,train_cross_entropy,validation_cross_entropy,validation_perplexity,test_cross_entropy,test_perplexity,qa_train_exact_match,qa_train_correct,qa_train_total,qa_test_exact_match,qa_test_correct,qa_test_total
+50,750,6584,1.64599,4.74038,114.478,4.97143,144.233,0.666667,2,3,0,0,2

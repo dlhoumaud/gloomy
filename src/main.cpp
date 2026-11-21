@@ -8,6 +8,7 @@
 #include "headers/DenseLayer.h"
 #include "headers/NeuralNetwork.h"
 #include "headers/Runtime.h"
+#include "headers/LanguageRuntime.h"
 
 // Fonction pour analyser les entrées sous forme de chaîne de caractères et les convertir en vecteur de doubles
 std::vector<double> parseInputs(const std::string &str) {
@@ -80,6 +81,7 @@ void parseArguments(int argc, char *argv[], int &num_predictions, int &num_layer
 }
 
 int main(int argc, char *argv[]) {
+    if (argc >= 2 && std::string(argv[1]) == "lm") return runLanguageCommand(argc, argv);
     if (argc >= 2 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
         displayHelp(argv[0]);
         return 0;

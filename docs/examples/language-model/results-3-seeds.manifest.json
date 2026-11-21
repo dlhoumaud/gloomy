@@ -1,0 +1,64 @@
+{
+  "format": "gloomy-language-benchmark-v2",
+  "corpus_source": "Gloomy original synthetic language-model fixture",
+  "corpus_authorization": "original text written for repository tests; no third-party corpus",
+  "corpus": {
+    "train": {
+      "path": "docs/examples/language-model/train.txt",
+      "documents": 10,
+      "bytes": 554,
+      "sha256": "75189fab3f20d165957ab6573ebaa7f4c0d308c62a14c0369ab1d9c4fdb59ea2"
+    },
+    "validation": {
+      "path": "docs/examples/language-model/validation.txt",
+      "documents": 3,
+      "bytes": 153,
+      "sha256": "bff089a23492242e607645e04aeba4677c492b02c12dce5ddcc6914af6773ca1"
+    },
+    "test": {
+      "path": "docs/examples/language-model/test.txt",
+      "documents": 3,
+      "bytes": 188,
+      "sha256": "bd00c4c7f59637163f03beee80ff9ffc2cba3ffdf9d070d86a7ba9b731bf16af"
+    },
+    "qa_test": {
+      "path": "docs/examples/language-model/qa-test.txt",
+      "documents": 2,
+      "bytes": 158,
+      "sha256": "3920b28d5b2d22c083803c65a937169f1e3d00fb971e2a34d1463ddb9b4d4881"
+    },
+    "qa_train": {
+      "path": "docs/examples/language-model/qa-train.txt",
+      "documents": 3,
+      "bytes": 178,
+      "sha256": "83c8996fb3904d10f388dd96be38973810116886353b68afd44ce1beef2af410"
+    }
+  },
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "model": {
+    "vocab": 320,
+    "context": 32,
+    "dimension": 8,
+    "heads": 2,
+    "layers": 1,
+    "batch_size": 2,
+    "epochs": 1,
+    "learning_rate": 0.003
+  },
+  "target": {
+    "os": "Linux-7.0.0-43-generic-x86_64-inconnu-with-glibc2.43",
+    "architecture": "x86_64",
+    "cpu_model": "AMD Ryzen 3 5300U with Radeon Graphics",
+    "logical_cpus": 8,
+    "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "binary": "/home/gloomshade/Documents/Projects/deep-learning/bin/gloomy",
+    "binary_sha256": "d8e6f9a3eb5a469ab8b86cf51220ba5997c434197df62b87352053370f8de4d2",
+    "timer": "Python standard-library perf_counter",
+    "rss_measurement": "Linux /proc/<pid>/status VmHWM sampled at 1 ms; may miss short peaks",
+    "rss_unit": "KiB"
+  }
+}

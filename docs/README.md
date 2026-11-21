@@ -1,6 +1,10 @@
 # Documentation Gloomy
 
-Gloomy est un moteur expérimental Dense en C++17. Le runtime configuré est le chemin d'entraînement batch/online et d'inférence sur modèle sauvegardé. Le CLI historique reste une démonstration : il reconstruit le réseau entre prédictions et ne représente pas un modèle autorégressif entraîné.
+Gloomy contient le runtime Dense numérique et un prototype distinct de Transformer causal pour le texte. Le CLI historique reste une démonstration; le prototype de langage s'utilise avec `gloomy lm train|evaluate|generate` et ses limites sont détaillées dans le [guide du modèle de langage](language-model-prototype.md).
+
+## Contrainte de dépendances
+
+L'exécutable Gloomy ne doit dépendre d'aucune bibliothèque qui ne puisse pas être liée statiquement au programme. Avant d'ajouter une bibliothèque, vérifier et documenter la disponibilité du lien statique pour les plateformes ciblées; préférer la bibliothèque standard C++ si elle suffit. Les scripts de préparation/benchmark sont des outils de développement séparés et ne sont pas des dépendances du binaire.
 
 Le runtime configuré lit les exemples `entrée | cible` par passes successives : validation des dimensions, calcul des statistiques, puis apprentissage par mini-batches ou replay en ligne. Il ne conserve pas le dataset entier en mémoire; l'usage dépend du mini-batch, du replay configuré, du modèle et d'une ligne en cours de lecture. Les modes entraînement relisent le fichier à chaque passe/epoch, et le calibrage int16/int8 ajoute une passe de bornes. La sauvegarde utilise `GLOOMY_MODEL`.
 
@@ -15,7 +19,7 @@ Les modes sont `training`, `online_learning` et `inference`. Voir [configuration
 
 Des exemples exécutables avec leurs datasets, configurations et commandes se trouvent dans [examples](examples/README.md). L'exemple de régression linéaire entraîne `y = 2x + 1`, sauvegarde le checkpoint, puis lance des prédictions.
 
-Le CLI historique `./bin/gloomy "10.5 11.0 12.3" -c 1 -l 2 -n 8 -a tanh` est décrit dans [architecture](architecture.md); ses limites sont distinctes du runtime configuré.
+Le CLI historique `./bin/gloomy "10.5 11.0 12.3" -c 1 -l 2 -n 8 -a tanh` est décrit dans [architecture](architecture.md); ses limites sont distinctes du runtime configuré et du prototype de langage.
 
 ## Guides
 

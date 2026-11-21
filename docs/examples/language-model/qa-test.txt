@@ -1,0 +1,2 @@
+Question: Quand le phare d'Orme s'allume-t-il ? Réponse: | À l'aube.
+Question: Où le robot Nilo range-t-il ses outils ? Réponse: | Dans une boîte bleue.

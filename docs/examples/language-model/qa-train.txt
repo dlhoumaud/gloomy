@@ -1,0 +1,3 @@
+Question: Quel animal miaule ? Réponse: | Le chat.
+Question: Où coule la rivière ? Réponse: | Dans la vallée.
+Question: Que cherchent les oiseaux ? Réponse: | Des graines.

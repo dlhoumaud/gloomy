@@ -21,6 +21,19 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - stockage contigu des poids et gradients de poids, avec vue 2D pour conserver l'accès indexé et formats de sérialisation inchangés ;
 - schedulers `EverySample`, `EveryN` et `OnHighError`.
 
+### Prototype de modèle de langage
+
+- tokenizer byte-level BPE déterministe et versionné avec validation UTF-8, NFC Unicode 16.0, retrait du BOM initial et normalisation des fins de ligne ;
+- Transformer causal CPU avec embeddings, attention multi-tête causale, résidus, LayerNorm et MLP GELU ;
+- entraînement du prochain token par cross-entropy, mini-batches, AdamW, clipping du gradient, suivi cross-entropy/perplexité ;
+- masques de perte sur les prompts QA pour superviser la génération des réponses sans pénaliser la reproduction de l'instruction ;
+- checkpoint texte versionné regroupant tokenizer, configuration, poids, compteur d'updates, moments AdamW et état RNG de mélange, avec reprise reproductible aux frontières d'epoch ;
+- CLI `lm train`, `lm evaluate` et `lm generate`, incluant température, top-k, top-p, seed et exact match QA ;
+- outil de préparation locale des corpus texte avec normalisation NFC, déduplication, splits déterministes et manifeste de provenance/empreintes ;
+- exemple de corpus fictif train/validation/test et documentation de l'évaluation, du profil local et des limites.
+
+Ce prototype de petite échelle n'a pas démontré la compréhension générale. Des corpus applicatifs autorisés, une évaluation plus robuste et un profil sur cible restent nécessaires.
+
 ### Mémoire et normalisation
 
 - mémoires FIFO, Reservoir Sampling, Prioritized Replay, Novelty et Hybrid ;
