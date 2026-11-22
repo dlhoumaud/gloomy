@@ -202,6 +202,21 @@ def main() -> None:
         assert "qa_generation_tokens_per_second=" in evaluation.stdout
         assert "qa_closed_set_accuracy=" in evaluation.stdout
         assert "qa_closed_set_total=2" in evaluation.stdout
+        compact_model = Path(directory) / "compact-int8.gloomy"
+        compact_conversion = run(
+            "lm", "quantize", "--model", str(resumed), "--output", str(compact_model), "--precision", "int8",
+        )
+        assert "weight_precision_bits=8" in compact_conversion.stdout
+        assert compact_model.stat().st_size < resumed.stat().st_size
+        compact_evaluation = run(
+            "lm", "evaluate", "--model", str(compact_model), "--text", str(EXAMPLE / "test.txt"),
+        )
+        assert "cross_entropy=" in compact_evaluation.stdout
+        compact_resume = run(
+            "lm", "train", "--resume", "--train", str(EXAMPLE / "train.txt"), "--validation", str(EXAMPLE / "validation.txt"),
+            "--model", str(compact_model), "--epochs", "1", expected=1,
+        )
+        assert "cannot be resumed" in compact_resume.stderr
         for precision in ("int8", "int16"):
             quantized_evaluation = run(
                 "lm", "evaluate", "--model", str(resumed),

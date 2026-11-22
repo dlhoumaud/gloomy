@@ -34,8 +34,8 @@ L'objectif à terme est un pipeline en trois étapes, distinct du prototype docu
 ## Priorité haute — travaux transversaux pour le modèle de langage
 
 - répéter les mesures float32/int8/int16 du Transformer sur plusieurs seeds et workloads documentaires représentatifs, avec erreur numérique, qualité, latence, RSS et coût d'évaluation ;
-- mesurer sur la cible retenue les opérations entières; étudier un checkpoint compact si une réduction persistante de Flash/RAM est nécessaire, car les poids du checkpoint restent stockés en float64 ;
-- étendre le pilote de replay de séquences à plusieurs seeds, ordres de phases et capacités; mesurer rétention, QA, temps et mémoire du buffer, puis implémenter et évaluer une correction d'importance pour le replay priorisé.
+- mesurer sur la cible retenue les opérations entières et la RAM du checkpoint compact, dont le chargement reconstruit encore les poids en float64 ;
+- étendre la campagne de replay à plusieurs seeds, ordres de phases et capacités; égaliser les budgets d'updates et mesurer rétention, QA, temps et mémoire du buffer afin d'évaluer la correction d'importance implémentée.
 
 ## 2. Définir les objectifs et le protocole de mesure
 
@@ -44,19 +44,17 @@ L'objectif à terme est un pipeline en trois étapes, distinct du prototype docu
 
 ## 3. Réduire les coûts du pipeline de données et de mémoire
 
-- mesurer les compromis des stratégies de replay et des formats compacts sur des données représentatives.
+- mesurer les compromis des stratégies de replay sur des données représentatives.
 
 ## 4. Évaluer les précisions réduites
 
 - comparer int8/int16 du runtime Dense sur des jeux de données représentatifs, avec erreurs après déquantification et métriques de tâche ;
-- évaluer le stockage compact des poids du Transformer et son coût de conversion ;
-- mesurer qualité, latence, mémoire et coût de conversion ensemble avant de choisir un format.
+- reproduire les mesures du format compact du Transformer sur plusieurs seeds et workloads avant de choisir un format de déploiement.
 
 ## 5. Renforcer l'évaluation et le continual learning
 
 - élargir les benchmarks du runtime Dense au-delà des fonctions synthétiques avec séparation temporelle ou expérimentale adaptée ;
 - ajouter des workloads applicatifs représentatifs au benchmark du runtime Dense ;
-- généraliser la correction du biais d'échantillonnage Prioritized Replay si elle est retenue pour l'apprentissage continu ;
 - étendre les tests mathématiques aux gradients d'autres activations et couches, à la stabilité et à la reproductibilité sur plusieurs configurations.
 
 ## 6. Valider sur une cible embarquée

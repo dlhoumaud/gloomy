@@ -1,7 +1,9 @@
-variant,weight_precision_bits,weight_max_abs_error,weight_mean_abs_error,compute_precision_bits,activation_precision_bits,cross_entropy,perplexity,tokens,test_utf8_bytes,bits_per_byte,qa_exact_match,qa_token_f1,qa_closed_set_accuracy,qa_generation_ms_per_example,qa_generation_tokens_per_second,wall_seconds,max_rss_kib
-float64,,,,,,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,77.415,21.529,5.87631125,37820
-int8_fake_weights,8,0.00416975,0.00174774,,,4.28818,72.834,2423,4634,3.23478135,0.5,0.5,0.5,78.4537,21.2439,5.87589402,37860
-int16_fake_weights,16,1.61633e-05,6.76987e-06,,,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,97.0693,17.1699,6.12433972,37860
-float32_compute,,,,32,32,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,19.1113,87.2085,1.45012526,11032
-int8_compute_activations,,,,8,8,4.28907,72.8984,2423,4634,3.23545272,0.5,0.5,0.5,22.9488,72.6256,1.69919448,11108
-int16_compute_activations,,,,16,16,4.289,72.8938,2423,4634,3.23539992,0.5,0.5,0.5,20.4763,81.395,1.63664436,11112
+variant,weight_precision_bits,weight_max_abs_error,weight_mean_abs_error,compute_precision_bits,activation_precision_bits,cross_entropy,perplexity,tokens,test_utf8_bytes,bits_per_byte,qa_exact_match,qa_token_f1,qa_closed_set_accuracy,qa_generation_ms_per_example,qa_generation_tokens_per_second,wall_seconds,max_rss_kib,model_bytes,conversion_seconds
+float64,,,,,,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,62.1463,26.8184,4.70593626,37812,251575,0
+int8_fake_weights,8,0.00416975,0.00174774,,,4.28818,72.834,2423,4634,3.23478135,0.5,0.5,0.5,62.4126,26.704,4.69231893,37856,251575,0
+int16_fake_weights,16,1.61633e-05,6.76987e-06,,,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,61.9538,26.9018,4.66058373,37856,251575,0
+float32_compute,,,,32,32,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,14.9901,111.184,1.12861113,11028,251575,0
+int8_compute_activations,,,,8,8,4.28907,72.8984,2423,4634,3.23545272,0.5,0.5,0.5,16.6402,100.159,1.25075517,11112,251575,0
+int16_compute_activations,,,,16,16,4.289,72.8938,2423,4634,3.23539992,0.5,0.5,0.5,16.3472,101.954,1.2419352,11108,251575,0
+int8_compact_checkpoint,8,0.00416975,0.00174774,,,4.28818,72.834,2423,4634,3.23478135,0.5,0.5,0.5,61.5362,27.0843,4.65928214,37808,22855,0.00148141998
+int16_compact_checkpoint,16,1.61633e-05,6.76987e-06,,,4.289,72.8936,2423,4634,3.23539992,0.5,0.5,0.5,62.1363,26.8227,4.67590875,37816,32071,0.00138218299

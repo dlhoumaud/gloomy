@@ -52,22 +52,23 @@ local comme baseline CPU de développement. La cible de déploiement n'est pas
 encore définie; il faut répéter ces mesures sur cette cible avant tout seuil de
 latence, débit ou RAM de production.
 
-Le pilote de précision est disponible dans
-[`weight-precision-pilot.csv`](weight-precision-pilot.csv). Il compare poids
-arrondis int8/int16, calcul float32 et produits scalaires int8/int16 avec
-activations quantifiées, sur un checkpoint Gloomy et deux splits documentaires.
-Sur Gloomy, float64/int8 donnent respectivement une cross-entropy de `4,289` /
-`4,28907`, 50 % QA dans les deux cas et `3,2354` / `3,23545` bits par octet.
-Le temps du processus float64/int8 est `5,88 s` / `1,70 s`, avec RSS de
-`37 820 KiB` / `11 108 KiB`. Sur Ocara, float64/int8 donnent `5,25758` /
-`5,25726` cross-entropy, 50 % QA fermée dans les deux cas, et le temps/RSS
-passent de `47,47 s` / `38 616 KiB` à `14,19 s` / `11 908 KiB`. Le modèle est
-entraîné sur Gloomy; Ocara est ici un test de sensibilité numérique
-hors-domaine, pas une évaluation applicative validée. Le checkpoint garde ses
-paramètres float64 et les opérandes entiers sont quantifiés à la volée : aucune
-économie persistante de stockage n'est mesurée. Ces pilotes mono-checkpoint
-doivent être répétés en multi-seed et sur une cible applicative avant d'en tirer
-un seuil de performance. Le float64 de référence construit des nœuds
+Le pilote de précision est publié dans
+[`weight-precision-pilot.csv`](weight-precision-pilot.csv) et
+[`ocara-precision-pilot.csv`](ocara-precision-pilot.csv). Sur un seul
+checkpoint Gloomy, Gloomy float64/int8 donnent une cross-entropy de `4,289` /
+`4,28907`, 50 % QA fermée dans les deux cas et `3,23540` / `3,23545` bits par
+octet. Le temps et la RSS sont `4,71 s` / `37 812 KiB` et `1,25 s` /
+`11 112 KiB` pour l'inférence int8 avec activations quantifiées. Sur Ocara,
+float64/int8 donnent `5,25758` / `5,25726` de cross-entropy et `4,83807` /
+`4,83778` bits par octet; le temps/RSS sont `22,83 s` / `38 632 KiB` et
+`6,79 s` / `11 924 KiB`. Le checkpoint compact int8 fait `22 855` octets au
+lieu de `251 575` (−90,9 %), int16 `32 071` (−87,3 %); la conversion dure
+`1,4–2,0 ms`. L'erreur de quantification maximale/moyenne est `0,00417` /
+`0,00175` en int8 et `0,0000162` / `0,00000677` en int16. Le chargement reconstruit toutefois des paramètres float64 et la
+RSS reste autour de 38 MiB: seule l'empreinte fichier baisse. Le modèle est
+entraîné sur Gloomy; Ocara est un test de sensibilité hors domaine, pas une
+évaluation applicative validée. Les pilotes restent mono-checkpoint; il faut
+les répéter en multi-seed et sur la cible de déploiement. Le float64 de référence construit des nœuds
 d'autodiffération en inférence alors que les modes réduits prennent un chemin
 direct pour les couches linéaires; le gain de temps/RSS observé inclut ce
 changement et n'isole pas l'effet de la seule précision numérique.
@@ -75,14 +76,12 @@ changement et n'isole pas l'effet de la seule précision numérique.
 ## Apprentissage continu
 
 Le pilote [`sequence-replay-pilot.csv`](sequence-replay-pilot.csv) compare sans
-replay, FIFO, Reservoir et replay priorisé par cross-entropy entre une phase
-Gloomy et une adaptation Ocara d'une epoch. Il évalue les deux tests complets et
-calcule le biais théorique de la distribution priorisée, sans correction
-d'importance. Il reste à comparer plusieurs seeds et ordres de phases, plusieurs
-capacités de replay, une correction d'importance, ainsi que la qualité QA après
-adaptation; les updates ne sont pas égalisés, car les documents créent des
-nombres différents de fenêtres. Dans ce run unique, l'exact match génératif
-reste à 0 % et la QA fermée à 50 % pour les quatre stratégies; la cross-entropy
-du test Gloomy baisse de `4,966` sans replay à `4,638` avec Prioritized. Ces
-chiffres sont exploratoires, et la RSS du processus ne mesure pas précisément
-la seule mémoire du buffer.
+replay, FIFO, Reservoir, priorisé et priorisé avec correction d'importance
+`1/(N·pᵢ)` (β=1), sur une phase Gloomy suivie d'une adaptation Ocara. Le CLI
+applique ces poids par token supervisé et accepte les poids documentaires via
+`--sample-weights`. Chaque document est moyenné sur ses tokens supervisés avant
+d'appliquer le poids; le dénominateur du batch ne dépend pas des poids, ce qui
+évite l'auto-normalisation biaisée. La campagne doit encore couvrir plusieurs seeds, ordres de
+phases et capacités; égaliser les updates; et distinguer la mémoire du buffer
+de la RSS du processus. L'évaluation rapporte la rétention sur les deux tests
+et la QA après adaptation; ces résultats restent exploratoires.

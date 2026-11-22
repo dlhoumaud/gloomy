@@ -7,7 +7,8 @@
     "none": "no phase-A documents replayed",
     "fifo": "last N phase-A documents",
     "reservoir": "N uniformly sampled phase-A documents, fixed seed",
-    "prioritized_loss": "N documents sampled with replacement proportional to phase-A per-document cross-entropy; no importance-weight correction"
+    "prioritized_loss": "N documents sampled with replacement proportional to phase-A per-document cross-entropy, without correction",
+    "prioritized_corrected": "Same prioritized samples with beta=1 document-level importance weight 1/(N*p_i); each document contributes its token-average loss and the denominator is independent of importance weights"
   },
   "replay_documents": 3,
   "phase_b_documents": 8,
@@ -42,9 +43,8 @@
   "phase_b_qa_sha256": "72ad48b49e0b3417fb7034bf3ce5532fb0f6db99842f625c15a392a8a599058d",
   "results": "sequence-replay-pilot.csv",
   "limitations": [
-    "single phase order and seed; exploratory comparison, not a general ranking",
+    "single training seed, phase order and replay capacity; exploratory comparison, not a general ranking",
     "QA metrics are reported but phase-B adaptation trains next-token text only",
-    "training updates differ because replay documents produce different numbers of token windows; a fixed-update comparison remains to be run",
-    "prioritized replay intentionally has no importance-sampling correction; the reported cross-entropy shift exposes sample bias"
+    "training updates differ because replay documents produce different numbers of token windows; a fixed-update comparison remains to be run"
   ]
 }

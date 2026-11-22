@@ -93,6 +93,24 @@ void testReducedPrecisionInferenceModes() {
     }
     assert(invalid_precision_rejected);
 }
+
+void testCompactCheckpointRoundTrip() {
+    TransformerLM model(259, smallConfig());
+    std::ostringstream compact(std::ios::binary);
+    const auto metrics = model.writeCompactCheckpoint(compact, 8);
+    assert(metrics.bits == 8);
+    assert(std::isfinite(metrics.maximum_absolute_error));
+    std::istringstream input(compact.str(), std::ios::binary);
+    auto restored = TransformerLM::readCheckpoint(input);
+    const auto before = model.nextTokenLogits({0, 3});
+    const auto after = restored.nextTokenLogits({0, 3});
+    assert(before.size() == after.size());
+    for (std::size_t i = 0; i < before.size(); ++i) assert(std::isfinite(after[i]));
+    bool rejected = false;
+    try { restored.trainBatch({LanguageSequence{{0, 3}, {3, 1}, {1, 1}}}); }
+    catch (const std::logic_error&) { rejected = true; }
+    assert(rejected);
+}
 }
 
 int main() {
@@ -100,4 +118,5 @@ int main() {
     testTransformerStabilityAndReproducibility();
     testNonFiniteUpdateIsRejectedAtomically();
     testReducedPrecisionInferenceModes();
+    testCompactCheckpointRoundTrip();
 }

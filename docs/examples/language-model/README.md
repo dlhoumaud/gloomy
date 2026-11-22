@@ -138,20 +138,32 @@ make benchmark-language-model-weight-precision
 ```
 
 Le pilote compare float64, les poids arrondis int8/int16, les opérations
-float32 et les produits scalaires int8/int16 avec activations quantifiées. Les
-produits int8/int16 utilisent des opérandes entiers et un accumulateur int64,
-puis déquantifient le résultat; les poids sont quantifiés à la volée. Il
-rapporte l'erreur des poids, la cross-entropy, les bits par octet, les métriques
-QA, la durée et la RSS dans [`weight-precision-pilot.csv`](weight-precision-pilot.csv)
-et son manifeste. Le même runner a été appliqué au test Ocara, sans adapter le
-checkpoint Gloomy, dans [`ocara-precision-pilot.csv`](ocara-precision-pilot.csv).
-Les biais et la normalisation restent en float64 et le checkpoint conserve les
-poids en float64; ces campagnes ne mesurent pas un format de stockage compact.
-Elles restent mono-checkpoint et ne garantissent pas un gain sur une autre
-cible. La référence float64 construit le graphe d'autodiffération même en
+float32 et les produits scalaires int8/int16 avec activations quantifiées, ainsi
+que des checkpoints compacts int8/int16. Les produits entiers accumulent en
+int64. Les CSV rapportent erreur numérique, cross-entropy, bits par octet, QA,
+latence, RSS, taille du fichier et coût de conversion. Les mesures actuelles
+utilisent un seul checkpoint Gloomy sur les tests Gloomy et Ocara; Ocara reste
+une évaluation hors domaine, pas un modèle Ocara validé. Les poids int8 tiennent
+dans 22 855 octets contre 251 575 en float64; int16 dans 32 071 octets. Le
+chargement décompresse encore les poids en float64, donc la RSS reste proche de
+38 MiB et la RAM d'exécution n'est pas réduite. Ces résultats mono-checkpoint
+doivent être répétés en multi-seed et sur une cible de déploiement. La référence
+float64 construit le graphe d'autodiffération même en
 inférence, alors que les variantes réduites utilisent un chemin direct pour les
 couches linéaires; le gain mesuré inclut ce changement d'implémentation et
 n'isole pas l'effet de la seule précision numérique.
+
+Pour créer et utiliser un checkpoint compact d'inférence :
+
+```sh
+./bin/gloomy lm quantize --model artifacts/gloomy-docs.gloomy \
+  --output artifacts/gloomy-docs-int8.gloomy --precision int8
+./bin/gloomy lm evaluate --model artifacts/gloomy-docs-int8.gloomy \
+  --text data/lm/gloomy-docs/test.txt
+```
+
+Un checkpoint compact ne contient pas l'état Adam et ne peut pas reprendre
+l'entraînement.
 
 ## Replay de séquences entre corpus
 
@@ -164,21 +176,26 @@ make benchmark-language-model-sequence-replay
 Le checkpoint Gloomy sert de phase A; une adaptation d'une epoch sur huit
 documents Ocara échantillonnés régulièrement sert de phase B. Le corpus de test
 complet de chaque domaine mesure l'adaptation et la rétention. Les stratégies
-comparées sont sans replay, FIFO, Reservoir et replay priorisé par la
-cross-entropy documentaire. Une unité replayée est un document, que le CLI
+comparées sont sans replay, FIFO, Reservoir, replay priorisé non corrigé et
+replay priorisé corrigé. Une unité replayée est un document, que le CLI
 transforme en fenêtres de séquences chevauchantes. La priorité est estimée en
 float32 sur six documents Gloomy candidats; le CSV rapporte l'écart théorique
-de perte entre cette distribution priorisée et le tirage uniforme. Le pilote
-n'applique pas de correction d'importance et reste à un ordre de phases et un
-seed; ses résultats ne classent pas les stratégies de façon générale.
+de perte entre cette distribution priorisée et le tirage uniforme. Le mode
+corrigé applique par document le poids d'importance `1/(N·pᵢ)` (β=1), après
+moyennage sur les tokens supervisés du document et sans normaliser par la somme
+des poids d'importance.
+La CLI accepte aussi `--sample-weights FILE`, un poids positif par document.
+Le pilote reste à un ordre de phases, un seed et une capacité; ses résultats ne
+classent pas les stratégies de façon générale.
 Résultats et empreintes sont conservés dans
 [`sequence-replay-pilot.csv`](sequence-replay-pilot.csv) et son manifeste.
 Dans ce run, la cross-entropy du test Gloomy passe de `4,966` sans replay à
-`4,723` avec FIFO/Reservoir et `4,638` avec Prioritized; la cross-entropy Ocara
-reste proche de `3,97–4,01`. Les quatre variantes restent à 50 % en QA fermée
-et 0 % en exact match génératif. Les updates varient de `5 743` à `6 138` selon
-les fenêtres token produites, donc une comparaison à budget d'updates égal
-reste nécessaire.
+`4,723` avec FIFO/Reservoir et `4,638` avec Prioritized non corrigé/corrigé
+(`4,639` corrigé). Ocara reste autour de `3,97–4,01`. Les cinq variantes
+restent à 50 % en QA fermée et 0 % en exact match génératif. Le buffer mesuré
+contient environ `14,6–25,8 kB` de texte pour les trois documents replayés.
+Les updates varient de `5 743` à `6 138`; un budget d'updates égal et plusieurs
+seeds, ordres et capacités restent à mesurer.
 
 Le protocole provisoire, les portes de qualité et les limites sont décrits dans
 [`acceptance-protocol.md`](acceptance-protocol.md).

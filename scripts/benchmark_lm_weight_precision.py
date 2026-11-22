@@ -8,6 +8,7 @@ import json
 import math
 import platform
 import subprocess
+import tempfile
 from pathlib import Path
 
 from benchmark_language_model import metrics, records, timed
@@ -39,19 +40,30 @@ def main() -> None:
     rows = []
     test_utf8_bytes = sum(len(document.encode("utf-8")) for document in records(args.text))
     variants = (
-        ("float64", None, None),
-        ("int8_fake_weights", "int8", None),
-        ("int16_fake_weights", "int16", None),
-        ("float32_compute", None, "float32"),
-        ("int8_compute_activations", None, "int8"),
-        ("int16_compute_activations", None, "int16"),
+        ("float64", None, None, None),
+        ("int8_fake_weights", "int8", None, None),
+        ("int16_fake_weights", "int16", None, None),
+        ("float32_compute", None, "float32", None),
+        ("int8_compute_activations", None, "int8", None),
+        ("int16_compute_activations", None, "int16", None),
+        ("int8_compact_checkpoint", None, None, "int8"),
+        ("int16_compact_checkpoint", None, None, "int16"),
     )
-    for label, weight_precision, compute_precision in variants:
-        command = [
-            str(args.binary), "lm", "evaluate", "--model", str(args.model),
-            "--text", str(args.text), "--qa", str(args.qa),
-            "--qa-label", "oui", "--qa-label", "non",
-        ]
+    with tempfile.TemporaryDirectory(prefix="gloomy-compact-precision-") as temporary:
+      for label, weight_precision, compute_precision, compact_precision in variants:
+        model_path = args.model
+        conversion_seconds = 0.0
+        conversion_values = {}
+        if compact_precision:
+            model_path = Path(temporary) / f"{compact_precision}.gloomy"
+            conversion_output, conversion_seconds, _ = timed([
+                str(args.binary), "lm", "quantize", "--model", str(args.model),
+                "--output", str(model_path), "--precision", compact_precision,
+            ])
+            conversion_values = metrics(conversion_output)
+        command = [str(args.binary), "lm", "evaluate", "--model", str(model_path),
+                   "--text", str(args.text), "--qa", str(args.qa),
+                   "--qa-label", "oui", "--qa-label", "non"]
         if weight_precision:
             command.extend(("--weight-precision", weight_precision))
         if compute_precision:
@@ -64,6 +76,9 @@ def main() -> None:
         values["variant"] = label
         values["wall_seconds"] = f"{wall_seconds:.9g}"
         values["max_rss_kib"] = str(max_rss_kib)
+        values["model_bytes"] = str(model_path.stat().st_size)
+        values["conversion_seconds"] = f"{conversion_seconds:.9g}"
+        values.update({key: value for key, value in conversion_values.items() if key.startswith("weight_")})
         rows.append(values)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +86,7 @@ def main() -> None:
               "compute_precision_bits", "activation_precision_bits",
               "cross_entropy", "perplexity", "tokens", "test_utf8_bytes", "bits_per_byte", "qa_exact_match", "qa_token_f1",
               "qa_closed_set_accuracy", "qa_generation_ms_per_example",
-              "qa_generation_tokens_per_second", "wall_seconds", "max_rss_kib"]
+              "qa_generation_tokens_per_second", "wall_seconds", "max_rss_kib", "model_bytes", "conversion_seconds"]
     with args.output.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
@@ -80,14 +95,15 @@ def main() -> None:
     compiler = subprocess.run(["g++", "--version"], check=True, text=True,
                               stdout=subprocess.PIPE).stdout.splitlines()[0]
     manifest = {
-        "format": "gloomy-transformer-weight-precision-pilot-v1",
+        "format": "gloomy-transformer-weight-precision-pilot-v2",
         "method": {
             "int8_fake_weights/int16_fake_weights": "Per-matrix symmetric fake quantization followed by dequantization into float64 parameters.",
             "float32_compute": "Float32-rounded graph arithmetic and dot products.",
             "int8_compute_activations/int16_compute_activations": "Inputs and weights quantized per input vector/output channel; integer dot products accumulate in int64 and dequantize outputs. Q/K/V, attention outputs, and feed-forward activations are quantized per vector.",
+            "int8_compact_checkpoint/int16_compact_checkpoint": "Decay tensors are stored as symmetric int8/int16 with a per-tensor scale; biases and normalization tensors remain float64. Conversion output reports maximum/mean quantization error and elapsed conversion time.",
             "all_modes": "Biases and normalization parameters stay float64; integer modes use float64 biases and normalization math.",
         },
-        "memory_interpretation": "Checkpoint parameters remain float64 and integer operands are quantized on the fly, not stored in a packed checkpoint. Reduced inference skips autodiff graph nodes for linear layers; RSS measures this implementation path and is not a packed-weight storage comparison.",
+        "memory_interpretation": "int8/int16 compact checkpoints store decay tensors as packed integers; loading expands them back into float64 parameters, so file-size reduction is real but runtime parameter RAM is not reduced. Integer operations are still quantized on the fly.",
         "timing_interpretation": "Reduced modes use direct linear kernels while the float64 reference builds autodiff nodes; observed speed differences include this inference-path change and cannot be attributed only to numeric precision.",
         "model": {"path": str(args.model), "bytes": args.model.stat().st_size, "sha256": sha256(args.model)},
         "text_test": {"path": str(args.text), "bytes": args.text.stat().st_size, "sha256": sha256(args.text)},

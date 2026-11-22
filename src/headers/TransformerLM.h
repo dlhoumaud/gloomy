@@ -21,6 +21,8 @@ struct LanguageSequence {
     std::vector<std::uint32_t> input;
     std::vector<std::uint32_t> target;
     std::vector<std::uint8_t> loss_mask;
+    double loss_weight = 1.0;
+    double loss_normalizer = 1.0;
 };
 
 struct LanguageMetrics {
@@ -52,6 +54,7 @@ public:
     const TransformerConfig& config() const;
     std::uint64_t updateCount() const;
     void writeCheckpoint(std::ostream& stream) const;
+    WeightQuantizationMetrics writeCompactCheckpoint(std::ostream& stream, std::size_t bits) const;
     static TransformerLM readCheckpoint(std::istream& stream);
 
 private:
@@ -77,6 +80,7 @@ private:
     std::size_t final_norm_scale, final_norm_bias, output_weight, output_bias;
     std::vector<Parameter> parameters;
     std::size_t inference_precision_bits = 0;
+    bool inference_only_checkpoint = false;
     std::uint64_t update_count = 0;
     mutable std::mt19937 random_generator;
 };

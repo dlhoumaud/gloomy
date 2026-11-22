@@ -96,6 +96,7 @@ def main() -> None:
             chosen = weighted_rng.choices(population, weights=weights, k=1)[0]
             selected_prioritized.append(priority_documents[chosen])
         selections["prioritized_loss"] = selected_prioritized
+        selections["prioritized_corrected"] = selected_prioritized
         loss_by_document = dict(zip(priority_documents, losses))
         uniform_loss = sum(losses) / len(losses)
         priority_probabilities = [priority / sum(priorities) for priority in priorities]
@@ -109,10 +110,18 @@ def main() -> None:
             shutil.copyfile(args.model, model)
             training_path = work / f"{strategy}-phase-b.txt"
             write_records(training_path, new_train + replay)
+            sample_weights_path = work / f"{strategy}-sample-weights.txt"
+            replay_weights = []
+            if strategy == "prioritized_corrected":
+                for document in replay:
+                    probability = priorities[priority_documents.index(document)] / sum(priorities)
+                    replay_weights.append(1.0 / (len(priority_documents) * probability))
+            sample_weights_path.write_text("".join("1.0\n" for _ in new_train) + "".join(f"{weight:.17g}\n" for weight in replay_weights or [1.0] * len(replay)), encoding="utf-8")
             train_command = [
                 str(args.binary), "lm", "train", "--resume", "--train", str(training_path),
                 "--validation", str(ocara / "validation.txt"), "--model", str(model),
                 "--batch-size", "2", "--epochs", "1",
+                "--sample-weights", str(sample_weights_path),
             ]
             train_output, train_wall, train_rss = timed(train_command)
             train_values = metrics(train_output)
@@ -120,7 +129,7 @@ def main() -> None:
             new_metrics, new_wall, new_rss = evaluate(args.binary, model, new_test, new_qa)
             selected_loss = (
                 sum(loss_by_document[doc] for doc in replay) / len(replay)
-                if replay and strategy == "prioritized_loss"
+                if replay and strategy.startswith("prioritized")
                 else None
             )
             rows.append({
@@ -129,7 +138,9 @@ def main() -> None:
                 "replay_selection": ";".join(str(old_train.index(doc)) for doc in replay),
                 "uniform_priority_pool_cross_entropy": f"{uniform_loss:.9g}",
                 "selected_replay_cross_entropy": f"{selected_loss:.9g}" if selected_loss is not None else "",
-                "replay_loss_sampling_bias": f"{expected_sampling_bias:.9g}" if strategy == "prioritized_loss" else "",
+                "replay_loss_sampling_bias": f"{expected_sampling_bias:.9g}" if strategy.startswith("prioritized") else "",
+                "importance_weight_mean": f"{sum(replay_weights) / len(replay_weights):.9g}" if replay_weights else "",
+                "replay_buffer_estimated_bytes": sum(len(doc.encode("utf-8")) for doc in replay),
                 "updates": train_values.get("updates", ""),
                 "train_wall_seconds": f"{train_wall:.9g}",
                 "train_max_rss_kib": train_rss,
@@ -163,7 +174,8 @@ def main() -> None:
                 "none": "no phase-A documents replayed",
                 "fifo": "last N phase-A documents",
                 "reservoir": "N uniformly sampled phase-A documents, fixed seed",
-                "prioritized_loss": "N documents sampled with replacement proportional to phase-A per-document cross-entropy; no importance-weight correction",
+                "prioritized_loss": "N documents sampled with replacement proportional to phase-A per-document cross-entropy, without correction",
+                "prioritized_corrected": "Same prioritized samples with beta=1 document-level importance weight 1/(N*p_i); each document contributes its token-average loss and the denominator is independent of importance weights",
             },
             "replay_documents": args.replay_documents,
             "phase_b_documents": len(new_train),
@@ -178,10 +190,9 @@ def main() -> None:
             "phase_b_qa_sha256": sha256(new_qa),
             "results": args.output.name,
             "limitations": [
-                "single phase order and seed; exploratory comparison, not a general ranking",
+                "single training seed, phase order and replay capacity; exploratory comparison, not a general ranking",
                 "QA metrics are reported but phase-B adaptation trains next-token text only",
                 "training updates differ because replay documents produce different numbers of token windows; a fixed-update comparison remains to be run",
-                "prioritized replay intentionally has no importance-sampling correction; the reported cross-entropy shift exposes sample bias",
             ],
         }
         manifest_path = args.output.with_suffix(".manifest.json")

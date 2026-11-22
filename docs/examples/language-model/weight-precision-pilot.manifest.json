@@ -1,12 +1,13 @@
 {
-  "format": "gloomy-transformer-weight-precision-pilot-v1",
+  "format": "gloomy-transformer-weight-precision-pilot-v2",
   "method": {
     "int8_fake_weights/int16_fake_weights": "Per-matrix symmetric fake quantization followed by dequantization into float64 parameters.",
     "float32_compute": "Float32-rounded graph arithmetic and dot products.",
     "int8_compute_activations/int16_compute_activations": "Inputs and weights quantized per input vector/output channel; integer dot products accumulate in int64 and dequantize outputs. Q/K/V, attention outputs, and feed-forward activations are quantized per vector.",
+    "int8_compact_checkpoint/int16_compact_checkpoint": "Decay tensors are stored as symmetric int8/int16 with a per-tensor scale; biases and normalization tensors remain float64. Conversion output reports maximum/mean quantization error and elapsed conversion time.",
     "all_modes": "Biases and normalization parameters stay float64; integer modes use float64 biases and normalization math."
   },
-  "memory_interpretation": "Checkpoint parameters remain float64 and integer operands are quantized on the fly, not stored in a packed checkpoint. Reduced inference skips autodiff graph nodes for linear layers; RSS measures this implementation path and is not a packed-weight storage comparison.",
+  "memory_interpretation": "int8/int16 compact checkpoints store decay tensors as packed integers; loading expands them back into float64 parameters, so file-size reduction is real but runtime parameter RAM is not reduced. Integer operations are still quantized on the fly.",
   "timing_interpretation": "Reduced modes use direct linear kernels while the float64 reference builds autodiff nodes; observed speed differences include this inference-path change and cannot be attributed only to numeric precision.",
   "model": {
     "path": "artifacts/gloomy-docs.gloomy",
