@@ -7,6 +7,8 @@ BENCHMARK_SRC = src/BenchmarkRunner.cpp src/GloomyModelSerialization.cpp src/Lea
 # Cible de test de la fonction de perte
 TEST_TARGET = bin/loss_tests
 TEST_SRC = tests/loss_tests.cpp src/GloomyModelSerialization.cpp src/LearningMemorySerialization.cpp src/OptimizerSerialization.cpp src/LossFunction.cpp src/DenseLayer.cpp src/NeuralNetwork.cpp src/Optimizer.cpp src/LearningEngine.cpp src/FIFOMemory.cpp src/ReservoirMemory.cpp src/PrioritizedMemory.cpp src/NoveltyMemory.cpp src/HybridMemory.cpp src/ImportanceScorer.cpp src/TrainingScheduler.cpp src/Normalization.cpp src/NormalizationSerialization.cpp src/Quantization.cpp src/Int8Quantization.cpp src/TrainingSampleQuantization.cpp src/Int8TrainingSampleQuantization.cpp src/QuantizedFIFOMemory.cpp src/QuantizedInt8FIFOMemory.cpp src/TrainingSampleSerialization.cpp src/NetworkSerialization.cpp src/Metrics.cpp src/Benchmark.cpp src/MomentumOptimizer.cpp src/AdamOptimizer.cpp
+TRANSFORMER_MATH_TARGET = bin/transformer_math_tests
+TRANSFORMER_MATH_SRC = tests/transformer_math_tests.cpp src/TransformerLM.cpp
 
 # Compilateur
 CXX = g++
@@ -27,7 +29,7 @@ OBJ_DIR = src
 # Répertoire de l'exécutable
 TARGET_DIR = bin
 
-.PHONY: all benchmark benchmark-comparison test test-language-model test-language-model-docs-resume test-language-model-ocara-resume language-model-example language-model-docs-example language-model-ocara-example benchmark-language-model-docs benchmark-language-model-ocara clean
+.PHONY: all benchmark benchmark-comparison test test-language-model test-transformer-math test-language-model-docs-resume test-language-model-ocara-resume language-model-example language-model-docs-example language-model-ocara-example benchmark-language-model-docs benchmark-language-model-ocara benchmark-language-model-weight-precision clean
 
 # Règle par défaut : construire l'exécutable
 all: $(TARGET)
@@ -38,8 +40,11 @@ benchmark: $(BENCHMARK_TARGET)
 benchmark-comparison:
 	bash $(COMPARISON_SCRIPT)
 
-test: $(TEST_TARGET) test-language-model
+test: $(TEST_TARGET) test-language-model test-transformer-math
 	./$(TEST_TARGET)
+
+test-transformer-math: $(TRANSFORMER_MATH_TARGET)
+	./$(TRANSFORMER_MATH_TARGET)
 
 test-language-model: $(TARGET)
 	python3 scripts/test_language_model.py
@@ -116,6 +121,15 @@ benchmark-language-model-ocara: $(TARGET)
 		--seeds 42,43,44 --vocab 512 --context 64 --dimension 8 \
 		--heads 2 --layers 1 --batch-size 2 --epochs 3 --learning-rate 0.003
 
+# Compare fake-quantized weights using the existing local Gloomy documentation checkpoint.
+benchmark-language-model-weight-precision: $(TARGET)
+	python3 scripts/prepare_gloomy_docs_corpus.py
+	python3 scripts/benchmark_lm_weight_precision.py \
+		--model artifacts/gloomy-docs.gloomy \
+		--text data/lm/gloomy-docs/test.txt \
+		--qa data/lm/gloomy-docs/qa-test.txt \
+		--output docs/examples/language-model/weight-precision-pilot.csv
+
 # Règle pour construire l'exécutable
 $(TARGET): $(OBJ) Makefile
 	@mkdir -p $(TARGET_DIR)
@@ -128,6 +142,10 @@ $(BENCHMARK_TARGET): $(BENCHMARK_SRC) Makefile
 $(TEST_TARGET): $(TEST_SRC) Makefile
 	@mkdir -p $(TARGET_DIR)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $(TEST_TARGET) $(TEST_SRC)
+
+$(TRANSFORMER_MATH_TARGET): $(TRANSFORMER_MATH_SRC) src/headers/TransformerLM.h Makefile
+	@mkdir -p $(TARGET_DIR)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $(TRANSFORMER_MATH_TARGET) $(TRANSFORMER_MATH_SRC)
 
 # Règle pour compiler les fichiers .cpp en fichiers .o
 $(OBJ_DIR)/%.o: src/%.cpp
@@ -143,6 +161,7 @@ clean:
 	rm -f $(TARGET)
 	rm -f $(BENCHMARK_TARGET)
 	rm -f $(TEST_TARGET)
+	rm -f $(TRANSFORMER_MATH_TARGET)
 	rm -f $(OBJ_DIR)/*.o
 	rmdir -p $(TARGET_DIR)
 

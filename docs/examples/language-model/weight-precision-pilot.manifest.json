@@ -1,0 +1,24 @@
+{
+  "format": "gloomy-transformer-weight-precision-pilot-v1",
+  "method": "Per-matrix symmetric fake quantization followed by dequantization into float64 parameters; biases, normalization vectors, activations, and arithmetic remain float64.",
+  "memory_interpretation": "RSS and checkpoint storage remain float64; this pilot measures numerical effects, not packed-integer memory or integer-kernel speed.",
+  "model": {
+    "path": "artifacts/gloomy-docs.gloomy",
+    "bytes": 251575,
+    "sha256": "96b837760ac5291b3aa37558bd55888f992c42554a79e87f0ee3aeb971895f83"
+  },
+  "text_test": {
+    "path": "data/lm/gloomy-docs/test.txt",
+    "bytes": 4636,
+    "sha256": "7c71653e90bd343b5c48b7b7a93949c0c246ce37d399d870957988ae9475e51c"
+  },
+  "qa_test": {
+    "path": "data/lm/gloomy-docs/qa-test.txt",
+    "bytes": 994,
+    "sha256": "753c1d973431c03365e9347375c06f15b584040e70dcd30c708b625afaba2497"
+  },
+  "machine": "Linux-7.0.0-43-generic-x86_64-inconnu-with-glibc2.43",
+  "cpu": "AMD Ryzen 3 5300U with Radeon Graphics",
+  "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+  "results": "weight-precision-pilot.csv"
+}

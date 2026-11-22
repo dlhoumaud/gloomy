@@ -202,6 +202,23 @@ def main() -> None:
         assert "qa_generation_tokens_per_second=" in evaluation.stdout
         assert "qa_closed_set_accuracy=" in evaluation.stdout
         assert "qa_closed_set_total=2" in evaluation.stdout
+        for precision in ("int8", "int16"):
+            quantized_evaluation = run(
+                "lm", "evaluate", "--model", str(resumed),
+                "--qa", str(qa_test_path),
+                "--qa-label", "À l'aube.",
+                "--qa-label", "Dans une boîte bleue.",
+                "--weight-precision", precision,
+            )
+            assert "weight_precision_bits=" in quantized_evaluation.stdout
+            assert "weight_max_abs_error=" in quantized_evaluation.stdout
+            assert "qa_closed_set_total=2" in quantized_evaluation.stdout
+        invalid_precision = run(
+            "lm", "evaluate", "--model", str(resumed),
+            "--qa", str(qa_test_path),
+            "--weight-precision", "int4", expected=1,
+        )
+        assert "must be int8 or int16" in invalid_precision.stderr
         invalid_closed_set = run(
             "lm", "evaluate", "--model", str(resumed),
             "--qa", str(qa_test_path),

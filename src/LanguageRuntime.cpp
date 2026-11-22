@@ -48,7 +48,7 @@ double tokenF1(const std::string&generated,const std::string&reference){const au
 struct Completion{std::string text;std::size_t token_count;};
 Completion greedyCompletion(const TextTokenizer&tok,const TransformerLM&model,const std::string&prompt,std::size_t max_tokens){auto ids=tok.encode(prompt);ids.insert(ids.begin(),TextTokenizer::bosId);std::vector<std::uint32_t> generated;for(std::size_t i=0;i<max_tokens;++i){auto logits=model.nextTokenLogits(ids);auto next=static_cast<std::uint32_t>(std::distance(logits.begin(),std::max_element(logits.begin(),logits.end())));if(next==TextTokenizer::eosId)break;ids.push_back(next);generated.push_back(next);}const std::size_t count=generated.size();return {tok.decode(generated),count};}
 double continuationLogProbability(const TextTokenizer&tok,const TransformerLM&model,const std::string&prompt,const std::string&continuation){auto ids=tok.encode(prompt);ids.insert(ids.begin(),TextTokenizer::bosId);auto targets=tok.encode(continuation);if(targets.empty())throw std::runtime_error("Closed QA label produces no tokens");targets.push_back(TextTokenizer::eosId);double score=0;for(auto target:targets){const auto logits=model.nextTokenLogits(ids);if(target>=logits.size())throw std::runtime_error("Closed QA label token is outside the model vocabulary");const double maximum=*std::max_element(logits.begin(),logits.end());double sum=0;for(double value:logits)sum+=std::exp(value-maximum);score+=logits[target]-maximum-std::log(sum);ids.push_back(target);}return score;}
-void usage(){std::cerr<<"Usage:\n  gloomy lm train --train FILE --validation FILE --model FILE [--qa-train FILE --vocab N --context N --dimension N --heads N --layers N --batch-size N --epochs N --learning-rate X --seed N]\n  gloomy lm generate --model FILE --prompt TEXT [--tokens N --temperature X --top-k N --top-p X --seed N]\n  gloomy lm evaluate --model FILE --text FILE [--qa FILE --qa-label LABEL ...]\n";}
+void usage(){std::cerr<<"Usage:\n  gloomy lm train --train FILE --validation FILE --model FILE [--qa-train FILE --vocab N --context N --dimension N --heads N --layers N --batch-size N --epochs N --learning-rate X --seed N]\n  gloomy lm generate --model FILE --prompt TEXT [--tokens N --temperature X --top-k N --top-p X --seed N]\n  gloomy lm evaluate --model FILE --text FILE [--qa FILE --qa-label LABEL ... --weight-precision int8|int16]\n";}
 }
 
 int runLanguageCommand(int argc,char*argv[]){try{if(argc<3){usage();return 2;}const std::string command=argv[2];if(command=="train"){
@@ -86,6 +86,7 @@ int runLanguageCommand(int argc,char*argv[]){try{if(argc<3){usage();return 2;}co
     std::string path,prompt;std::size_t tokens=64;double temp=0.8,top_p=1;int top_k=0;std::uint32_t seed=1234;for(int i=3;i<argc;++i){std::string a=argv[i];if(a=="--model")path=value(i,argc,argv,a);else if(a=="--prompt")prompt=value(i,argc,argv,a);else if(a=="--tokens")tokens=std::stoul(value(i,argc,argv,a));else if(a=="--temperature")temp=number(value(i,argc,argv,a),a);else if(a=="--top-k")top_k=std::stoi(value(i,argc,argv,a));else if(a=="--top-p")top_p=number(value(i,argc,argv,a),a);else if(a=="--seed")seed=std::stoul(value(i,argc,argv,a));else throw std::invalid_argument("Unknown option: "+a);}if(path.empty()||prompt.empty()||temp<0||top_k<0||top_p<=0||top_p>1)throw std::invalid_argument("generate requires model, prompt and valid decoding options");auto loaded=load(path);auto ids=loaded.tokenizer.encode(prompt);ids.insert(ids.begin(),TextTokenizer::bosId);std::mt19937 rng(seed);std::vector<std::uint32_t> generated;for(std::size_t i=0;i<tokens;++i){auto next=sample(loaded.model.nextTokenLogits(ids),temp,top_k,top_p,rng).front();if(next==TextTokenizer::eosId)break;ids.push_back(next);generated.push_back(next);}std::cout<<prompt<<loaded.tokenizer.decode(generated)<<"\n";return 0;
 }else if(command=="evaluate"){
     std::string path,text_path,qa_path;
+    std::size_t weight_precision=0;
     std::vector<std::string> qa_labels;
     for(int i=3;i<argc;++i){
         std::string a=argv[i];
@@ -93,6 +94,7 @@ int runLanguageCommand(int argc,char*argv[]){try{if(argc<3){usage();return 2;}co
         else if(a=="--text")text_path=value(i,argc,argv,a);
         else if(a=="--qa")qa_path=value(i,argc,argv,a);
         else if(a=="--qa-label")qa_labels.push_back(value(i,argc,argv,a));
+        else if(a=="--weight-precision"){const auto precision=value(i,argc,argv,a);if(precision=="int8")weight_precision=8;else if(precision=="int16")weight_precision=16;else throw std::invalid_argument("--weight-precision must be int8 or int16");}
         else throw std::invalid_argument("Unknown option: "+a);
     }
     if(path.empty()||(text_path.empty()&&qa_path.empty()))throw std::invalid_argument("evaluate requires --model and at least one of --text or --qa");
@@ -104,6 +106,7 @@ int runLanguageCommand(int argc,char*argv[]){try{if(argc<3){usage();return 2;}co
             throw std::invalid_argument("QA candidate labels must be non-empty and unique");
     }
     auto loaded=load(path);
+    if(weight_precision){const auto quantization=loaded.model.quantizeWeights(weight_precision);std::cout<<"weight_precision_bits="<<quantization.bits<<" weight_max_abs_error="<<quantization.maximum_absolute_error<<" weight_mean_abs_error="<<quantization.mean_absolute_error<<"\n";}
     if(!text_path.empty()){
         auto data=sequences(loaded.tokenizer,readText(text_path),loaded.model.contextLength());
         if(data.empty())throw std::runtime_error("Text evaluation corpus contains no non-empty lines");

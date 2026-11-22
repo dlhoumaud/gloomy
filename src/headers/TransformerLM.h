@@ -29,10 +29,18 @@ struct LanguageMetrics {
     std::size_t token_count = 0;
 };
 
+struct WeightQuantizationMetrics {
+    std::size_t bits = 0;
+    double maximum_absolute_error = 0.0;
+    double mean_absolute_error = 0.0;
+};
+
 class TransformerLM {
 public:
     TransformerLM(std::size_t vocabulary_size, TransformerConfig config);
     double trainBatch(const std::vector<LanguageSequence>& batch);
+    double gradientCheck(const std::vector<LanguageSequence>& batch, double epsilon = 1e-5) const;
+    WeightQuantizationMetrics quantizeWeights(std::size_t bits);
     void shuffleTrainingSequences(std::vector<LanguageSequence>& sequences);
     void shuffleSequenceIndices(std::vector<std::size_t>& indices);
     LanguageMetrics evaluate(const std::vector<LanguageSequence>& sequences) const;

@@ -11,3 +11,4 @@ benchmark_progressive_drift.csv
 benchmark_optimization_comparison.csv
 artifacts/*.gloomy
 data/lm/
+scripts/__pycache__

@@ -129,6 +129,29 @@ python3 scripts/benchmark_language_model.py \
 
 Le résultat brut de cette commande est conservé dans [`results-3-seeds.csv`](results-3-seeds.csv); le JSON homonyme `.manifest.json` conserve les empreintes des données et le profil logiciel/matériel. Le CSV rapporte aussi la QA validation et test (génération libre et choix fermé par score des labels), leur baseline majoritaire d'entraînement, le temps/RSS d'entraînement et d'évaluation, les tokens/s d'évaluation, la latence QA moyenne et tokens/s de génération, les dimensions/taille/empreintes des splits et la taille du checkpoint. La cross-entropy par token n'est pas directement comparable si le tokenizer change; `test_bits_per_byte` divise la somme des pertes (y compris les tokens EOS) par les octets UTF-8 du texte test normalisé, hors séparateurs de lignes. La cible est la machine CPU locale décrite par le manifeste, pas une cible embarquée. Le runner ne calcule aucun score composite.
 
+## Précision réduite des poids : pilote
+
+Après avoir entraîné le checkpoint documentaire Gloomy, lancer :
+
+```sh
+make benchmark-language-model-weight-precision
+```
+
+Le pilote compare float64 à une simulation de quantification symétrique int8 et
+int16 par matrice, puis déquantifie les poids en float64 avant l'inférence. Il
+rapporte les erreurs de quantification, les bits par octet implicites dans la
+cross-entropy, les métriques QA, la durée et la RSS dans
+[`weight-precision-pilot.csv`](weight-precision-pilot.csv) et son manifeste.
+Les biais, les vecteurs de normalisation, les activations et les opérations
+restent en float64; le stockage reste lui aussi en float64. Ces chiffres
+isolent l'effet de l'arrondi des poids et ne mesurent ni la RAM d'un format
+compact, ni la vitesse de noyaux entiers. Le calcul et les activations à
+précision réduite nécessitent encore une implémentation et une campagne
+distinctes.
+
+Le protocole provisoire, les portes de qualité et les limites sont décrits dans
+[`acceptance-protocol.md`](acceptance-protocol.md).
+
 Un contrôle séparé de 50 epochs mémorise exactement 2 réponses sur les 3 prompts QA vus et atteint une cross-entropy train de 1,65. Sur les questions tenues à l'écart, il reste à 0/2 et la perplexité test est de 144,23. Les mesures brutes sont dans [`qa-overfit-diagnostic.csv`](qa-overfit-diagnostic.csv). Ce contrôle montre l'écart entre mémoriser quelques exemples et généraliser; il ne constitue pas un benchmark de qualité.
 
 ## Reprendre l'entraînement

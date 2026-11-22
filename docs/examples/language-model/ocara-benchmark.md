@@ -1,5 +1,8 @@
 # Benchmark documentaire Ocara
 
+Les tâches, seuils provisoires et limites d'interprétation du benchmark sont
+rassemblés dans le [protocole d'acceptation applicative](acceptance-protocol.md).
+
 Ce benchmark expérimental étend l'assistant documentaire à la documentation
 technique du projet Ocara fournie localement par l'utilisateur. Les sources sont
 ignorées par Git sous `docs/examples/language-model-ocara/` et ne sont ni copiées

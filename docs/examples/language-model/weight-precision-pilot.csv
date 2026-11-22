@@ -1,0 +1,4 @@
+variant,weight_precision_bits,weight_max_abs_error,weight_mean_abs_error,cross_entropy,perplexity,tokens,qa_exact_match,qa_token_f1,qa_closed_set_accuracy,qa_generation_ms_per_example,qa_generation_tokens_per_second,wall_seconds,max_rss_kib
+float64,,,,4.289,72.8936,2423,0.5,0.5,0.5,65.7035,25.3665,4.84870112,37732
+int8_fake_weights,8,0.00416975,0.00174774,4.28818,72.834,2423,0.5,0.5,0.5,63.0514,26.4335,4.67661393,37796
+int16_fake_weights,16,1.61633e-05,6.76987e-06,4.289,72.8936,2423,0.5,0.5,0.5,62.1859,26.8013,4.6307955,37796

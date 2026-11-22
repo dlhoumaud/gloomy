@@ -125,14 +125,140 @@ double TransformerLM::trainBatch(const std::vector<LanguageSequence>& batch){
         auto rows=TransformerExecutor::allLogits(g,*this,seq.input,p);
         for(std::size_t t=0;t<seq.target.size();++t){if(!seq.loss_mask.empty()&&!seq.loss_mask[t])continue;auto&logits=rows[t];double mx=-std::numeric_limits<double>::infinity();for(auto x:logits)mx=std::max(mx,x.val());V sum=constant(g,0);std::vector<V> ex;for(auto x:logits){ex.push_back(expv(sub(x,constant(g,mx))));sum=add(sum,ex.back());}V lp=sub(sub(logits[seq.target[t]],constant(g,mx)),{sum.g,sum.g->unary(sum.i,std::log(sum.val()),1.0/sum.val())});loss=sub(loss,lp);++count;}}
     if(!count) throw std::invalid_argument("No language tokens in batch");
+    for (const auto& node : g.nodes) {
+        if (!std::isfinite(node.value))
+            throw std::runtime_error("Non-finite value in Transformer training graph");
+    }
     loss=scale(loss,1.0/count);g.backward(loss.i);
-    const double beta1=.9,beta2=.999,eps=1e-8;const auto step=++update_count;double norm2=0;
+    const double beta1=.9,beta2=.999,eps=1e-8;
     // Each parameter leaf is created in the same order as the flattened nodes.
-    std::size_t node=0;for(const auto&param:parameters)for(std::size_t i=0;i<param.value.size();++i){const double grad=g.nodes[node++].gradient;norm2+=grad*grad;}
-    const double clip=norm2>1.0?1.0/std::sqrt(norm2):1.0;
+    long double norm_squared=0;std::size_t node=0;for(const auto&param:parameters)for(std::size_t i=0;i<param.value.size();++i){const double grad=g.nodes[node++].gradient;if(!std::isfinite(grad))throw std::runtime_error("Non-finite gradient in Transformer training graph");norm_squared+=static_cast<long double>(grad)*grad;}
+    if(!std::isfinite(norm_squared))throw std::runtime_error("Non-finite gradient norm in Transformer training graph");
+    const double clip=norm_squared>1.0L?static_cast<double>(1.0L/std::sqrt(norm_squared)):1.0;
+    if(update_count==std::numeric_limits<std::uint64_t>::max())
+        throw std::runtime_error("Transformer update counter is exhausted");
+    const auto step=update_count+1;
+    node=0;
+    for(const auto&param:parameters)for(std::size_t i=0;i<param.value.size();++i){
+        const double grad=g.nodes[node++].gradient*clip;
+        const double first=beta1*param.first_moment[i]+(1-beta1)*grad;
+        const double second=beta2*param.second_moment[i]+(1-beta2)*grad*grad;
+        const double corrected_first=first/(1-std::pow(beta1,static_cast<double>(step)));
+        const double corrected_second=second/(1-std::pow(beta2,static_cast<double>(step)));
+        const double value=param.value[i]-model_config.learning_rate*(corrected_first/(std::sqrt(corrected_second)+eps)+(param.decay?model_config.weight_decay*param.value[i]:0));
+        if(!std::isfinite(first)||!std::isfinite(second)||!std::isfinite(value))
+            throw std::runtime_error("Non-finite Transformer parameter update rejected");
+    }
+    update_count=step;
     node=0;for(auto&param:parameters)for(std::size_t i=0;i<param.value.size();++i){double grad=g.nodes[node++].gradient*clip;param.first_moment[i]=beta1*param.first_moment[i]+(1-beta1)*grad;param.second_moment[i]=beta2*param.second_moment[i]+(1-beta2)*grad*grad;const double m=param.first_moment[i]/(1-std::pow(beta1,static_cast<double>(step))),v=param.second_moment[i]/(1-std::pow(beta2,static_cast<double>(step)));param.value[i]-=model_config.learning_rate*(m/(std::sqrt(v)+eps)+(param.decay?model_config.weight_decay*param.value[i]:0));}
+    for (const auto& param : parameters) {
+        for (std::size_t i = 0; i < param.value.size(); ++i) {
+            if (!std::isfinite(param.value[i]) || !std::isfinite(param.first_moment[i]) ||
+                !std::isfinite(param.second_moment[i]))
+                throw std::runtime_error("Non-finite parameter or Adam state after Transformer update");
+        }
+    }
     return loss.val();
 }
+
+double TransformerLM::gradientCheck(const std::vector<LanguageSequence>& batch, double epsilon) const {
+    if (batch.empty() || !std::isfinite(epsilon) || epsilon <= 0.0)
+        throw std::invalid_argument("Gradient check requires a batch and a positive finite epsilon");
+    Graph graph;
+    auto parameter_nodes = TransformerExecutor::leaves(graph, *this);
+    V loss = constant(graph, 0.0);
+    std::size_t token_count = 0;
+    for (const auto& sequence : batch) {
+        if (sequence.input.empty() || sequence.input.size() != sequence.target.size() ||
+            sequence.input.size() > contextLength() ||
+            (!sequence.loss_mask.empty() && sequence.loss_mask.size() != sequence.target.size()))
+            throw std::invalid_argument("Invalid sequence passed to Transformer gradient check");
+        if (!sequence.loss_mask.empty())
+            for (auto mask : sequence.loss_mask)
+                if (mask > 1) throw std::invalid_argument("Invalid loss mask in Transformer gradient check");
+        for (auto id : sequence.input)
+            if (id >= vocabulary_size) throw std::invalid_argument("Invalid input token in Transformer gradient check");
+        for (auto id : sequence.target)
+            if (id >= vocabulary_size) throw std::invalid_argument("Invalid target token in Transformer gradient check");
+        const auto rows = TransformerExecutor::allLogits(graph, *this, sequence.input, parameter_nodes);
+        for (std::size_t t = 0; t < sequence.target.size(); ++t) {
+            if (!sequence.loss_mask.empty() && !sequence.loss_mask[t]) continue;
+            const auto& logits = rows[t];
+            double maximum = -std::numeric_limits<double>::infinity();
+            for (auto value : logits) maximum = std::max(maximum, value.val());
+            V sum = constant(graph, 0.0);
+            std::vector<V> exponentials;
+            exponentials.reserve(logits.size());
+            for (auto value : logits) {
+                exponentials.push_back(expv(sub(value, constant(graph, maximum))));
+                sum = add(sum, exponentials.back());
+            }
+            V log_probability = sub(
+                sub(logits[sequence.target[t]], constant(graph, maximum)),
+                {sum.g, sum.g->unary(sum.i, std::log(sum.val()), 1.0 / sum.val())});
+            loss = sub(loss, log_probability);
+            ++token_count;
+        }
+    }
+    if (!token_count) throw std::invalid_argument("Gradient check batch has no supervised tokens");
+    loss = scale(loss, 1.0 / token_count);
+    graph.backward(loss.i);
+
+    auto loss_at = [&](const TransformerLM& model) {
+        const auto metrics = model.evaluate(batch);
+        if (!std::isfinite(metrics.cross_entropy))
+            throw std::runtime_error("Non-finite loss during Transformer gradient check");
+        return metrics.cross_entropy;
+    };
+    double maximum_relative_error = 0.0;
+    std::size_t leaf = 0;
+    for (std::size_t parameter_index = 0; parameter_index < parameters.size(); ++parameter_index) {
+        const auto& parameter = parameters[parameter_index];
+        const std::size_t probes[] = {0, parameter.value.size() / 2, parameter.value.size() - 1};
+        for (std::size_t probe = 0; probe < 3; ++probe) {
+            const auto index = probes[probe];
+            const double analytic = graph.nodes[leaf + index].gradient;
+            TransformerLM plus = *this;
+            TransformerLM minus = *this;
+            plus.parameters[parameter_index].value[index] += epsilon;
+            minus.parameters[parameter_index].value[index] -= epsilon;
+            const double numerical = (loss_at(plus) - loss_at(minus)) / (2.0 * epsilon);
+            const double scale = std::max({1e-6, std::abs(analytic), std::abs(numerical)});
+            maximum_relative_error = std::max(maximum_relative_error, std::abs(analytic - numerical) / scale);
+        }
+        leaf += parameter.value.size();
+    }
+    return maximum_relative_error;
+}
+
+WeightQuantizationMetrics TransformerLM::quantizeWeights(std::size_t bits) {
+    if (bits != 8 && bits != 16)
+        throw std::invalid_argument("Transformer weight quantization supports only 8 or 16 bits");
+    const double maximum_level = static_cast<double>((std::uint32_t{1} << (bits - 1)) - 1);
+    long double absolute_error_sum = 0.0;
+    std::size_t value_count = 0;
+    WeightQuantizationMetrics metrics;
+    metrics.bits = bits;
+    for (auto& parameter : parameters) {
+        if (!parameter.decay) continue; // biases and normalization vectors stay float64
+        double maximum_absolute_value = 0.0;
+        for (double value : parameter.value)
+            maximum_absolute_value = std::max(maximum_absolute_value, std::abs(value));
+        const double scale = maximum_absolute_value == 0.0 ? 1.0 : maximum_absolute_value / maximum_level;
+        for (double& value : parameter.value) {
+            const double original = value;
+            const double quantized = std::round(original / scale) * scale;
+            const double error = std::abs(original - quantized);
+            metrics.maximum_absolute_error = std::max(metrics.maximum_absolute_error, error);
+            absolute_error_sum += error;
+            ++value_count;
+            value = quantized;
+        }
+    }
+    if (value_count) metrics.mean_absolute_error = static_cast<double>(absolute_error_sum / value_count);
+    return metrics;
+}
+
 void TransformerLM::shuffleTrainingSequences(std::vector<LanguageSequence>& sequences){std::shuffle(sequences.begin(),sequences.end(),random_generator);}
 void TransformerLM::shuffleSequenceIndices(std::vector<std::size_t>& indices){std::shuffle(indices.begin(),indices.end(),random_generator);}
 

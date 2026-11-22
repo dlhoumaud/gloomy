@@ -1,0 +1,341 @@
+{
+  "format": "gloomy-language-benchmark-v5",
+  "corpus_source": "Ocara project documentation provided by the project user",
+  "corpus_authorization": "Local training and evaluation authorized by the user; no redistribution license asserted",
+  "corpus": {
+    "train": {
+      "path": "data/lm/ocara/train.txt",
+      "documents": 26,
+      "bytes": 326348,
+      "sha256": "7be4201fca5537d649da4c65d99ddf52a52068963cb22501b60fee5b150b5f69"
+    },
+    "validation": {
+      "path": "data/lm/ocara/validation.txt",
+      "documents": 5,
+      "bytes": 46053,
+      "sha256": "ce64e70e0f17d745bbb581d6bd0846860f9275b24c113a21e410973e7fea151d"
+    },
+    "test": {
+      "path": "data/lm/ocara/test.txt",
+      "documents": 6,
+      "bytes": 46491,
+      "sha256": "791f8aec21972c91e4cf45a96a9f079e1b344cacaceaed565192a4cc53145644"
+    },
+    "qa_test": {
+      "path": "data/lm/ocara/qa-test.txt",
+      "documents": 36,
+      "bytes": 7069,
+      "sha256": "72ad48b49e0b3417fb7034bf3ce5532fb0f6db99842f625c15a392a8a599058d"
+    },
+    "qa_train": {
+      "path": "data/lm/ocara/qa-train.txt",
+      "documents": 640,
+      "bytes": 119072,
+      "sha256": "7a8c43f7cac72ee6d707a2d0889f1831f6929f4056f48e057fee78d1949f041e"
+    },
+    "qa_validation": {
+      "path": "data/lm/ocara/qa-validation.txt",
+      "documents": 20,
+      "bytes": 3138,
+      "sha256": "c50a5a85613294d7006f77cae60eb3157a0cd9b7918802fd4cd2e65ecf6ed064"
+    }
+  },
+  "corpus_provenance": {
+    "format": "ocara-documentation-corpus-v1",
+    "purpose": "French technical-language assistance and documentation-grounded QA for Ocara",
+    "authorization": "Ocara project documentation was provided by the project user for local training and evaluation; no redistribution license is asserted.",
+    "source_root": "docs/examples/language-model-ocara/docs",
+    "normalization": "NFC (Unicode 16.0.0); whitespace collapsed per source file",
+    "split_strategy": "fixed source-file-level split; no source file crosses train, validation, and test",
+    "qa_train_oversampling_factor": 32,
+    "qa_tokenizer_repeat_cap": 8,
+    "tasks": [
+      {
+        "name": "next-token prediction",
+        "split": "test",
+        "metrics": [
+          "cross_entropy",
+          "perplexity",
+          "bits_per_utf8_byte"
+        ]
+      },
+      {
+        "name": "document-grounded binary factual QA",
+        "split": "qa_train/qa_validation/qa_test",
+        "labels": [
+          "non",
+          "oui"
+        ],
+        "test_examples": 36,
+        "class_balance": {
+          "oui": 18,
+          "non": 18
+        },
+        "metrics": [
+          "free_generation_accuracy",
+          "closed_set_accuracy",
+          "token_f1",
+          "latency"
+        ],
+        "selection": "validation only; test remains held out"
+      }
+    ],
+    "sources": {
+      "train": [
+        {
+          "path": "EBNF.md",
+          "bytes": 118280,
+          "sha256": "1046b3632d2f3313d157466156b93ea7525bc3e0421ab023350ac5dcacb5d453"
+        },
+        {
+          "path": "README.md",
+          "bytes": 4967,
+          "sha256": "aad264410231db222183fec68bedf2c798abeab3b4b0e3845585294fca284c48"
+        },
+        {
+          "path": "adding-builtins.md",
+          "bytes": 16982,
+          "sha256": "1f588a260ed6fa036b1cfd2ef18ff5e52c8b58056a96679a3f7705cf9837c353"
+        },
+        {
+          "path": "adding-types.md",
+          "bytes": 25695,
+          "sha256": "5c448d75363a731e9801cbd8a45fbb10e1ce902e601ae40a092fe9c801a96730"
+        },
+        {
+          "path": "agents/copilot-ocara.agent.md",
+          "bytes": 2406,
+          "sha256": "7a7dfde0827fcf5c37e36fdec92293e597e8b412035b14955f22044d49a74b6f"
+        },
+        {
+          "path": "agents/instruction-copilot.agent.md",
+          "bytes": 2560,
+          "sha256": "2836ae29a593d12867fef434cb27f71423190cf7479941102061e5c3f416225c"
+        },
+        {
+          "path": "builtins/Convert.md",
+          "bytes": 12542,
+          "sha256": "742d6257d485359120a626f9766a5adc5b1eafaa20895e7533926271d9b1dced"
+        },
+        {
+          "path": "builtins/Date.md",
+          "bytes": 6365,
+          "sha256": "c53955f80e340537b8972bb9e64155f62e46f5893b0a6df56754c5cb917d8f82"
+        },
+        {
+          "path": "builtins/Directory.md",
+          "bytes": 15944,
+          "sha256": "8efd59c672ef1b0a57ec4045f86a82f5edc0e0af073a23cf598c4de8fd4395a7"
+        },
+        {
+          "path": "builtins/DotEnv.md",
+          "bytes": 10119,
+          "sha256": "fa070be4afe74283bd9c8ffee857c8e0d84d53ccf194d0179e2972ad74f29955"
+        },
+        {
+          "path": "builtins/File.md",
+          "bytes": 11949,
+          "sha256": "772187aba341b9ba4663ea44bf7b31aa5ec246a640a073f80ec197ae6dc84028"
+        },
+        {
+          "path": "builtins/HTML.md",
+          "bytes": 11707,
+          "sha256": "59c368fecab2609288cd4b040ba037805242f88ad8fcb330325a772f36d784fc"
+        },
+        {
+          "path": "builtins/HTMLComponent.md",
+          "bytes": 8168,
+          "sha256": "a60bf3f7c8189c00d79c4a5e76cb3c57c6bfa8a9add1edf580cc8cfaee193828"
+        },
+        {
+          "path": "builtins/HTTPServer.md",
+          "bytes": 11110,
+          "sha256": "cddacbcfb8a1a5d5fe9330964b110550bf997c66b3bc9ecdcce9691eb3425a8e"
+        },
+        {
+          "path": "builtins/IO.md",
+          "bytes": 8743,
+          "sha256": "0f1639db366ea4c277bd31a0b93edfeede8780874307bfde4ae68cef056d50c7"
+        },
+        {
+          "path": "builtins/Map.md",
+          "bytes": 9323,
+          "sha256": "32bd85f7d2886c9a2ef47df4a6936d34deb891364a12473738700b184e467847"
+        },
+        {
+          "path": "builtins/Math.md",
+          "bytes": 10063,
+          "sha256": "2932ce93809e7cf9faf08aab4597e46ac97b9f668f352e22409b5f3786390d47"
+        },
+        {
+          "path": "builtins/Mutex.md",
+          "bytes": 8018,
+          "sha256": "1e53857d4dee77d836015fe543a1e75e6dd20072efa74d488b2733ccb2e8e80f"
+        },
+        {
+          "path": "builtins/MySQL.md",
+          "bytes": 5109,
+          "sha256": "4ddd2796185584e009ac00153a3986160c1de505cb70ddc2c1364a3a41cdcc4f"
+        },
+        {
+          "path": "builtins/SDL.md",
+          "bytes": 14200,
+          "sha256": "0f0aeb8174898c6c85b442ecd1716ee799d1d20f3291a87af957cb1fd836aba4"
+        },
+        {
+          "path": "builtins/String.md",
+          "bytes": 6273,
+          "sha256": "4d62e0dadc7ef534204be79a59269b797f7d365ec5dad6ea04b172819480f078"
+        },
+        {
+          "path": "builtins/System.md",
+          "bytes": 8008,
+          "sha256": "b376b14b5efde58f17da61edec217def5f0736809971ac73eccf949e44489893"
+        },
+        {
+          "path": "builtins/Time.md",
+          "bytes": 6550,
+          "sha256": "d3a70cf5a48b589a3ba7de2ed5656283b9d24a1154aa7868f317bb5680340e62"
+        },
+        {
+          "path": "builtins/YAML.md",
+          "bytes": 5765,
+          "sha256": "be0f81b97a12a0202634dc9f7dcaf12306c8a7619ac532f1e05cb4cc77d0de8f"
+        },
+        {
+          "path": "copilot-instructions.md",
+          "bytes": 2263,
+          "sha256": "f1fd89d4abbf3a47c7489249a7e30ebf260b87b8e4aa58bf8e982e6f8c0d345f"
+        },
+        {
+          "path": "workflow-compilation.md",
+          "bytes": 10956,
+          "sha256": "6981e8163b2fa0caa613e6c22d9be86f8cc48661f57975eb733217b19fdf0224"
+        }
+      ],
+      "validation": [
+        {
+          "path": "compilation-guide.md",
+          "bytes": 8297,
+          "sha256": "c9f87752280627d94099cb8e0aa57667f1f4c6ef2164d190f77330d8851d46cc"
+        },
+        {
+          "path": "diagnostics.md",
+          "bytes": 15418,
+          "sha256": "7079ce002315d32ace8ea14c0bf1c643d0f336f03c22224ad10eec90348e90df"
+        },
+        {
+          "path": "builtins/Array.md",
+          "bytes": 9496,
+          "sha256": "d49e34696ed90e8fbbf1d2be24d53eaa69f9de561eb044c3741e91e26bfbd303"
+        },
+        {
+          "path": "builtins/JSON.md",
+          "bytes": 8645,
+          "sha256": "fbb8b7c5e3b0e98a15ca13973542db6f8052a5bba976425fdb21c38cca31e094"
+        },
+        {
+          "path": "builtins/Thread.md",
+          "bytes": 6738,
+          "sha256": "b8e3cf32822a4b3d63f592c1d275a63929ebfa155bafa2049a78286dbd62855e"
+        }
+      ],
+      "test": [
+        {
+          "path": "builtins/HTTPRequest.md",
+          "bytes": 7318,
+          "sha256": "a7fecaf0eef8550b849f3f810ff55b1e5ec9f8d77b61f89d11ef54f36f84a8b0"
+        },
+        {
+          "path": "builtins/UnitTest.md",
+          "bytes": 10412,
+          "sha256": "6576ad773a257f1cb8421c525b5082b993b7571a1bb100b39b7ef9f0ef328bec"
+        },
+        {
+          "path": "builtins/DateTime.md",
+          "bytes": 5453,
+          "sha256": "1d00d5e5f4f32d393cd45473565c3a7926f204b157fc679807122f75a3996ee2"
+        },
+        {
+          "path": "builtins/Regex.md",
+          "bytes": 13802,
+          "sha256": "cd582fd4144b27576a9dd0f23904167957c196332980e93f8bc7ac2a413acb6c"
+        },
+        {
+          "path": "builtins/SQLite.md",
+          "bytes": 4767,
+          "sha256": "65400cfe67a19e0806243e8e855dc8117baf238db705b32337cff21d29155952"
+        },
+        {
+          "path": "builtins/Tauri.md",
+          "bytes": 8385,
+          "sha256": "1f5ad3152185d9e0f71235252d841cbfee8d58465e9fc582bdc0c0d6ba407357"
+        }
+      ]
+    },
+    "splits": {
+      "train": {
+        "documents": 26,
+        "bytes": 326348,
+        "sha256": "7be4201fca5537d649da4c65d99ddf52a52068963cb22501b60fee5b150b5f69"
+      },
+      "validation": {
+        "documents": 5,
+        "bytes": 46053,
+        "sha256": "ce64e70e0f17d745bbb581d6bd0846860f9275b24c113a21e410973e7fea151d"
+      },
+      "test": {
+        "documents": 6,
+        "bytes": 46491,
+        "sha256": "791f8aec21972c91e4cf45a96a9f079e1b344cacaceaed565192a4cc53145644"
+      }
+    },
+    "qa": {
+      "qa_train": {
+        "documents": 640,
+        "bytes": 119072,
+        "sha256": "7a8c43f7cac72ee6d707a2d0889f1831f6929f4056f48e057fee78d1949f041e"
+      },
+      "qa_validation": {
+        "documents": 20,
+        "bytes": 3138,
+        "sha256": "c50a5a85613294d7006f77cae60eb3157a0cd9b7918802fd4cd2e65ecf6ed064"
+      },
+      "qa_test": {
+        "documents": 36,
+        "bytes": 7069,
+        "sha256": "72ad48b49e0b3417fb7034bf3ce5532fb0f6db99842f625c15a392a8a599058d"
+      }
+    }
+  },
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "model": {
+    "vocab": 512,
+    "context": 64,
+    "dimension": 8,
+    "heads": 2,
+    "layers": 1,
+    "batch_size": 2,
+    "epochs": 3,
+    "learning_rate": 0.003
+  },
+  "target": {
+    "os": "Linux-7.0.0-43-generic-x86_64-inconnu-with-glibc2.43",
+    "architecture": "x86_64",
+    "cpu_model": "AMD Ryzen 3 5300U with Radeon Graphics",
+    "logical_cpus": 8,
+    "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "binary": "/home/gloomshade/Documents/Projects/deep-learning/bin/gloomy",
+    "binary_sha256": "baf7a30fb273d6968054c468663f7bf92d9ab59b1ef5a2fc6c4ba067a6cbf33e",
+    "timer": "Python standard-library perf_counter",
+    "rss_measurement": "Linux /proc/<pid>/status VmHWM sampled at 1 ms; may miss short peaks",
+    "rss_unit": "KiB"
+  },
+  "quality_metrics": {
+    "test_bits_per_byte": "test cross-entropy sum in nats, including end-of-document targets, divided by ln(2) and normalized UTF-8 test-text bytes excluding line separators"
+  }
+}
