@@ -15,6 +15,7 @@ EXAMPLE = ROOT / "docs/examples/language-model"
 sys.path.insert(0, str(ROOT / "scripts"))
 from benchmark_language_model import metrics, qa_pairs, records, validate_splits
 from prepare_gloomy_docs_corpus import prepare as prepare_gloomy_docs
+import prepare_ocara_corpus
 
 
 def run(*arguments: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
@@ -59,6 +60,22 @@ def main() -> None:
         "qa_token_f1": "0.25",
         "qa_exact_match": "0",
     }
+    assert len(prepare_ocara_corpus.TRAIN_FILES) == 26
+    assert len(prepare_ocara_corpus.VALIDATION_FILES) == 5
+    assert len(prepare_ocara_corpus.TEST_FILES) == 6
+    for specifications in (
+        prepare_ocara_corpus.QA_TRAIN_SPECS,
+        prepare_ocara_corpus.QA_VALIDATION_SPECS,
+        prepare_ocara_corpus.QA_TEST_SPECS,
+    ):
+        labels = [specification[-1] for specification in specifications]
+        assert labels.count("oui") == labels.count("non")
+    try:
+        prepare_ocara_corpus.pair("Question ?", "contexte | ambigu", "oui")
+    except ValueError as error:
+        assert "delimiter" in str(error)
+    else:
+        raise AssertionError("QA prompt containing the row delimiter was accepted")
 
     if not BINARY.is_file():
         raise SystemExit("bin/gloomy not found; run `make` first")
@@ -124,6 +141,32 @@ def main() -> None:
         test_answers = [answer for _, answer in qa_pairs(docs_qa_test)]
         assert test_answers.count("oui") == test_answers.count("non") == 3
         assert json.loads((corpus_dir / "manifest.json").read_text()) == corpus_manifest
+
+        if prepare_ocara_corpus.SOURCE_DIR.is_dir():
+            ocara_dir = work / "ocara"
+            ocara_manifest = prepare_ocara_corpus.prepare(
+                prepare_ocara_corpus.SOURCE_DIR, ocara_dir
+            )
+            ocara_qa_validation = ocara_dir / "qa-validation.txt"
+            ocara_qa_test = ocara_dir / "qa-test.txt"
+            validate_splits(
+                records(ocara_dir / "train.txt"),
+                records(ocara_dir / "validation.txt"),
+                records(ocara_dir / "test.txt"),
+                ocara_dir / "qa-train.txt",
+                ocara_qa_test,
+                {"oui", "non"},
+                ocara_qa_validation,
+            )
+            assert len(ocara_manifest["sources"]["train"]) == 26
+            assert len(ocara_manifest["sources"]["validation"]) == 5
+            assert len(ocara_manifest["sources"]["test"]) == 6
+            assert ocara_manifest["qa"]["qa_train"]["documents"] == 640
+            assert ocara_manifest["qa"]["qa_validation"]["documents"] == 20
+            assert ocara_manifest["qa"]["qa_test"]["documents"] == 36
+            assert ocara_manifest["qa_train_oversampling_factor"] == 32
+            assert ocara_manifest["qa_tokenizer_repeat_cap"] == 8
+            assert json.loads((ocara_dir / "manifest.json").read_text()) == ocara_manifest
 
         missing = run(
             "lm", "evaluate", "--model", str(work / "missing.gloomy"),
@@ -223,6 +266,39 @@ def main() -> None:
             )
             assert "qa_exact_match=" in docs_validation_qa.stdout
             assert "qa_closed_set_total=6" in docs_validation_qa.stdout
+
+        if os.environ.get("GLOOMY_TEST_OCARA_RESUME") == "1":
+            if not prepare_ocara_corpus.SOURCE_DIR.is_dir():
+                raise SystemExit(
+                    "Ocara sources are missing; provide docs/examples/language-model-ocara/docs first"
+                )
+            ocara_full = work / "ocara-full.gloomy"
+            ocara_resumed = work / "ocara-resumed.gloomy"
+            ocara_options = (
+                "--vocab", "512", "--context", "64", "--dimension", "8",
+                "--heads", "2", "--layers", "1",
+                "--learning-rate", "0.003", "--seed", "42",
+            )
+            ocara_args = {
+                "train": ocara_dir / "train.txt",
+                "validation": ocara_dir / "validation.txt",
+                "qa_train": ocara_dir / "qa-train.txt",
+            }
+            run(*train_args(ocara_full, 2, *ocara_options, **ocara_args))
+            run(*train_args(ocara_resumed, 1, *ocara_options, **ocara_args))
+            run(*train_args(ocara_resumed, 1, "--resume", **ocara_args))
+            assert ocara_full.read_bytes() == ocara_resumed.read_bytes(), (
+                "Ocara-corpus resume did not reproduce uninterrupted training"
+            )
+            ocara_evaluation = run(
+                "lm", "evaluate", "--model", str(ocara_resumed),
+                "--text", str(ocara_dir / "test.txt"),
+                "--qa", str(ocara_qa_test),
+                "--qa-label", "oui",
+                "--qa-label", "non",
+            )
+            assert "perplexity=" in ocara_evaluation.stdout
+            assert "qa_closed_set_total=36" in ocara_evaluation.stdout
 
     print("Language-model CLI tests passed.")
 

@@ -6,11 +6,11 @@ La priorité absolue du projet est de développer puis valider un modèle de lan
 
 ## 1. Développer un véritable modèle de langage
 
-- remplacer le corpus documentaire Gloomy, le seul domaine actuellement disponible, par un corpus métier autorisé fourni pour le domaine applicatif réel et fixer avec ses responsables les critères de réussite ;
-- dépasser de façon reproductible la baseline majoritaire QA de 50 % sur un jeu de validation/test plus robuste, sans dégrader les bits par octet; les variantes testées jusqu'ici n'ont pas établi ce gain ;
+- dépasser de façon reproductible la baseline majoritaire QA de 50 % sur les tâches documentaires Ocara, sans dégrader les bits par octet, puis confirmer le gain sur le test tenu à l'écart ;
+- convenir avec les utilisateurs métier des tâches, références et seuils d'acceptation avant de traiter les résultats documentaires comme une qualité applicative ;
 - reproduire les mesures de référence sur le matériel de déploiement lorsqu'une cible applicative concrète sera définie; la campagne actuelle caractérise uniquement la baseline CPU locale.
 
-Le parcours documentaire local, les tâches contrôlées prochain-token/QA, la sélection sur validation, l'évaluation tenue à l'écart, les mesures multi-seed et la reprise déterministe sont implémentés et consignés dans le [journal des changements](../CHANGELOG.md). Les essais d'hyperparamètres et de supervision sont aussi documentés; les variantes qui dégradent la validation sont rejetées plutôt que présentées comme des améliorations. Le gain de qualité QA, les données/critères métier autorisés et la cible matérielle de déploiement restent ouverts : aucune baseline locale ne permet de les inventer ni de les certifier.
+Le parcours documentaire local multi-corpus, les tâches contrôlées prochain-token/QA, la sélection sur validation, l'évaluation tenue à l'écart, les mesures multi-seed et la reprise déterministe sont consignés dans le [journal des changements](../CHANGELOG.md). La campagne Ocara élargit le domaine, mais ne suffit pas à démontrer une qualité métier générale. Aucun gain QA au-dessus de la baseline, aucun seuil accepté par les utilisateurs et aucune cible de déploiement ne sont encore établis.
 
 ## 2. Définir les objectifs et le protocole de mesure
 

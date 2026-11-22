@@ -27,7 +27,7 @@ OBJ_DIR = src
 # Répertoire de l'exécutable
 TARGET_DIR = bin
 
-.PHONY: all benchmark benchmark-comparison test test-language-model test-language-model-docs-resume language-model-example language-model-docs-example benchmark-language-model-docs clean
+.PHONY: all benchmark benchmark-comparison test test-language-model test-language-model-docs-resume test-language-model-ocara-resume language-model-example language-model-docs-example language-model-ocara-example benchmark-language-model-docs benchmark-language-model-ocara clean
 
 # Règle par défaut : construire l'exécutable
 all: $(TARGET)
@@ -46,6 +46,9 @@ test-language-model: $(TARGET)
 
 test-language-model-docs-resume: $(TARGET)
 	GLOOMY_TEST_DOC_RESUME=1 python3 scripts/test_language_model.py
+
+test-language-model-ocara-resume: $(TARGET)
+	GLOOMY_TEST_OCARA_RESUME=1 python3 scripts/test_language_model.py
 
 language-model-example: $(TARGET)
 	mkdir -p artifacts
@@ -83,6 +86,34 @@ benchmark-language-model-docs: $(TARGET)
 		--source-manifest data/lm/gloomy-docs/manifest.json \
 		--output docs/examples/language-model/gloomy-docs-3-seeds.csv \
 		--seeds 42,43,44 --vocab 512 --context 32 --dimension 8 \
+		--heads 2 --layers 1 --batch-size 2 --epochs 3 --learning-rate 0.003
+
+language-model-ocara-example: $(TARGET)
+	python3 scripts/prepare_ocara_corpus.py
+	mkdir -p artifacts
+	./$(TARGET) lm train \
+		--train data/lm/ocara/train.txt \
+		--validation data/lm/ocara/validation.txt \
+		--qa-train data/lm/ocara/qa-train.txt \
+		--model artifacts/ocara-docs.gloomy \
+		--vocab 512 --context 64 --dimension 8 --heads 2 --layers 1 \
+		--batch-size 2 --epochs 3 --learning-rate 0.003 --seed 42
+
+benchmark-language-model-ocara: $(TARGET)
+	python3 scripts/prepare_ocara_corpus.py
+	python3 scripts/benchmark_language_model.py \
+		--train data/lm/ocara/train.txt \
+		--validation data/lm/ocara/validation.txt \
+		--qa-train data/lm/ocara/qa-train.txt \
+		--qa-validation data/lm/ocara/qa-validation.txt \
+		--test data/lm/ocara/test.txt \
+		--qa data/lm/ocara/qa-test.txt \
+		--qa-allowed-label oui --qa-allowed-label non \
+		--corpus-source "Ocara project documentation provided by the project user" \
+		--corpus-authorization "Local training and evaluation authorized by the user; no redistribution license asserted" \
+		--source-manifest data/lm/ocara/manifest.json \
+		--output docs/examples/language-model/ocara-3-seeds.csv \
+		--seeds 42,43,44 --vocab 512 --context 64 --dimension 8 \
 		--heads 2 --layers 1 --batch-size 2 --epochs 3 --learning-rate 0.003
 
 # Règle pour construire l'exécutable

@@ -35,8 +35,10 @@ Ce journal récapitule les fonctionnalités déjà présentes dans le dépôt. A
 - mesure de QA à choix fermé par log-vraisemblance des labels candidats, publiée séparément de la génération libre ;
 - liaison statique des exécutables Makefile afin qu'ils n'exigent pas de bibliothèques dynamiques à l'exécution.
 - tokenizer documenté et plafonné à huit occurrences par paire QA afin que des répétitions supplémentaires d'entraînement ne biaisent pas le vocabulaire BPE; l'essai à 32 répétitions a été rejeté sur les seules mesures de validation.
+- corpus documentaire Ocara local préparé depuis les documents fournis par l'utilisateur, avec split fixe par fichier (26 train, 5 validation, 6 test), QA factuelle équilibrée (20 paires train rééchantillonnées 32 fois, 20 validation, 36 test), manifestes SHA-256 et contrôle automatique des extraits source/fuites; les documents source restent ignorés par Git et aucune licence de redistribution n'est affirmée.
+- cibles `make benchmark-language-model-ocara` et `make language-model-ocara-example`, ainsi qu'un contrôle optionnel de reprise bit-à-bit sur le corpus Ocara via `make test-language-model-ocara-resume`; le protocole et les commandes de test sont décrits dans [le guide du benchmark Ocara](docs/examples/language-model/ocara-benchmark.md).
 
-Ce prototype de petite échelle n'a pas démontré la compréhension générale. Des corpus applicatifs autorisés, une évaluation plus robuste et un profil sur cible restent nécessaires.
+Ce prototype de petite échelle n'a pas démontré la compréhension générale. Le corpus Ocara élargit l'évaluation locale sans établir de qualité métier générale; des critères utilisateur, un benchmark plus robuste et un profil sur cible restent nécessaires.
 
 ### Mémoire et normalisation
 

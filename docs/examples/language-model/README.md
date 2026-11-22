@@ -58,6 +58,31 @@ python3 scripts/prepare_lm_corpus.py \
 
 Le script ne télécharge aucun corpus et n'en établit pas la licence; ces informations doivent être vérifiées avant l'utilisation. Le fichier test produit doit rester réservé à l'évaluation finale.
 
+```bash
+make language-model-docs-example
+python3 scripts/prepare_gloomy_docs_corpus.py
+mkdir -p artifacts
+./bin/gloomy lm train \
+        --train data/lm/gloomy-docs/train.txt \
+        --validation data/lm/gloomy-docs/validation.txt \
+        --qa-train data/lm/gloomy-docs/qa-train.txt \
+        --model artifacts/gloomy-docs.gloomy \
+        --vocab 512 --context 32 --dimension 8 --heads 2 --layers 1 \
+        --batch-size 2 --epochs 3 --learning-rate 0.003 --seed 42
+./bin/gloomy lm evaluate \
+        --model artifacts/gloomy-docs.gloomy \
+        --text data/lm/gloomy-docs/test.txt \
+        --qa data/lm/gloomy-docs/qa-test.txt \
+        --qa-label oui \
+        --qa-label non
+./bin/gloomy lm generate \
+        --model artifacts/gloomy-docs.gloomy \
+        --prompt "Question: La formule MAE est-elle une moyenne d'erreurs absolues ? Contexte: MAE = moyenne(abs(prediction - cible)) Réponse:" \
+        --tokens 4 \
+        --temperature 0 \
+        --seed 42
+```
+
 ## Construire et entraîner
 
 Depuis la racine du dépôt :
@@ -72,7 +97,7 @@ Le modèle contient embeddings de tokens et positions, attention multi-tête cau
 
 ## Évaluer et générer
 
-Après l'entraînement, les deux commandes suivantes utilisent le checkpoint créé. Pour le générer dans un clone neuf, exécuter d'abord `make language-model-example` (le fichier est ignoré par Git).
+Après l'entraînement, les deux commandes suivantes utilisent le checkpoint créé. Pour le générer dans un clone neuf, exécuter d'abord `make language-model-example`.
 
 ```sh
 ./bin/gloomy lm evaluate --model artifacts/language-mini.gloomy \
