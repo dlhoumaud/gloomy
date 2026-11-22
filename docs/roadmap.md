@@ -12,6 +12,17 @@ La priorité absolue du projet est de développer puis valider un modèle de lan
 
 Le parcours documentaire local multi-corpus, les tâches contrôlées prochain-token/QA, la sélection sur validation, l'évaluation tenue à l'écart, les mesures multi-seed et la reprise déterministe sont consignés dans le [journal des changements](../CHANGELOG.md). La campagne Ocara élargit le domaine, mais ne suffit pas à démontrer une qualité métier générale. Aucun gain QA au-dessus de la baseline, aucun seuil accepté par les utilisateurs et aucune cible de déploiement ne sont encore établis.
 
+## Priorité haute — travaux transversaux pour le modèle de langage
+
+- définir avec les utilisateurs les tâches métier du modèle, les formats d'entrée/sortie, les corpus autorisés, les références et les seuils d'acceptation; appliquer ce protocole aux benchmarks documentaires avant de conclure à une amélioration applicative ;
+- élargir l'évaluation à des workloads représentatifs du domaine visé, avec des séparations train/validation/test adaptées et sans fuite entre documents; conserver les mesures multi-seed, la QA et les bits par octet ;
+- mesurer sur ces workloads la qualité, la latence, le débit et la RAM du Transformer, puis reproduire ces mesures sur la cible de déploiement lorsqu'elle sera choisie ;
+- évaluer les compromis de précision réduite pour le modèle de langage (poids, calcul et activations), avec erreurs numériques et métriques de tâche; les mémoires int8/int16 existantes concernent le runtime de replay et ne quantifient pas le Transformer ;
+- renforcer les vérifications mathématiques propres au Transformer : gradients des opérations et couches, stabilité numérique et reproductibilité des entraînements ;
+- si l'apprentissage continu du modèle est retenu, étudier l'utilisation d'un replay de séquences et mesurer les stratégies mémoire, leurs coûts et le biais d'échantillonnage Prioritized Replay sur des données représentatives.
+
+Ces travaux reprennent les besoins généraux des sections 2 à 5 en les appliquant explicitement au modèle de langage. Les objectifs métier, le profil sur cible, les précisions réduites et l'apprentissage continu restent à établir; ils ne sont pas couverts par le benchmark CPU actuel.
+
 ## 2. Définir les objectifs et le protocole de mesure
 
 - remplacer les proxies synthétiques par des données applicatives réelles, leurs dimensions d'entrée/sortie et la cible de déploiement avant de fixer les seuils de qualité, latence, débit et RAM ;
