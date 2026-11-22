@@ -1,0 +1,5 @@
+strategy,replay_documents,replay_selection,uniform_priority_pool_cross_entropy,selected_replay_cross_entropy,replay_loss_sampling_bias,updates,train_wall_seconds,train_max_rss_kib,old_test_cross_entropy,old_test_perplexity,old_qa_exact_match,old_qa_closed_set_accuracy,old_eval_wall_seconds,old_eval_max_rss_kib,new_test_cross_entropy,new_test_perplexity,new_qa_exact_match,new_qa_closed_set_accuracy,new_eval_wall_seconds,new_eval_max_rss_kib,checkpoint_bytes
+none,0,,4.16983667,,,5743,157.041329,78768,4.96562,143.398,0,0.5,9.66452142,37820,4.01351,55.3408,0,0.5,58.4547582,38616,251573
+fifo,3,6;7;8,4.16983667,,,5963,259.976758,74292,4.72285,112.488,0,0.5,9.65717664,37820,3.98623,53.8515,0,0.5,57.8440204,38616,251573
+reservoir,3,1;0;5,4.16983667,,,6054,148.480455,78988,4.72298,112.503,0,0.5,8.8757895,37820,3.97219,53.1005,0,0.5,52.3737361,38616,251573
+prioritized_loss,3,5;0;2,4.16983667,4.22423,0.00164864066,6138,243.55558,79088,4.63762,103.299,0,0.5,8.882651,37820,3.97715,53.3648,0,0.5,52.5260384,38616,251608

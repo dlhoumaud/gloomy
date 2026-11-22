@@ -1,0 +1,50 @@
+{
+  "format": "gloomy-language-sequence-replay-pilot-v1",
+  "phase_a": "Gloomy documentation training split and existing Gloomy checkpoint",
+  "phase_b": "Evenly spaced subset of Ocara training documents; one resumed epoch, no QA supervision",
+  "replay_unit": "source document; the CLI tokenizes each replayed line into overlapping training windows",
+  "strategies": {
+    "none": "no phase-A documents replayed",
+    "fifo": "last N phase-A documents",
+    "reservoir": "N uniformly sampled phase-A documents, fixed seed",
+    "prioritized_loss": "N documents sampled with replacement proportional to phase-A per-document cross-entropy; no importance-weight correction"
+  },
+  "replay_documents": 3,
+  "phase_b_documents": 8,
+  "phase_b_source_indices": [
+    0,
+    4,
+    7,
+    11,
+    14,
+    18,
+    21,
+    25
+  ],
+  "prioritized_phase_a_source_indices": [
+    0,
+    2,
+    3,
+    5,
+    6,
+    8
+  ],
+  "seed": 42,
+  "priority_scoring_precision": "float32",
+  "phase_a_model": {
+    "path": "artifacts/gloomy-docs.gloomy",
+    "bytes": 251575,
+    "sha256": "77ab52717df9b68798b58b71afc16b28dbb19baac0efd5810be356b6eab594a3"
+  },
+  "phase_a_test_sha256": "7c71653e90bd343b5c48b7b7a93949c0c246ce37d399d870957988ae9475e51c",
+  "phase_b_test_sha256": "791f8aec21972c91e4cf45a96a9f079e1b344cacaceaed565192a4cc53145644",
+  "phase_a_qa_sha256": "753c1d973431c03365e9347375c06f15b584040e70dcd30c708b625afaba2497",
+  "phase_b_qa_sha256": "72ad48b49e0b3417fb7034bf3ce5532fb0f6db99842f625c15a392a8a599058d",
+  "results": "sequence-replay-pilot.csv",
+  "limitations": [
+    "single phase order and seed; exploratory comparison, not a general ranking",
+    "QA metrics are reported but phase-B adaptation trains next-token text only",
+    "training updates differ because replay documents produce different numbers of token windows; a fixed-update comparison remains to be run",
+    "prioritized replay intentionally has no importance-sampling correction; the reported cross-entropy shift exposes sample bias"
+  ]
+}

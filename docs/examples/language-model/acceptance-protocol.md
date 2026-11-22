@@ -52,29 +52,37 @@ local comme baseline CPU de développement. La cible de déploiement n'est pas
 encore définie; il faut répéter ces mesures sur cette cible avant tout seuil de
 latence, débit ou RAM de production.
 
-Un premier pilote de poids est disponible dans
-[`weight-precision-pilot.csv`](weight-precision-pilot.csv). Sur un checkpoint
-Gloomy et ses six QA de test, l'arrondi int8 par matrice a une erreur absolue
-maximale de poids de `0,00417`; la cross-entropy est `4,28818` contre `4,289`
-en float64, et l'accuracy QA reste à 50 %. En int16, l'erreur maximale est
-`0,0000162` et les métriques rapportées sont identiques à float64. La RSS reste
-environ 37 MiB dans les trois cas et le checkpoint stocke toujours des doubles :
-ce pilote ne montre aucun gain mémoire ni de calcul entier.
-
-La quantification réelle des poids, des activations et du calcul doit encore
-être évaluée au float64 sur les mêmes splits et seeds, en rapportant l'erreur
-après déquantification, les métriques de tâche, le temps, la mémoire et le coût
-de conversion. Le pilote ne simule que l'arrondi/déquantification des poids;
-activations et opérations restent en float64. Les modes int8/int16 du runtime
-Dense quantifient uniquement les échantillons du replay et ne sont pas une
-mesure de précision réduite du Transformer.
+Le pilote de précision est disponible dans
+[`weight-precision-pilot.csv`](weight-precision-pilot.csv). Il compare poids
+arrondis int8/int16, calcul float32 et produits scalaires int8/int16 avec
+activations quantifiées, sur un checkpoint Gloomy et deux splits documentaires.
+Sur Gloomy, float64/int8 donnent respectivement une cross-entropy de `4,289` /
+`4,28907`, 50 % QA dans les deux cas et `3,2354` / `3,23545` bits par octet.
+Le temps du processus float64/int8 est `5,88 s` / `1,70 s`, avec RSS de
+`37 820 KiB` / `11 108 KiB`. Sur Ocara, float64/int8 donnent `5,25758` /
+`5,25726` cross-entropy, 50 % QA fermée dans les deux cas, et le temps/RSS
+passent de `47,47 s` / `38 616 KiB` à `14,19 s` / `11 908 KiB`. Le modèle est
+entraîné sur Gloomy; Ocara est ici un test de sensibilité numérique
+hors-domaine, pas une évaluation applicative validée. Le checkpoint garde ses
+paramètres float64 et les opérandes entiers sont quantifiés à la volée : aucune
+économie persistante de stockage n'est mesurée. Ces pilotes mono-checkpoint
+doivent être répétés en multi-seed et sur une cible applicative avant d'en tirer
+un seuil de performance. Le float64 de référence construit des nœuds
+d'autodiffération en inférence alors que les modes réduits prennent un chemin
+direct pour les couches linéaires; le gain de temps/RSS observé inclut ce
+changement et n'isole pas l'effet de la seule précision numérique.
 
 ## Apprentissage continu
 
-Le runtime du Transformer entraîne actuellement sur un corpus et sait reprendre
-un checkpoint; il n'expose pas de replay de séquences pour un flux de tâches.
-Si l'apprentissage continu devient un besoin métier, comparer sans replay et
-avec replay uniforme/priorisé, mesurer rétention et coût mémoire, et corriger
-ou quantifier le biais de Prioritized Replay. Cette expérience devra employer
-des phases documentaires séparées et des questions de rétention tenues à
-l'écart.
+Le pilote [`sequence-replay-pilot.csv`](sequence-replay-pilot.csv) compare sans
+replay, FIFO, Reservoir et replay priorisé par cross-entropy entre une phase
+Gloomy et une adaptation Ocara d'une epoch. Il évalue les deux tests complets et
+calcule le biais théorique de la distribution priorisée, sans correction
+d'importance. Il reste à comparer plusieurs seeds et ordres de phases, plusieurs
+capacités de replay, une correction d'importance, ainsi que la qualité QA après
+adaptation; les updates ne sont pas égalisés, car les documents créent des
+nombres différents de fenêtres. Dans ce run unique, l'exact match génératif
+reste à 0 % et la QA fermée à 50 % pour les quatre stratégies; la cross-entropy
+du test Gloomy baisse de `4,966` sans replay à `4,638` avec Prioritized. Ces
+chiffres sont exploratoires, et la RSS du processus ne mesure pas précisément
+la seule mémoire du buffer.

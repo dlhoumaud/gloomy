@@ -1,0 +1,30 @@
+{
+  "format": "gloomy-transformer-weight-precision-pilot-v1",
+  "method": {
+    "int8_fake_weights/int16_fake_weights": "Per-matrix symmetric fake quantization followed by dequantization into float64 parameters.",
+    "float32_compute": "Float32-rounded graph arithmetic and dot products.",
+    "int8_compute_activations/int16_compute_activations": "Inputs and weights quantized per input vector/output channel; integer dot products accumulate in int64 and dequantize outputs. Q/K/V, attention outputs, and feed-forward activations are quantized per vector.",
+    "all_modes": "Biases and normalization parameters stay float64; integer modes use float64 biases and normalization math."
+  },
+  "memory_interpretation": "Checkpoint parameters remain float64 and integer operands are quantized on the fly, not stored in a packed checkpoint. Reduced inference skips autodiff graph nodes for linear layers; RSS measures this implementation path and is not a packed-weight storage comparison.",
+  "timing_interpretation": "Reduced modes use direct linear kernels while the float64 reference builds autodiff nodes; observed speed differences include this inference-path change and cannot be attributed only to numeric precision.",
+  "model": {
+    "path": "artifacts/gloomy-docs.gloomy",
+    "bytes": 251575,
+    "sha256": "77ab52717df9b68798b58b71afc16b28dbb19baac0efd5810be356b6eab594a3"
+  },
+  "text_test": {
+    "path": "data/lm/ocara/test.txt",
+    "bytes": 46491,
+    "sha256": "791f8aec21972c91e4cf45a96a9f079e1b344cacaceaed565192a4cc53145644"
+  },
+  "qa_test": {
+    "path": "data/lm/ocara/qa-test.txt",
+    "bytes": 7069,
+    "sha256": "72ad48b49e0b3417fb7034bf3ce5532fb0f6db99842f625c15a392a8a599058d"
+  },
+  "machine": "Linux-7.0.0-43-generic-x86_64-inconnu-with-glibc2.43",
+  "cpu": "AMD Ryzen 3 5300U with Radeon Graphics",
+  "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+  "results": "ocara-precision-pilot.csv"
+}

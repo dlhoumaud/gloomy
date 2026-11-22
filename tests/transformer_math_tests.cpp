@@ -65,10 +65,39 @@ void testNonFiniteUpdateIsRejectedAtomically() {
     assert(model.updateCount() == 0);
     assert(checkpoint(model) == before);
 }
+
+void testReducedPrecisionInferenceModes() {
+    TransformerLM model(259, smallConfig());
+    LanguageSequence sequence{{0, 3}, {3, 1}, {1, 1}};
+    for (std::size_t bits : {8U, 16U, 32U}) {
+        model.setInferencePrecision(bits);
+        const auto metrics = model.evaluate({sequence});
+        assert(std::isfinite(metrics.cross_entropy));
+        const auto logits = model.nextTokenLogits(sequence.input);
+        for (double value : logits) assert(std::isfinite(value));
+        bool training_rejected = false;
+        try {
+            model.trainBatch({sequence});
+        } catch (const std::logic_error&) {
+            training_rejected = true;
+        }
+        assert(training_rejected);
+    }
+    model.setInferencePrecision(0);
+    assert(std::isfinite(model.trainBatch({sequence})));
+    bool invalid_precision_rejected = false;
+    try {
+        model.setInferencePrecision(4);
+    } catch (const std::invalid_argument&) {
+        invalid_precision_rejected = true;
+    }
+    assert(invalid_precision_rejected);
+}
 }
 
 int main() {
     testTransformerGradients();
     testTransformerStabilityAndReproducibility();
     testNonFiniteUpdateIsRejectedAtomically();
+    testReducedPrecisionInferenceModes();
 }

@@ -41,6 +41,7 @@ public:
     double trainBatch(const std::vector<LanguageSequence>& batch);
     double gradientCheck(const std::vector<LanguageSequence>& batch, double epsilon = 1e-5) const;
     WeightQuantizationMetrics quantizeWeights(std::size_t bits);
+    void setInferencePrecision(std::size_t bits);
     void shuffleTrainingSequences(std::vector<LanguageSequence>& sequences);
     void shuffleSequenceIndices(std::vector<std::size_t>& indices);
     LanguageMetrics evaluate(const std::vector<LanguageSequence>& sequences) const;
@@ -75,6 +76,7 @@ private:
     std::vector<BlockParameters> blocks;
     std::size_t final_norm_scale, final_norm_bias, output_weight, output_bias;
     std::vector<Parameter> parameters;
+    std::size_t inference_precision_bits = 0;
     std::uint64_t update_count = 0;
     mutable std::mt19937 random_generator;
 };

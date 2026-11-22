@@ -29,7 +29,7 @@ OBJ_DIR = src
 # Répertoire de l'exécutable
 TARGET_DIR = bin
 
-.PHONY: all benchmark benchmark-comparison test test-language-model test-transformer-math test-language-model-docs-resume test-language-model-ocara-resume language-model-example language-model-docs-example language-model-ocara-example benchmark-language-model-docs benchmark-language-model-ocara benchmark-language-model-weight-precision clean
+.PHONY: all benchmark benchmark-comparison test test-language-model test-transformer-math test-language-model-docs-resume test-language-model-ocara-resume language-model-example language-model-docs-example language-model-ocara-example benchmark-language-model-docs benchmark-language-model-ocara benchmark-language-model-weight-precision benchmark-language-model-sequence-replay clean
 
 # Règle par défaut : construire l'exécutable
 all: $(TARGET)
@@ -129,6 +129,17 @@ benchmark-language-model-weight-precision: $(TARGET)
 		--text data/lm/gloomy-docs/test.txt \
 		--qa data/lm/gloomy-docs/qa-test.txt \
 		--output docs/examples/language-model/weight-precision-pilot.csv
+	python3 scripts/prepare_ocara_corpus.py
+	python3 scripts/benchmark_lm_weight_precision.py \
+		--model artifacts/gloomy-docs.gloomy \
+		--text data/lm/ocara/test.txt \
+		--qa data/lm/ocara/qa-test.txt \
+		--output docs/examples/language-model/ocara-precision-pilot.csv
+
+benchmark-language-model-sequence-replay: language-model-docs-example
+	python3 scripts/benchmark_lm_sequence_replay.py \
+		--model artifacts/gloomy-docs.gloomy \
+		--output docs/examples/language-model/sequence-replay-pilot.csv
 
 # Règle pour construire l'exécutable
 $(TARGET): $(OBJ) Makefile

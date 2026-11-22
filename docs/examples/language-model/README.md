@@ -129,7 +129,7 @@ python3 scripts/benchmark_language_model.py \
 
 Le résultat brut de cette commande est conservé dans [`results-3-seeds.csv`](results-3-seeds.csv); le JSON homonyme `.manifest.json` conserve les empreintes des données et le profil logiciel/matériel. Le CSV rapporte aussi la QA validation et test (génération libre et choix fermé par score des labels), leur baseline majoritaire d'entraînement, le temps/RSS d'entraînement et d'évaluation, les tokens/s d'évaluation, la latence QA moyenne et tokens/s de génération, les dimensions/taille/empreintes des splits et la taille du checkpoint. La cross-entropy par token n'est pas directement comparable si le tokenizer change; `test_bits_per_byte` divise la somme des pertes (y compris les tokens EOS) par les octets UTF-8 du texte test normalisé, hors séparateurs de lignes. La cible est la machine CPU locale décrite par le manifeste, pas une cible embarquée. Le runner ne calcule aucun score composite.
 
-## Précision réduite des poids : pilote
+## Précision réduite en inférence : pilote
 
 Après avoir entraîné le checkpoint documentaire Gloomy, lancer :
 
@@ -137,17 +137,48 @@ Après avoir entraîné le checkpoint documentaire Gloomy, lancer :
 make benchmark-language-model-weight-precision
 ```
 
-Le pilote compare float64 à une simulation de quantification symétrique int8 et
-int16 par matrice, puis déquantifie les poids en float64 avant l'inférence. Il
-rapporte les erreurs de quantification, les bits par octet implicites dans la
-cross-entropy, les métriques QA, la durée et la RSS dans
-[`weight-precision-pilot.csv`](weight-precision-pilot.csv) et son manifeste.
-Les biais, les vecteurs de normalisation, les activations et les opérations
-restent en float64; le stockage reste lui aussi en float64. Ces chiffres
-isolent l'effet de l'arrondi des poids et ne mesurent ni la RAM d'un format
-compact, ni la vitesse de noyaux entiers. Le calcul et les activations à
-précision réduite nécessitent encore une implémentation et une campagne
-distinctes.
+Le pilote compare float64, les poids arrondis int8/int16, les opérations
+float32 et les produits scalaires int8/int16 avec activations quantifiées. Les
+produits int8/int16 utilisent des opérandes entiers et un accumulateur int64,
+puis déquantifient le résultat; les poids sont quantifiés à la volée. Il
+rapporte l'erreur des poids, la cross-entropy, les bits par octet, les métriques
+QA, la durée et la RSS dans [`weight-precision-pilot.csv`](weight-precision-pilot.csv)
+et son manifeste. Le même runner a été appliqué au test Ocara, sans adapter le
+checkpoint Gloomy, dans [`ocara-precision-pilot.csv`](ocara-precision-pilot.csv).
+Les biais et la normalisation restent en float64 et le checkpoint conserve les
+poids en float64; ces campagnes ne mesurent pas un format de stockage compact.
+Elles restent mono-checkpoint et ne garantissent pas un gain sur une autre
+cible. La référence float64 construit le graphe d'autodiffération même en
+inférence, alors que les variantes réduites utilisent un chemin direct pour les
+couches linéaires; le gain mesuré inclut ce changement d'implémentation et
+n'isole pas l'effet de la seule précision numérique.
+
+## Replay de séquences entre corpus
+
+Lancer le pilote de continual learning avec :
+
+```sh
+make benchmark-language-model-sequence-replay
+```
+
+Le checkpoint Gloomy sert de phase A; une adaptation d'une epoch sur huit
+documents Ocara échantillonnés régulièrement sert de phase B. Le corpus de test
+complet de chaque domaine mesure l'adaptation et la rétention. Les stratégies
+comparées sont sans replay, FIFO, Reservoir et replay priorisé par la
+cross-entropy documentaire. Une unité replayée est un document, que le CLI
+transforme en fenêtres de séquences chevauchantes. La priorité est estimée en
+float32 sur six documents Gloomy candidats; le CSV rapporte l'écart théorique
+de perte entre cette distribution priorisée et le tirage uniforme. Le pilote
+n'applique pas de correction d'importance et reste à un ordre de phases et un
+seed; ses résultats ne classent pas les stratégies de façon générale.
+Résultats et empreintes sont conservés dans
+[`sequence-replay-pilot.csv`](sequence-replay-pilot.csv) et son manifeste.
+Dans ce run, la cross-entropy du test Gloomy passe de `4,966` sans replay à
+`4,723` avec FIFO/Reservoir et `4,638` avec Prioritized; la cross-entropy Ocara
+reste proche de `3,97–4,01`. Les quatre variantes restent à 50 % en QA fermée
+et 0 % en exact match génératif. Les updates varient de `5 743` à `6 138` selon
+les fenêtres token produites, donc une comparaison à budget d'updates égal
+reste nécessaire.
 
 Le protocole provisoire, les portes de qualité et les limites sont décrits dans
 [`acceptance-protocol.md`](acceptance-protocol.md).

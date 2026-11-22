@@ -213,6 +213,23 @@ def main() -> None:
             assert "weight_precision_bits=" in quantized_evaluation.stdout
             assert "weight_max_abs_error=" in quantized_evaluation.stdout
             assert "qa_closed_set_total=2" in quantized_evaluation.stdout
+        for precision in ("float32", "int8", "int16"):
+            reduced_evaluation = run(
+                "lm", "evaluate", "--model", str(resumed),
+                "--qa", str(qa_test_path),
+                "--qa-label", "À l'aube.",
+                "--qa-label", "Dans une boîte bleue.",
+                "--compute-precision", precision,
+            )
+            assert "compute_precision_bits=" in reduced_evaluation.stdout
+            assert "activation_precision_bits=" in reduced_evaluation.stdout
+            assert "qa_closed_set_total=2" in reduced_evaluation.stdout
+        invalid_compute_precision = run(
+            "lm", "evaluate", "--model", str(resumed),
+            "--qa", str(qa_test_path),
+            "--compute-precision", "int4", expected=1,
+        )
+        assert "must be float64, float32, int8 or int16" in invalid_compute_precision.stderr
         invalid_precision = run(
             "lm", "evaluate", "--model", str(resumed),
             "--qa", str(qa_test_path),

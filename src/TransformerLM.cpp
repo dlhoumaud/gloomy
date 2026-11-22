@@ -11,10 +11,12 @@
 namespace {
 struct Node { double value, gradient = 0.0; int a = -1, b = -1; double da = 0.0, db = 0.0; };
 struct Graph {
+    std::size_t precision_bits = 0;
     std::vector<Node> nodes;
-    int constant(double x) { nodes.push_back({x}); return static_cast<int>(nodes.size()-1); }
-    int unary(int a, double value, double derivative) { nodes.push_back({value,0,a,-1,derivative,0}); return static_cast<int>(nodes.size()-1); }
-    int binary(int a,int b,double value,double da,double db) { nodes.push_back({value,0,a,b,da,db}); return static_cast<int>(nodes.size()-1); }
+    double reduced(double value) const { return precision_bits == 32 ? static_cast<double>(static_cast<float>(value)) : value; }
+    int constant(double x) { nodes.push_back({reduced(x)}); return static_cast<int>(nodes.size()-1); }
+    int unary(int a, double value, double derivative) { nodes.push_back({reduced(value),0,a,-1,derivative,0}); return static_cast<int>(nodes.size()-1); }
+    int binary(int a,int b,double value,double da,double db) { nodes.push_back({reduced(value),0,a,b,da,db}); return static_cast<int>(nodes.size()-1); }
     void backward(int root) { nodes[root].gradient=1.0; for(int i=root;i>=0;--i){auto& n=nodes[i]; if(n.a>=0)nodes[n.a].gradient+=n.gradient*n.da; if(n.b>=0)nodes[n.b].gradient+=n.gradient*n.db;} }
 };
 struct V { Graph* g; int i; double val() const { return g->nodes[i].value; } };
@@ -27,7 +29,48 @@ V tanhv(V a){const double x=std::tanh(a.val());return {a.g,a.g->unary(a.i,x,1-x*
 V constant(Graph& g,double x){return {&g,g.constant(x)};}
 using Vec=std::vector<V>;
 using Mat=std::vector<std::vector<V>>;
-Vec linear(const Vec& x,const std::vector<V>& w,const std::vector<V>& bias,std::size_t in,std::size_t out){Vec y(out);for(std::size_t j=0;j<out;++j){y[j]=bias[j];for(std::size_t i=0;i<in;++i)y[j]=add(y[j],mul(x[i],w[i*out+j]));}return y;}
+Vec linear(const Vec& x,const std::vector<V>& w,const std::vector<V>& bias,std::size_t in,std::size_t out){
+    Vec y(out);
+    const std::size_t bits=x.empty()?0:x[0].g->precision_bits;
+    if(bits==8||bits==16){
+        const std::int64_t maximum_level=(std::int64_t{1}<<(bits-1))-1;
+        double max_input=0.0;
+        for(auto value:x)max_input=std::max(max_input,std::abs(value.val()));
+        const double input_scale=max_input==0.0?1.0:max_input/static_cast<double>(maximum_level);
+        std::vector<std::int64_t> quantized_input(in);
+        for(std::size_t i=0;i<in;++i)quantized_input[i]=static_cast<std::int64_t>(std::llround(x[i].val()/input_scale));
+        for(std::size_t j=0;j<out;++j){
+            double max_weight=0.0;
+            for(std::size_t i=0;i<in;++i)max_weight=std::max(max_weight,std::abs(w[i*out+j].val()));
+            const double weight_scale=max_weight==0.0?1.0:max_weight/static_cast<double>(maximum_level);
+            std::int64_t accumulator=0;
+            for(std::size_t i=0;i<in;++i){
+                const auto quantized_weight=static_cast<std::int64_t>(std::llround(w[i*out+j].val()/weight_scale));
+                accumulator+=quantized_input[i]*quantized_weight;
+            }
+            y[j]={x[0].g,x[0].g->constant(bias[j].val()+static_cast<double>(accumulator)*input_scale*weight_scale)};
+        }
+        return y;
+    }
+    if(bits==32){
+        for(std::size_t j=0;j<out;++j){
+            float value=static_cast<float>(bias[j].val());
+            for(std::size_t i=0;i<in;++i)value+=static_cast<float>(x[i].val())*static_cast<float>(w[i*out+j].val());
+            y[j]={x[0].g,x[0].g->constant(static_cast<double>(value))};
+        }
+        return y;
+    }
+    for(std::size_t j=0;j<out;++j){y[j]=bias[j];for(std::size_t i=0;i<in;++i)y[j]=add(y[j],mul(x[i],w[i*out+j]));}
+    return y;
+}
+void quantizeActivation(Vec& values,std::size_t bits){
+    if((bits!=8&&bits!=16)||values.empty())return;
+    double maximum=0.0;
+    for(auto value:values)maximum=std::max(maximum,std::abs(value.val()));
+    const double level=static_cast<double>((std::uint32_t{1}<<(bits-1))-1);
+    const double scale_value=maximum==0.0?1.0:maximum/level;
+    for(auto& value:values){const double quantized=std::round(value.val()/scale_value)*scale_value;value={value.g,value.g->unary(value.i,quantized,1.0)};}
+}
 Vec norm(const Vec& x,const std::vector<V>& scalev,const std::vector<V>& bias){V mean=constant(*x[0].g,0);for(auto v:x)mean=add(mean,v);mean=scale(mean,1.0/x.size());V variance=constant(*x[0].g,0);for(auto v:x){V d=sub(v,mean);variance=add(variance,mul(d,d));}variance=scale(variance,1.0/x.size());V inv={variance.g,variance.g->unary(variance.i,1.0/std::sqrt(variance.val()+1e-5),-0.5*std::pow(variance.val()+1e-5,-1.5))};Vec y(x.size());for(std::size_t i=0;i<x.size();++i)y[i]=add(mul(mul(sub(x[i],mean),inv),scalev[i]),bias[i]);return y;}
 V gelu(V x){ // tanh approximation
     V x3=mul(mul(x,x),x); V inner=scale(add(x,scale(x3,0.044715)),0.7978845608028654);
@@ -54,6 +97,7 @@ struct TransformerExecutor {
                 auto n=norm(x[t],std::vector<V>(p[b.norm1_scale].begin(),p[b.norm1_scale].end()),std::vector<V>(p[b.norm1_bias].begin(),p[b.norm1_bias].end()));
                 auto qkv=linear(n,p[b.qkv_weight],p[b.qkv_bias],D,3*D);
                 for(std::size_t d=0;d<D;++d){q[t][d]=qkv[d];k[t][d]=qkv[D+d];v[t][d]=qkv[2*D+d];}
+                if(m.inference_precision_bits==8||m.inference_precision_bits==16){quantizeActivation(q[t],m.inference_precision_bits);quantizeActivation(k[t],m.inference_precision_bits);quantizeActivation(v[t],m.inference_precision_bits);}
             }
             std::vector<Vec> attended(L,Vec(D));
             for(std::size_t t=0;t<L;++t) for(std::size_t h=0;h<H;++h){
@@ -64,12 +108,14 @@ struct TransformerExecutor {
                 for(auto& z:probs)z=mul(z,{sum.g,sum.g->unary(sum.i,1.0/sum.val(),-1.0/(sum.val()*sum.val()))});
                 for(std::size_t d=0;d<HD;++d){V z=constant(g,0);for(std::size_t s=0;s<=t;++s)z=add(z,mul(probs[s],v[s][h*HD+d]));attended[t][h*HD+d]=z;}
             }
+            if(m.inference_precision_bits==8||m.inference_precision_bits==16)for(auto& row:attended)quantizeActivation(row,m.inference_precision_bits);
             for(std::size_t t=0;t<L;++t){
                 auto a=linear(attended[t],p[b.attention_weight],p[b.attention_bias],D,D);
                 for(std::size_t d=0;d<D;++d)x[t][d]=add(x[t][d],a[d]);
                 auto n=norm(x[t],p[b.norm2_scale],p[b.norm2_bias]);
                 auto ff=linear(n,p[b.feed_forward_in_weight],p[b.feed_forward_in_bias],D,4*D);
                 for(auto& z:ff)z=gelu(z);
+                if(m.inference_precision_bits==8||m.inference_precision_bits==16)quantizeActivation(ff,m.inference_precision_bits);
                 auto out=linear(ff,p[b.feed_forward_out_weight],p[b.feed_forward_out_bias],4*D,D);
                 for(std::size_t d=0;d<D;++d)x[t][d]=add(x[t][d],out[d]);
             }
@@ -114,6 +160,7 @@ void TransformerLM::initializeParameters(){
 }
 
 double TransformerLM::trainBatch(const std::vector<LanguageSequence>& batch){
+    if(inference_precision_bits!=0)throw std::logic_error("Reduced precision mode is inference-only");
     if(batch.empty()) throw std::invalid_argument("Language training batch is empty");
     long double graph_budget=0;
     for(const auto& sequence:batch)graph_budget+=estimatedGraphNodes(sequence.input.size(),vocabulary_size,model_config);
@@ -162,6 +209,7 @@ double TransformerLM::trainBatch(const std::vector<LanguageSequence>& batch){
 }
 
 double TransformerLM::gradientCheck(const std::vector<LanguageSequence>& batch, double epsilon) const {
+    if(inference_precision_bits!=0)throw std::logic_error("Gradient checks require float64 mode");
     if (batch.empty() || !std::isfinite(epsilon) || epsilon <= 0.0)
         throw std::invalid_argument("Gradient check requires a batch and a positive finite epsilon");
     Graph graph;
@@ -259,14 +307,20 @@ WeightQuantizationMetrics TransformerLM::quantizeWeights(std::size_t bits) {
     return metrics;
 }
 
+void TransformerLM::setInferencePrecision(std::size_t bits) {
+    if(bits!=0&&bits!=8&&bits!=16&&bits!=32)
+        throw std::invalid_argument("Inference precision must be float64 (0), float32 (32), int8 or int16");
+    inference_precision_bits=bits;
+}
+
 void TransformerLM::shuffleTrainingSequences(std::vector<LanguageSequence>& sequences){std::shuffle(sequences.begin(),sequences.end(),random_generator);}
 void TransformerLM::shuffleSequenceIndices(std::vector<std::size_t>& indices){std::shuffle(indices.begin(),indices.end(),random_generator);}
 
 LanguageMetrics TransformerLM::evaluate(const std::vector<LanguageSequence>& seqs)const{
-    LanguageMetrics result;double total=0;for(const auto&s:seqs){if(s.input.size()!=s.target.size()||s.input.empty())continue;if(!s.loss_mask.empty()&&s.loss_mask.size()!=s.target.size())throw std::invalid_argument("Evaluation loss mask size differs from target size");if(s.input.size()>contextLength())throw std::invalid_argument("Evaluation sequence exceeds context length");if(estimatedGraphNodes(s.input.size(),vocabulary_size,model_config)>4'000'000)throw std::invalid_argument("Evaluation sequence exceeds the CPU autodiff safety budget");Graph g;auto p=TransformerExecutor::leaves(g,*this);auto rows=TransformerExecutor::allLogits(g,*this,s.input,p);for(std::size_t t=0;t<s.input.size();++t){if(!s.loss_mask.empty()&&!s.loss_mask[t])continue;const auto&logits=rows[t];double mx=-INFINITY,sum=0;for(auto z:logits)mx=std::max(mx,z.val());for(auto z:logits)sum+=std::exp(z.val()-mx);if(s.target[t]>=logits.size())throw std::invalid_argument("Language target id outside vocabulary");total+=-(logits[s.target[t]].val()-mx-std::log(sum));++result.token_count;}}
+    LanguageMetrics result;double total=0;for(const auto&s:seqs){if(s.input.size()!=s.target.size()||s.input.empty())continue;if(!s.loss_mask.empty()&&s.loss_mask.size()!=s.target.size())throw std::invalid_argument("Evaluation loss mask size differs from target size");if(s.input.size()>contextLength())throw std::invalid_argument("Evaluation sequence exceeds context length");if(estimatedGraphNodes(s.input.size(),vocabulary_size,model_config)>4'000'000)throw std::invalid_argument("Evaluation sequence exceeds the CPU autodiff safety budget");Graph g;g.precision_bits=inference_precision_bits;auto p=TransformerExecutor::leaves(g,*this);auto rows=TransformerExecutor::allLogits(g,*this,s.input,p);for(std::size_t t=0;t<s.input.size();++t){if(!s.loss_mask.empty()&&!s.loss_mask[t])continue;const auto&logits=rows[t];double mx=-INFINITY,sum=0;for(auto z:logits)mx=std::max(mx,z.val());for(auto z:logits)sum+=std::exp(z.val()-mx);if(s.target[t]>=logits.size())throw std::invalid_argument("Language target id outside vocabulary");total+=-(logits[s.target[t]].val()-mx-std::log(sum));++result.token_count;}}
     if(result.token_count){result.cross_entropy=total/result.token_count;result.perplexity=std::exp(std::min(80.0,result.cross_entropy));}return result;
 }
-std::vector<double> TransformerLM::nextTokenLogits(const std::vector<std::uint32_t>& context)const{if(context.empty())throw std::invalid_argument("Prompt must contain at least one token");const auto start=context.size()>contextLength()?context.size()-contextLength():0;std::vector<std::uint32_t> ids(context.begin()+start,context.end());for(auto id:ids)if(id>=vocabulary_size)throw std::invalid_argument("Prompt token id outside vocabulary");if(estimatedGraphNodes(ids.size(),vocabulary_size,model_config)>4'000'000)throw std::invalid_argument("Prompt exceeds the CPU autodiff safety budget");Graph g;auto p=TransformerExecutor::leaves(g,*this);auto logits=TransformerExecutor::logits(g,*this,ids,p);std::vector<double> result;for(auto x:logits)result.push_back(x.val());return result;}
+std::vector<double> TransformerLM::nextTokenLogits(const std::vector<std::uint32_t>& context)const{if(context.empty())throw std::invalid_argument("Prompt must contain at least one token");const auto start=context.size()>contextLength()?context.size()-contextLength():0;std::vector<std::uint32_t> ids(context.begin()+start,context.end());for(auto id:ids)if(id>=vocabulary_size)throw std::invalid_argument("Prompt token id outside vocabulary");if(estimatedGraphNodes(ids.size(),vocabulary_size,model_config)>4'000'000)throw std::invalid_argument("Prompt exceeds the CPU autodiff safety budget");Graph g;g.precision_bits=inference_precision_bits;auto p=TransformerExecutor::leaves(g,*this);auto logits=TransformerExecutor::logits(g,*this,ids,p);std::vector<double> result;for(auto x:logits)result.push_back(x.val());return result;}
 std::size_t TransformerLM::vocabularySize()const{return vocabulary_size;}std::size_t TransformerLM::parameterCount()const{std::size_t count=0;for(const auto&p:parameters)count+=p.value.size();return count;}std::size_t TransformerLM::contextLength()const{return model_config.context_length;}const TransformerConfig& TransformerLM::config()const{return model_config;}std::uint64_t TransformerLM::updateCount()const{return update_count;}
 void TransformerLM::writeCheckpoint(std::ostream&s)const{const char magic[8]={'G','L','M','T','R','F','2','\0'};s.write(magic,8);const std::uint32_t ver=2;writeRaw(s,ver);writeRaw(s,vocabulary_size);writeRaw(s,model_config.context_length);writeRaw(s,model_config.model_dimension);writeRaw(s,model_config.attention_heads);writeRaw(s,model_config.layer_count);writeRaw(s,model_config.learning_rate);writeRaw(s,model_config.weight_decay);writeRaw(s,model_config.seed);writeRaw(s,update_count);const std::uint64_t n=parameters.size();writeRaw(s,n);for(const auto&p:parameters){const std::uint64_t z=p.value.size();writeRaw(s,z);writeRaw(s,p.decay);s.write(reinterpret_cast<const char*>(p.value.data()),z*sizeof(double));s.write(reinterpret_cast<const char*>(p.first_moment.data()),z*sizeof(double));s.write(reinterpret_cast<const char*>(p.second_moment.data()),z*sizeof(double));if(!s)throw std::runtime_error("Unable to write Transformer checkpoint");}std::ostringstream rng;rng<<random_generator;const std::string state=rng.str();const std::uint64_t state_size=state.size();writeRaw(s,state_size);s.write(state.data(),static_cast<std::streamsize>(state.size()));if(!s)throw std::runtime_error("Unable to serialize Transformer RNG state");}
 TransformerLM TransformerLM::readCheckpoint(std::istream&s){char magic[8];s.read(magic,8);const char expected[8]={'G','L','M','T','R','F','2','\0'};if(!s||std::memcmp(magic,expected,8))throw std::runtime_error("Not a GLOOMY Transformer checkpoint");std::uint32_t ver,seed;std::uint64_t vocab,ctx,d,heads,layers,updates;double lr,wd;readRaw(s,ver);readRaw(s,vocab);readRaw(s,ctx);readRaw(s,d);readRaw(s,heads);readRaw(s,layers);readRaw(s,lr);readRaw(s,wd);readRaw(s,seed);readRaw(s,updates);if(ver!=2)throw std::runtime_error("Unsupported Transformer checkpoint version");TransformerConfig c;c.context_length=ctx;c.model_dimension=d;c.attention_heads=heads;c.layer_count=layers;c.learning_rate=lr;c.weight_decay=wd;c.seed=seed;TransformerLM m(vocab,c);std::uint64_t n;readRaw(s,n);if(n!=m.parameters.size())throw std::runtime_error("Transformer checkpoint parameter layout mismatch");for(auto&p:m.parameters){std::uint64_t z;bool decay;readRaw(s,z);readRaw(s,decay);if(z!=p.value.size()||decay!=p.decay)throw std::runtime_error("Transformer checkpoint tensor shape mismatch");s.read(reinterpret_cast<char*>(p.value.data()),z*sizeof(double));s.read(reinterpret_cast<char*>(p.first_moment.data()),z*sizeof(double));s.read(reinterpret_cast<char*>(p.second_moment.data()),z*sizeof(double));if(!s)throw std::runtime_error("Truncated Transformer checkpoint tensors");for(double x:p.value)if(!std::isfinite(x))throw std::runtime_error("Non-finite Transformer checkpoint value");for(double x:p.first_moment)if(!std::isfinite(x))throw std::runtime_error("Non-finite Adam first moment");for(double x:p.second_moment)if(!std::isfinite(x)||x<0)throw std::runtime_error("Invalid Adam second moment");}std::uint64_t state_size;readRaw(s,state_size);if(state_size>100000)throw std::runtime_error("Transformer RNG state exceeds size limit");std::string state(static_cast<std::size_t>(state_size),'\0');s.read(state.data(),static_cast<std::streamsize>(state.size()));if(!s)throw std::runtime_error("Truncated Transformer RNG state");std::istringstream rng(state);rng>>m.random_generator;if(!rng)throw std::runtime_error("Invalid Transformer RNG state");m.update_count=updates;return m;}
